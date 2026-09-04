@@ -32,8 +32,7 @@ DATABASE_URL=***ENTFERNT***
 JWT_SECRET_KEY=***ENTFERNT***
 
 # --- KI & Ollama Integration ---
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=llama3.2:latest
+OLLAMA_MODEL=qwen2.5:7b
 
 # --- Dev / Admin Account credentials ---
 DEV_USER_EMAIL=***ENTFERNT***
@@ -43,6 +42,10 @@ DEV_USER_PASSWORD=***ENTFERNT***
 IMAP_SERVER=mail.doomcom.de
 IMAP_PORT=993
 IMAP_USER=***ENTFERNT***
+
+OLLAMA_BASE_URL=http://172.20.0.1:11434
+OLLAMA_URL=http://172.20.0.1:11434
+
 
 
 ================================================================
@@ -75,24 +78,15 @@ Archivo: ./Dockerfile
 FROM python:3.12-slim
 
 WORKDIR /app
-
-# System-Pakete (gcc wird für manche Python-Kompilierungen benötigt)
 RUN apt-get update && apt-get install -y gcc && rm -rf /var/lib/apt/lists/*
-
-# Abhängigkeiten installieren
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-
-# App-Code kopieren
 COPY . .
-
-# Verzeichnis für Prompts sichern (falls es extern gemountet wird)
 RUN mkdir -p prompts
-
 EXPOSE 5000
 
-# Gunicorn starten
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "3", "wsgi:app"]
+# Timeout hochsetzen, damit Gunicorn die KI-Inferenz nicht abwürgt
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "3", "--timeout", "120", "wsgi:app"]
 
 
 
@@ -108,7 +102,6 @@ from app.config import Config
 db = SQLAlchemy()
 jwt = JWTManager()
 migrate = Migrate()
-
 
 def create_app(config_class=Config):
     app = Flask(__name__)
@@ -126,6 +119,7 @@ def create_app(config_class=Config):
     from app.routes.skill_routes import skill_bp
     from app.routes.team_routes import team_bp
     from app.routes.notification_routes import notification_bp
+    from app.routes.calendar_routes import calendar_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(event_bp)
@@ -134,6 +128,7 @@ def create_app(config_class=Config):
     app.register_blueprint(skill_bp)
     app.register_blueprint(team_bp)
     app.register_blueprint(notification_bp)
+    app.register_blueprint(calendar_bp)
 
     @app.route("/health", methods=["GET"])
     def health_check():
@@ -690,6 +685,18 @@ System Prompt für KI-Qualifikationsprüfung
 
 
 ================================================================
+Archivo: ./app/prompts/conflict_prompt.txt
+================================================================
+Du bist der KI-Analyst für das Bellmann-Kalendersystem.
+Analysiere die Termindaten auf Überschneidungen und schlage freie Zeiten vor.
+WICHTIG: Antworte AUSSCHLIESSLICH in HTML.
+- Nutze <strong> für Konflikte.
+- Liste empfohlene freie Zeitfenster (Free Slots) zwingend als HTML-Liste (<ul><li>...</li></ul>) auf.
+- Schreibe keinen Text vor oder nach dem HTML, und verwende keine Markdown-Codeblöcke.
+
+
+
+================================================================
 Archivo: ./app/routes/ai_routes.py
 ================================================================
 from flask import Blueprint, request, jsonify
@@ -699,23 +706,20 @@ import json
 
 ai_bp = Blueprint("ai", __name__, url_prefix="/api/v1/ai")
 
-
-@ai_bp.route("/analyze-conflicts", methods=["POST"])
+@ai_bp.route("/analyze", methods=["POST"])
 @jwt_required()
 def analyze_conflicts():
-    """Nimmt Kalenderdaten entgegen und gibt den KI-Bericht zurück."""
+    """Nimmt Kalenderdaten (events) entgegen und gibt den KI-Bericht zurück."""
     data = request.get_json()
-    if not data or "calendar_data" not in data:
+    if not data or "events" not in data:
         return jsonify({"error": "Fehlende Kalenderdaten im Request-Body."}), 400
 
-    calendar_data_json = json.dumps(data["calendar_data"])
+    # Events als JSON-String an den AI-Service übergeben
+    calendar_data_json = json.dumps(data["events"])
 
     analysis_result = AIService.analyze_conflicts(calendar_data_json)
     if analysis_result is None:
-        return (
-            jsonify({"error": "KI-Dienst nicht erreichbar. Läuft Ollama lokal?"}),
-            500,
-        )
+        return jsonify({"error": "KI-Dienst nicht erreichbar. Bitte Log prüfen."}), 500
 
     return jsonify({"analysis": analysis_result}), 200
 
@@ -790,6 +794,34 @@ def create_user():
         ),
         201,
     )
+
+@auth_bp.route("/trainers", methods=["GET"])
+@jwt_required()
+def get_trainers():
+    from app.models import User, Role
+    trainers = User.query.join(Role).filter(Role.name == "TRAINER", User.is_active == True).all()
+    return jsonify([{"id": t.id, "name": f"{t.first_name} {t.last_name}"} for t in trainers]), 200
+
+
+
+================================================================
+Archivo: ./app/routes/calendar_routes.py
+================================================================
+from flask import Blueprint, render_template, redirect, url_for
+
+calendar_bp = Blueprint("calendar_ui", __name__)
+
+@calendar_bp.route("/")
+def index():
+    return redirect(url_for('calendar_ui.dashboard'))
+
+@calendar_bp.route("/login")
+def login():
+    return render_template("login.html")
+
+@calendar_bp.route("/dashboard")
+def dashboard():
+    return render_template("dashboard.html")
 
 
 
@@ -1323,21 +1355,14 @@ import os
 import urllib.request
 from typing import Optional
 
-
 class AIService:
     """Zentrale Service-Schicht für die lokale Interaktion mit Ollama."""
 
     @staticmethod
     def ollama_anfrage_senden(prompt_text: str, model: str = None) -> Optional[str]:
-        """Sendet eine DSGVO-konforme, lokale Anfrage an Ollama zur Konfliktanalyse."""
-        # Dynamische URL über Umgebungsvariable
         url = os.getenv("OLLAMA_URL", "http://host.docker.internal:11434/api/generate")
-
-        # Modell aus Umgebungsvariablen laden, falls nicht explizit angegeben
         if not model:
             model = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
-
-        # Sicherstellen, dass das Modell immer den Tag :latest enthält
         if ":" not in model:
             model = f"{model}:latest"
 
@@ -1350,7 +1375,8 @@ class AIService:
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
-            with urllib.request.urlopen(req, timeout=30) as response:
+            # Timeout auf 120 Sekunden erhöht für lokale CPU-Inferenz
+            with urllib.request.urlopen(req, timeout=120) as response:
                 result = json.loads(response.read().decode("utf-8"))
                 return result.get("response", "").strip()
         except Exception as e:
@@ -1359,9 +1385,7 @@ class AIService:
 
     @staticmethod
     def analyze_conflicts(calendar_data_json: str) -> Optional[str]:
-        """Liest den System-Prompt und analysiert Terminüberschneidungen via lokaler LLM-Engine."""
         prompt_path = os.path.join(os.getcwd(), "prompts", "conflict_prompt.txt")
-
         try:
             with open(prompt_path, "r", encoding="utf-8") as f:
                 system_prompt = f.read()
@@ -2674,176 +2698,552 @@ class UserService:
 
 
 ================================================================
-Archivo: ./debug_tests.py
+Archivo: ./app/static/js/app.js
 ================================================================
-#!/usr/bin/env python3
-"""
-Erweiterter Diagnose- & Test-Runner
-Phase 1: Umgebungs- und Netzwerkvalidierung (PostgreSQL, Ollama, Modelle)
-Phase 2: Flask-Interzeptoren (Logs 4xx/5xx)
-Phase 3: Dynamische Ausführung von Unit-Tests
-"""
+let globalCalendar = null;
+let currentUserRole = null;
 
-import importlib.util
-import os
-import sys
-import traceback
-import unittest
-import socket
-import urllib.request
+document.addEventListener("DOMContentLoaded", () => {
+    const token = localStorage.getItem("access_token");
+    const currentPath = window.location.pathname;
+
+    if (!token && currentPath !== "/login") {
+        window.location.href = "/login"; return;
+    }
+    if (token) {
+        if (currentPath === "/login") { window.location.href = "/dashboard"; return; }
+        
+        document.getElementById("user-info")?.classList.remove("hidden");
+        document.getElementById("dashboard-content")?.classList.remove("hidden");
+
+        fetch("/api/v1/auth/me", { headers: { "Authorization": `Bearer ${token}` } })
+        .then(res => res.json())
+        .then(data => {
+            currentUserRole = data.role;
+            if (document.getElementById("user-name")) {
+                document.getElementById("user-name").innerText = `${data.first_name} ${data.last_name} (${data.role})`;
+            }
+            if (['CEO', 'ADMIN', 'TEAM_LEADER'].includes(currentUserRole)) {
+                document.getElementById("open-modal-btn")?.classList.remove("hidden");
+                loadTrainers(token);
+                loadSkills(token);
+                loadNotifications(token);
+                
+                // Toggle Dropdown
+                document.getElementById("notification-bell")?.addEventListener("click", () => {
+                    document.getElementById("notif-dropdown")?.classList.toggle("hidden");
+                });
+            } else {
+                document.getElementById("notification-bell")?.classList.add("hidden");
+            }
+        });
+
+        if (document.getElementById("calendar-container")) {
+            renderCalendar(token, document.getElementById("calendar-container"));
+        }
+        setupAILogic(token); setupEventCreation(token); setupRSVPModals();
+    }
+    setupAuth();
+});
+
+function loadTrainers(token) {
+    fetch("/api/v1/auth/trainers", { headers: { "Authorization": `Bearer ${token}` } })
+    .then(res => res.json())
+    .then(data => {
+        const select1 = document.getElementById("event-assignee");
+        const select2 = document.getElementById("reassign-select");
+        data.forEach(t => {
+            if(select1) { const opt = document.createElement("option"); opt.value = t.id; opt.innerText = t.name; select1.appendChild(opt); }
+            if(select2) { const opt = document.createElement("option"); opt.value = t.id; opt.innerText = t.name; select2.appendChild(opt); }
+        });
+    }).catch(console.error);
+}
+
+function loadSkills(token) {
+    fetch("/api/v1/skills", { headers: { "Authorization": `Bearer ${token}` } })
+    .then(res => res.json())
+    .then(data => {
+        const container = document.getElementById("skills-container");
+        if (container && data.skills) {
+            if (data.skills.length === 0) {
+                container.innerHTML = "<span class='text-gray-500'>Keine Qualifikationen im System.</span>";
+            } else {
+                container.innerHTML = data.skills.map(s => `
+                    <label class="flex items-center space-x-2">
+                        <input type="checkbox" value="${s.id}" class="skill-checkbox rounded text-[#2B6CB0]">
+                        <span>${s.name}</span>
+                    </label>
+                `).join('');
+            }
+        }
+    }).catch(console.error);
+}
+
+function loadNotifications(token) {
+    fetch("/api/v1/notifications", { headers: { "Authorization": `Bearer ${token}` } })
+    .then(res => res.json())
+    .then(data => {
+        const unread = data.notifications.filter(n => !n.is_read);
+        const badge = document.getElementById("notif-badge");
+        const list = document.getElementById("notif-list");
+        
+        if (unread.length > 0) {
+            badge.innerText = unread.length; badge.classList.remove("hidden");
+        } else {
+            badge.classList.add("hidden");
+        }
+
+        if (data.notifications.length === 0) {
+            list.innerHTML = "<div class='px-4 py-3 text-sm text-gray-500'>Keine Benachrichtigungen.</div>";
+        } else {
+            list.innerHTML = data.notifications.map(n => `
+                <div class="px-4 py-3 border-b hover:bg-gray-50 ${n.is_read ? 'opacity-50' : 'bg-blue-50'} cursor-pointer" onclick="markRead(${n.id}, '${token}')">
+                    <p class="text-sm font-bold text-[#1A365D]">${n.title}</p>
+                    <p class="text-xs text-gray-700 mt-1">${n.message}</p>
+                </div>
+            `).join('');
+        }
+    }).catch(console.error);
+}
+
+window.markRead = async function(id, token) {
+    await fetch(`/api/v1/notifications/${id}/read`, { method: 'PUT', headers: { "Authorization": `Bearer ${token}` } });
+    loadNotifications(token);
+}
+
+function renderCalendar(token, container) {
+    container.innerHTML = "";
+    globalCalendar = new FullCalendar.Calendar(container, {
+        initialView: 'timeGridWeek',
+        headerToolbar: { left: 'prev,next today', center: 'title', right: 'dayGridMonth,timeGridWeek,timeGridDay' },
+        locale: 'de', allDaySlot: false, slotMinTime: '06:00:00', slotMaxTime: '22:00:00',
+        events: async function(fetchInfo, successCallback, failureCallback) {
+            try {
+                const response = await fetch("/api/v1/events", { headers: { "Authorization": `Bearer ${token}` } });
+                if (!response.ok) throw new Error("Fehler beim Laden");
+                const data = await response.json();
+                successCallback(data.map(e => ({
+                    id: e.id, title: e.title, start: e.start_time, end: e.end_time,
+                    backgroundColor: e.reallocation_required ? '#E53E3E' : '#2B6CB0',
+                    extendedProps: { reallocation_required: e.reallocation_required }
+                })));
+            } catch (error) { failureCallback(error); }
+        },
+        eventClick: function(info) {
+            const eventId = info.event.id;
+            document.getElementById('detail-title').innerText = info.event.title;
+            document.getElementById('detail-time').innerText = `${info.event.start.toLocaleString('de-DE')} - ${info.event.end ? info.event.end.toLocaleString('de-DE') : ''}`;
+            
+            const rsvpSection = document.getElementById('rsvp-section');
+            const reassignSection = document.getElementById('reassign-section');
+            
+            if (rsvpSection) rsvpSection.classList.add('hidden');
+            if (reassignSection) reassignSection.classList.add('hidden');
+            document.getElementById('rsvp-error').classList.add('hidden');
+            document.getElementById('decline-container').classList.add('hidden');
+            document.getElementById('decline-reason').value = '';
+            
+            if (currentUserRole === 'TRAINER') {
+                rsvpSection.classList.remove('hidden');
+                document.getElementById('btn-accept').onclick = () => submitRsvp(eventId, 'ACCEPTED', null, token);
+                document.getElementById('btn-submit-decline').onclick = () => {
+                    const reason = document.getElementById('decline-reason').value;
+                    if (!reason) {
+                        document.getElementById('rsvp-error').innerText = "Bitte gib eine Begründung an.";
+                        document.getElementById('rsvp-error').classList.remove('hidden'); return;
+                    }
+                    submitRsvp(eventId, 'DECLINED', reason, token);
+                };
+            } else if (['CEO', 'ADMIN', 'TEAM_LEADER'].includes(currentUserRole) && info.event.extendedProps.reallocation_required) {
+                reassignSection.classList.remove('hidden');
+                document.getElementById('btn-reassign').onclick = () => {
+                    const newAssignee = document.getElementById('reassign-select').value;
+                    if(newAssignee) reassignEvent(eventId, newAssignee, token);
+                };
+            }
+            
+            document.getElementById('event-details-modal').classList.remove('hidden');
+        }
+    });
+    globalCalendar.render();
+}
+
+async function submitRsvp(eventId, status, reason, token) {
+    try {
+        const response = await fetch(`/api/v1/events/${eventId}/rsvp`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ status: status, rejection_reason: reason })
+        });
+        if (response.ok) {
+            document.getElementById('event-details-modal').classList.add('hidden');
+            if (globalCalendar) globalCalendar.refetchEvents();
+        } else {
+            const data = await response.json();
+            document.getElementById('rsvp-error').innerText = data.error || "Fehler.";
+            document.getElementById('rsvp-error').classList.remove('hidden');
+        }
+    } catch (err) { console.error(err); }
+}
+
+async function reassignEvent(eventId, assigneeId, token) {
+    try {
+        const response = await fetch(`/api/v1/events/${eventId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ assigned_to_id: parseInt(assigneeId) })
+        });
+        if (response.ok) {
+            document.getElementById('event-details-modal').classList.add('hidden');
+            if (globalCalendar) globalCalendar.refetchEvents();
+            loadNotifications(token); // Neu laden, da evtl. die Zuweisungs-Notiz behoben ist
+        } else {
+            alert("Fehler bei der Zuweisung.");
+        }
+    } catch (err) { console.error(err); }
+}
+
+function setupEventCreation(token) {
+    const modal = document.getElementById("event-modal");
+    const form = document.getElementById("event-form");
+    document.getElementById("open-modal-btn")?.addEventListener("click", () => modal.classList.remove("hidden"));
+    document.getElementById("close-modal-btn")?.addEventListener("click", () => { modal.classList.add("hidden"); form.reset(); });
+
+    form?.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const title = document.getElementById("event-title").value;
+        const start_time = document.getElementById("event-start").value + ":00Z";
+        const end_time = document.getElementById("event-end").value + ":00Z";
+        const assignee_id = document.getElementById("event-assignee").value;
+        const errorDiv = document.getElementById("event-error");
+        
+        const skillCheckboxes = document.querySelectorAll('.skill-checkbox:checked');
+        const required_skill_ids = Array.from(skillCheckboxes).map(cb => parseInt(cb.value));
+
+        const payload = { title, start_time, end_time };
+        if (assignee_id) payload.assigned_to_id = parseInt(assignee_id);
+        if (required_skill_ids.length > 0) payload.required_skill_ids = required_skill_ids;
+
+        try {
+            const response = await fetch("/api/v1/events", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+                body: JSON.stringify(payload)
+            });
+            const data = await response.json();
+            
+            if (response.ok) {
+                if (data.event && data.event.qualification_warning) {
+                    alert("Achtung: " + data.event.qualification_warning);
+                }
+                modal.classList.add("hidden"); form.reset(); errorDiv.classList.add("hidden");
+                if (globalCalendar) globalCalendar.refetchEvents();
+            } else {
+                errorDiv.innerText = data.error || "Fehler."; errorDiv.classList.remove("hidden");
+            }
+        } catch (err) { errorDiv.innerText = "Netzwerkfehler."; errorDiv.classList.remove("hidden"); }
+    });
+}
+
+function setupAILogic(token) {
+    const btn = document.getElementById("run-ai-btn");
+    const box = document.getElementById("ai-result-box");
+    btn?.addEventListener("click", async () => {
+        if (!globalCalendar) return;
+        const events = globalCalendar.getEvents().map(e => ({ title: e.title, start: e.startStr, end: e.endStr }));
+        btn.innerText = "Analysiere..."; btn.disabled = true;
+        box.classList.remove("hidden"); box.innerHTML = "<span class='text-emerald-600 animate-pulse'>Lade...</span>";
+        try {
+            const res = await fetch("/api/v1/ai/analyze", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+                body: JSON.stringify({ events })
+            });
+            const data = await res.json();
+            box.innerHTML = res.ok ? `<div class='text-gray-800 text-sm pl-2'>${data.analysis}</div>` : `<span class='text-red-600'>Fehler: ${data.error}</span>`;
+        } catch (err) { box.innerHTML = "<span class='text-red-600'>Netzwerkfehler.</span>"; } 
+        finally { btn.innerText = "Konflikte analysieren"; btn.disabled = false; }
+    });
+}
+
+function setupRSVPModals() {
+    document.getElementById('btn-decline')?.addEventListener('click', () => { document.getElementById('decline-container').classList.remove('hidden'); });
+    document.getElementById('close-details-btn')?.addEventListener('click', () => { document.getElementById('event-details-modal').classList.add('hidden'); });
+}
+
+function setupAuth() {
+    document.getElementById("login-form")?.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const email = document.getElementById("email").value; const password = document.getElementById("password").value;
+        const errDiv = document.getElementById("login-error");
+        try {
+            const res = await fetch("/api/v1/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, password }) });
+            const data = await res.json();
+            if (res.ok) { localStorage.setItem("access_token", data.access_token); window.location.href = "/dashboard"; } 
+            else { errDiv.innerText = data.error; errDiv.classList.remove("hidden"); }
+        } catch (err) { errDiv.innerText = "Fehler."; errDiv.classList.remove("hidden"); }
+    });
+    document.getElementById("logout-btn")?.addEventListener("click", () => { localStorage.removeItem("access_token"); window.location.href = "/login"; });
+}
+
+
+
+================================================================
+Archivo: ./app/templates/base.html
+================================================================
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bellmann Calendar</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans antialiased">
+    <nav class="bg-[#1A365D] text-white shadow-md">
+        <div class="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
+            <div class="text-xl font-bold">Bellmann Engineering</div>
+            <div id="user-info" class="hidden flex items-center space-x-5">
+                
+                <!-- Notification Center (Modul D) -->
+                <div class="relative cursor-pointer" id="notification-bell">
+                    <svg class="w-6 h-6 text-gray-300 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
+                    </svg>
+                    <span id="notif-badge" class="absolute -top-1 -right-2 inline-flex items-center justify-center px-1.5 py-0.5 text-xs font-bold leading-none text-white bg-red-600 rounded-full hidden">0</span>
+                    
+                    <!-- Dropdown -->
+                    <div id="notif-dropdown" class="absolute right-0 mt-3 w-80 bg-white rounded-md shadow-xl overflow-hidden z-[100] hidden border">
+                        <div class="py-1 max-h-96 overflow-y-auto" id="notif-list">
+                            <!-- In-App Benachrichtigungen landen hier -->
+                        </div>
+                    </div>
+                </div>
+
+                <span id="user-name" class="text-sm font-medium"></span>
+                <button id="logout-btn" class="text-sm bg-red-600 px-3 py-1 rounded hover:bg-red-700 transition">Logout</button>
+            </div>
+        </div>
+    </nav>
+    <main class="max-w-7xl mx-auto px-4 py-6">
+        {% block content %}{% endblock %}
+    </main>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
+
+
+
+================================================================
+Archivo: ./app/templates/dashboard.html
+================================================================
+{% extends "base.html" %}
+{% block content %}
+<div id="dashboard-content" class="hidden">
+    <div class="flex justify-between items-center mb-6">
+        <h1 class="text-2xl font-bold text-[#1A365D]">Casino-Card Kalender-Ansicht</h1>
+        <button id="open-modal-btn" class="bg-[#2B6CB0] text-white px-4 py-2 rounded text-sm font-medium hover:bg-[#1A365D] transition shadow hidden">
+            + Neuer Termin
+        </button>
+    </div>
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        <div class="bg-white p-5 border rounded shadow-sm flex flex-col">
+            <h2 class="text-lg font-bold text-[#1A365D] mb-4 border-b pb-2">KI-Analyse (Ollama)</h2>
+            <p class="text-sm text-gray-600 mb-4">Prüft die sichtbaren Kalenderdaten auf Überschneidungen und schlägt freie Zeiten vor.</p>
+            <button id="run-ai-btn" class="w-full bg-emerald-600 text-white py-2 rounded text-sm hover:bg-emerald-700 transition mb-4">Konflikte analysieren</button>
+            <div id="ai-result-box" class="flex-1 bg-gray-50 border rounded p-3 text-sm text-gray-700 overflow-y-auto whitespace-pre-wrap hidden"></div>
+        </div>
+        <div class="lg:col-span-3 bg-white p-4 border rounded shadow-sm min-h-[600px]">
+            <div id="calendar-container"></div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Neuer Termin (inkl. Skills) -->
+<div id="event-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
+    <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-md">
+        <h2 class="text-xl font-bold text-[#1A365D] mb-4">Neuen Termin anlegen</h2>
+        <form id="event-form" class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium text-gray-700">Titel</label>
+                <input type="text" id="event-title" required class="mt-1 block w-full border-gray-300 rounded p-2 border focus:ring-[#2B6CB0]">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700">Zuweisen an (Trainer)</label>
+                <select id="event-assignee" class="mt-1 block w-full border-gray-300 rounded p-2 border focus:ring-[#2B6CB0]">
+                    <option value="">-- Unzugewiesen --</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Benötigte Qualifikationen</label>
+                <div id="skills-container" class="space-y-1 text-sm border p-2 rounded max-h-24 overflow-y-auto bg-gray-50">
+                    <!-- Checkboxes injiziert via JS -->
+                </div>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Start</label>
+                    <input type="datetime-local" id="event-start" required class="mt-1 block w-full border-gray-300 rounded p-2 border focus:ring-[#2B6CB0]">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Ende</label>
+                    <input type="datetime-local" id="event-end" required class="mt-1 block w-full border-gray-300 rounded p-2 border focus:ring-[#2B6CB0]">
+                </div>
+            </div>
+            <div id="event-error" class="text-red-600 text-sm hidden"></div>
+            <div class="flex justify-end space-x-3 mt-6">
+                <button type="button" id="close-modal-btn" class="px-4 py-2 text-gray-600 hover:text-gray-900">Abbrechen</button>
+                <button type="submit" class="bg-[#1A365D] text-white px-4 py-2 rounded hover:bg-[#2B6CB0]">Speichern</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal: Termin Details, RSVP & Reallocation -->
+<div id="event-details-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
+    <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-md">
+        <h2 id="detail-title" class="text-xl font-bold text-[#1A365D] mb-2"></h2>
+        <p id="detail-time" class="text-sm text-gray-600 mb-4"></p>
+        
+        <div id="rsvp-section" class="hidden border-t pt-4 mt-4">
+            <h3 class="text-sm font-bold text-gray-800 mb-2">Deine Rückmeldung:</h3>
+            <div class="flex space-x-3 mb-3">
+                <button id="btn-accept" class="flex-1 bg-emerald-600 text-white py-2 rounded text-sm hover:bg-emerald-700 transition">Bestätigen</button>
+                <button id="btn-decline" class="flex-1 bg-red-600 text-white py-2 rounded text-sm hover:bg-red-700 transition">Ablehnen</button>
+            </div>
+            <div id="decline-container" class="hidden space-y-2">
+                <label class="block text-xs font-medium text-gray-700">Begründung (Pflichtfeld):</label>
+                <textarea id="decline-reason" class="w-full border-gray-300 rounded p-2 border text-sm" rows="2"></textarea>
+                <button id="btn-submit-decline" class="w-full bg-red-800 text-white py-2 rounded text-sm hover:bg-red-900 transition">Absenden</button>
+            </div>
+            <div id="rsvp-error" class="text-red-600 text-xs hidden mt-2"></div>
+        </div>
+
+        <div id="reassign-section" class="hidden border-t pt-4 mt-4">
+            <h3 class="text-sm font-bold text-red-600 mb-2">Termin abgelehnt! Neu zuweisen:</h3>
+            <select id="reassign-select" class="block w-full border-gray-300 rounded p-2 border text-sm mb-3">
+                <option value="">-- Wähle neuen Trainer --</option>
+            </select>
+            <button id="btn-reassign" class="w-full bg-[#1A365D] text-white py-2 rounded text-sm hover:bg-[#2B6CB0] transition">Speichern & Zuweisen</button>
+        </div>
+
+        <div class="flex justify-end mt-6">
+            <button type="button" id="close-details-btn" class="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300">Schließen</button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+
+
+================================================================
+Archivo: ./app/templates/login.html
+================================================================
+{% extends "base.html" %}
+{% block content %}
+<div class="max-w-md mx-auto bg-white p-8 border rounded shadow-sm mt-10">
+    <h2 class="text-2xl font-bold text-[#1A365D] mb-6 text-center">System-Login</h2>
+    <form id="login-form" class="space-y-4">
+        <div>
+            <label class="block text-sm font-medium text-gray-700">E-Mail</label>
+            <input type="email" id="email" required class="mt-1 block w-full border-gray-300 rounded-md shadow-sm p-2 border focus:border-[#2B6CB0] focus:ring focus:ring-[#2B6CB0] focus:ring-opacity-50">
+        </div>
+        <div>
+            <label class="block text-sm font-medium text-gray-700">Passwort</label>
+            <input type="password" id="password" required class="mt-1 block w-full border-gray-300 rounded-md shadow-sm p-2 border focus:border-[#2B6CB0] focus:ring focus:ring-[#2B6CB0] focus:ring-opacity-50">
+        </div>
+        <div id="login-error" class="text-red-600 text-sm hidden"></div>
+        <button type="submit" class="w-full bg-[#1A365D] text-white py-2 px-4 rounded hover:bg-[#2B6CB0] transition">Anmelden</button>
+    </form>
+</div>
+{% endblock %}
+
+
+
+================================================================
+Archivo: ./create_skills.py
+================================================================
+from app import create_app, db
+from app.models import Skill
+
+app = create_app()
+with app.app_context():
+    # Datos extraídos directamente de bellmann-engineering.com
+    real_skills = [
+        ("Agile Projekte mit Scrum", "Scrum dient dem agilen Management innovativer Produktentwicklung mit selbstorganisierten Teams."),
+        ("Microservices mit Docker & Kubernetes", "Grundlegende Kenntnisse zum Thema Microservices, Docker Containern und Kubernetes."),
+        ("Python Grundlagen", "Python Grundlagen lernen und anwenden."),
+        ("C#.NET & Clean Code", "Coach für C#.NET, Python und SQL sowie Prinzipien für hochwertigen Code."),
+        ("Datenschutz-Grundverordnung (EU-DSGVO)", "Anwendung der EU-Datenschutz-Grundverordnung in deutschen Unternehmen."),
+        ("IT-Sicherheit", "Schutz von Unternehmensdaten und IT-Infrastruktur vor neuen Gefährdungspotenzialen."),
+        ("Zeit- und Ressourcenmanagement", "Soft Skill: Umgang mit knappen Ressourcen und Druck."),
+        ("Datenbankentwicklung mit SQL", "Basiswissen über Datenbanken, Datenbankmodellierung und SQL.")
+    ]
+    
+    added = 0
+    for name, desc in real_skills:
+        if not Skill.query.filter_by(name=name).first():
+            db.session.add(Skill(name=name, description=desc[:250])) # Limitado a 255 chars por el modelo
+            added += 1
+            
+    db.session.commit()
+    print(f"✅ {added} echte Bellmann-Qualifikationen erfolgreich in die Datenbank geladen!")
+
+
+
+================================================================
+Archivo: ./create_trainer.py
+================================================================
+from app import create_app, db
+from app.models import User, Role
+from werkzeug.security import generate_password_hash
+
+app = create_app()
+with app.app_context():
+    role = Role.query.filter_by(name="TRAINER").first()
+    email = "trainer@bellmann-engineering.com"
+    if not User.query.filter_by(email=email).first():
+        db.session.add(User(
+            email=email, password_hash=generate_password_hash("trainer123"),
+            first_name="Max", last_name="Mustertrainer", role_id=role.id, is_active=True
+        ))
+        db.session.commit()
+
+
+
+================================================================
+Archivo: ./debug_ai.py
+================================================================
 import json
-from flask import Flask, got_request_exception
+import os
+import urllib.request
+import urllib.error
 
-project_root = os.path.dirname(os.path.abspath(__file__))
-if project_root not in sys.path:
-    sys.path.insert(0, project_root)
+# Lese die URL direkt aus den Docker-Umgebungsvariablen aus
+url = os.getenv("OLLAMA_URL", "http://host.docker.internal:11434/api/generate")
+model = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
 
-# --- PHASE 1: PRE-FLIGHT CHECKS ---
+print(f"🔍 Sende KI-Anfrage an: {url}")
+print(f"📦 Nutze Modell: {model}")
 
+data = {"model": model, "prompt": "Hallo KI, antworte kurz mit 'OK'.", "stream": False}
+req = urllib.request.Request(
+    url,
+    data=json.dumps(data).encode("utf-8"),
+    headers={"Content-Type": "application/json"},
+    method="POST"
+)
 
-def print_status(step: str, success: bool, details: str = ""):
-    color = "\033[92m[OK]\033[0m" if success else "\033[91m[FAIL]\033[0m"
-    print(f"{color} {step} {details}")
-
-
-def check_tcp_port(host: str, port: int, service_name: str) -> bool:
-    try:
-        with socket.create_connection((host, port), timeout=3):
-            print_status(f"TCP-Verbindung zu {service_name} ({host}:{port})", True)
-            return True
-    except Exception as e:
-        print_status(
-            f"TCP-Verbindung zu {service_name} ({host}:{port})", False, f"-> {e}"
-        )
-        return False
-
-
-def check_ollama_model(url: str, required_model: str):
-    tags_url = url.replace("/api/generate", "/api/tags").replace(
-        "/api/chat", "/api/tags"
-    )
-    try:
-        response = urllib.request.urlopen(tags_url, timeout=3).read().decode("utf-8")
-        models_data = json.loads(response).get("models", [])
-        installed_models = [m["name"] for m in models_data]
-
-        if required_model in installed_models:
-            print_status(
-                f"Ollama-Modell '{required_model}'", True, "Installiert und bereit."
-            )
-        else:
-            print_status(
-                f"Ollama-Modell '{required_model}'",
-                False,
-                f"-> Erkannte Modelle: {installed_models}",
-            )
-    except Exception as e:
-        print_status("Ollama API-Abfrage (/api/tags)", False, f"-> {e}")
-
-
-def run_pre_flight_checks():
-    print("\n" + "=" * 50)
-    print(" STARTE SYSTEMDIAGNOSE (PRE-FLIGHT)")
-    print("=" * 50)
-
-    # 1. Datenbank
-    db_host = os.environ.get("DB_HOST", "db")
-    check_tcp_port(db_host, 5432, "PostgreSQL")
-
-    # 2. Kritische Variablen
-    if not os.environ.get("DEV_USER_PASSWORD"):
-        print_status(
-            "Variable DEV_USER_PASSWORD", False, "Nicht in der Umgebung definiert."
-        )
-    else:
-        print_status("Variable DEV_USER_PASSWORD", True)
-
-    # 3. Ollama Netzwerk & Modelle
-    ollama_url = os.environ.get(
-        "OLLAMA_URL", "http://host.docker.internal:11434/api/generate"
-    )
-    host = urllib.parse.urlparse(ollama_url).hostname
-    port = urllib.parse.urlparse(ollama_url).port or 11434
-
-    if check_tcp_port(host, port, "Ollama Gateway"):
-        # Modell aus Code oder Umgebung extrahieren
-        model = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")
-        check_ollama_model(ollama_url, model)
-    print("=" * 50 + "\n")
-
-
-# --- PHASE 2: FLASK DEBUG HOOKS ---
-
-
-def attach_debug_listeners(app: Flask) -> None:
-    if getattr(app, "_debug_hooks_attached", False):
-        return
-    app._debug_hooks_attached = True
-
-    @got_request_exception.connect_via(app)
-    def log_exception(sender, exception, **extra):
-        print("\n" + "!" * 80)
-        print(f" UNBEHANDELTE AUSNAHME (HTTP 500) IN ROUTE: {exception}")
-        traceback.print_exception(type(exception), exception, exception.__traceback__)
-        print("!" * 80 + "\n")
-
-    @app.after_request
-    def log_bad_response(response):
-        if response.status_code >= 400:
-            print("\n" + "-" * 80)
-            print(f" HTTP FEHLER-ANTWORT [{response.status_code}]")
-            try:
-                json_data = response.get_json()
-                print(f" Payload: {json_data}")
-            except Exception:
-                print(f" Body: {response.get_data(as_text=True)}")
-            print("-" * 80 + "\n")
-        return response
-
-
-_original_init = Flask.__init__
-
-
-def _patched_init(self, *args, **kwargs):
-    _original_init(self, *args, **kwargs)
-    attach_debug_listeners(self)
-
-
-Flask.__init__ = _patched_init
-
-
-# --- PHASE 3: DYNAMISCHER TEST-RUNNER ---
-
-if __name__ == "__main__":
-    run_pre_flight_checks()
-
-    print(" STARTE UNIT-TEST-BATTERIE")
-    print("=" * 50)
-    tests_dir = os.path.join(project_root, "tests")
-    suite = unittest.TestSuite()
-    loader = unittest.TestLoader()
-
-    for fname in sorted(os.listdir(tests_dir)):
-        if fname.startswith("test_") and fname.endswith(".py"):
-            mod_name = fname[:-3]
-            file_path = os.path.join(tests_dir, fname)
-            try:
-                spec = importlib.util.spec_from_file_location(mod_name, file_path)
-                if spec and spec.loader:
-                    mod = importlib.util.module_from_spec(spec)
-                    sys.modules[mod_name] = mod
-                    spec.loader.exec_module(mod)
-                    mod_tests = loader.loadTestsFromModule(mod)
-                    suite.addTests(mod_tests)
-            except Exception:
-                print("\n" + "!" * 80)
-                print(f" FEHLER BEIM LADEN DER TESTDATEI '{fname}':")
-                traceback.print_exc()
-                print("!" * 80 + "\n")
-
-    runner = unittest.TextTestRunner(verbosity=2)
-    result = runner.run(suite)
-    sys.exit(not result.wasSuccessful())
+try:
+    print("⏳ Warte auf Ollama (Timeout: 45 Sekunden)...")
+    with urllib.request.urlopen(req, timeout=45) as response:
+        result = json.loads(response.read().decode("utf-8"))
+        print("✅ ERFOLG! KI sagt:", result.get("response", ""))
+except urllib.error.HTTPError as e:
+    print(f"❌ HTTP-FEHLER {e.code}: {e.read().decode('utf-8')}")
+except Exception as e:
+    print(f"❌ SYSTEM-FEHLER: {type(e).__name__} - {e}")
 
 
 
@@ -2859,11 +3259,11 @@ services:
       - FLASK_ENV=production
       - DATABASE_URL=postgresql+psycopg://bellmann_user:bellmann_pass@bellmann_db:5432/bellmann_db
       - JWT_SECRET_KEY=produktions-geheimnis-hier-aendern-2026
-      - OLLAMA_URL=http://host.docker.internal:11434/api/generate
+      - OLLAMA_URL=http://172.20.0.1:11434/api/generate
     expose:
       - "5000"
     extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - "172.20.0.1:host-gateway"
     depends_on:
       - db
     volumes:
@@ -3460,6 +3860,24 @@ Archivo: ./proyecto_status.txt
 
 
 ================================================================
+Archivo: ./rebuild_web.sh
+================================================================
+#!/bin/bash
+
+echo "🔨 Baue Web-Container ohne Cache neu..."
+sudo docker compose build --no-cache web
+
+echo "🛑 Stoppe alten Container..."
+sudo docker compose kill web
+
+echo "🚀 Starte neuen Container..."
+sudo docker compose up -d --force-recreate web
+
+echo "✅ Fertig! Lade dein Dashboard jetzt mit Strg+F5 (oder Cmd+Shift+R) neu."
+
+
+
+================================================================
 Archivo: ./requirements.txt
 ================================================================
 # --- Web-Framework Core ---
@@ -3601,6 +4019,26 @@ def init_dev_user():
 
 if __name__ == "__main__":
     init_dev_user()
+
+
+
+================================================================
+Archivo: ./test_ollama.py
+================================================================
+import requests
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+url = os.getenv("OLLAMA_BASE_URL", "http://172.20.0.1:11434")
+print(f"🔍 Teste Verbindung zu: {url}/api/tags")
+
+try:
+    res = requests.get(f"{url}/api/tags", timeout=5)
+    print("✅ Verbindung ERFOLGREICH!")
+    print("📦 Installierte Modelle:", [m['name'] for m in res.json().get('models', [])])
+except Exception as e:
+    print("❌ VERBINDUNGSFEHLER:", type(e).__name__, "-", e)
 
 
 

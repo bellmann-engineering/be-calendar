@@ -25,6 +25,7 @@ def create_app(config_class=Config):
     from app.routes.skill_routes import skill_bp
     from app.routes.team_routes import team_bp
     from app.routes.notification_routes import notification_bp
+    from app.routes.calendar_routes import calendar_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(event_bp)
@@ -33,6 +34,7 @@ def create_app(config_class=Config):
     app.register_blueprint(skill_bp)
     app.register_blueprint(team_bp)
     app.register_blueprint(notification_bp)
+    app.register_blueprint(calendar_bp)
 
     @app.route("/health", methods=["GET"])
     def health_check():

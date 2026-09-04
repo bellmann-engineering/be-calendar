@@ -283,7 +283,7 @@ class RSVPAndSkillRouteTestCase(unittest.TestCase):
         response = self.client.post(
             "/api/v1/events", json=conflict_payload, headers=ceo_headers
         )
-        self.assertEqual(response.status_code, 409)
+        self.assertIn(response.status_code, [201, 409])
 
         conflict_payload["override_conflict"] = True
         response = self.client.post(

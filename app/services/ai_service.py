@@ -9,15 +9,9 @@ class AIService:
 
     @staticmethod
     def ollama_anfrage_senden(prompt_text: str, model: str = None) -> Optional[str]:
-        """Sendet eine DSGVO-konforme, lokale Anfrage an Ollama zur Konfliktanalyse."""
-        # Dynamische URL über Umgebungsvariable
         url = os.getenv("OLLAMA_URL", "http://host.docker.internal:11434/api/generate")
-
-        # Modell aus Umgebungsvariablen laden, falls nicht explizit angegeben
         if not model:
             model = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
-
-        # Sicherstellen, dass das Modell immer den Tag :latest enthält
         if ":" not in model:
             model = f"{model}:latest"
 
@@ -30,7 +24,8 @@ class AIService:
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
-            with urllib.request.urlopen(req, timeout=30) as response:
+            # Timeout auf 120 Sekunden erhöht für lokale CPU-Inferenz
+            with urllib.request.urlopen(req, timeout=120) as response:
                 result = json.loads(response.read().decode("utf-8"))
                 return result.get("response", "").strip()
         except Exception as e:
@@ -39,9 +34,7 @@ class AIService:
 
     @staticmethod
     def analyze_conflicts(calendar_data_json: str) -> Optional[str]:
-        """Liest den System-Prompt und analysiert Terminüberschneidungen via lokaler LLM-Engine."""
         prompt_path = os.path.join(os.getcwd(), "prompts", "conflict_prompt.txt")
-
         try:
             with open(prompt_path, "r", encoding="utf-8") as f:
                 system_prompt = f.read()

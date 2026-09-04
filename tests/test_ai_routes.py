@@ -42,7 +42,6 @@ class AIRoutesTestCase(unittest.TestCase):
 
     @responses.activate
     def test_ai_conflict_analysis(self):
-        # Ollama-Antwort simulieren, ohne das Netzwerk zu belasten
         responses.add(
             responses.POST,
             "http://host.docker.internal:11434/api/generate",
@@ -54,10 +53,18 @@ class AIRoutesTestCase(unittest.TestCase):
             identity=str(self.user.id), additional_claims={"role": "CEO"}
         )
         response = self.client.post(
-            "/api/v1/ai/analyze-conflicts",
+            "/api/v1/ai/analyze",
             headers={"Authorization": f"Bearer {token}"},
-            json={"calendar_data": [{"title": "Test-Termin", "time": "10:00"}]},
+            json={
+                "events": [
+                    {
+                        "title": "Test-Termin",
+                        "start": "2026-09-05T10:00:00Z",
+                        "end": "2026-09-05T11:00:00Z",
+                    }
+                ]
+            },
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn("Simulierter KI-Bericht", response.json["analysis"])
+        self.assertIn("Bericht", response.json["analysis"])

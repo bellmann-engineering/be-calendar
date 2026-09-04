@@ -64,3 +64,20 @@ def create_user():
         ),
         201,
     )
+
+
+@auth_bp.route("/trainers", methods=["GET"])
+@jwt_required()
+def get_trainers():
+    from app.models import Role, User
+
+    # Ruff-konforme Abfrage ohne expliziten Vergleich auf True
+    trainers = (
+        User.query.join(Role).filter(Role.name == "TRAINER", User.is_active).all()
+    )
+    return (
+        jsonify(
+            [{"id": t.id, "name": f"{t.first_name} {t.last_name}"} for t in trainers]
+        ),
+        200,
+    )

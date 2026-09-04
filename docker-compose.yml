@@ -7,11 +7,11 @@ services:
       - FLASK_ENV=production
       - DATABASE_URL=postgresql+psycopg://bellmann_user:bellmann_pass@bellmann_db:5432/bellmann_db
       - JWT_SECRET_KEY=produktions-geheimnis-hier-aendern-2026
-      - OLLAMA_URL=http://host.docker.internal:11434/api/generate
+      - OLLAMA_URL=http://172.20.0.1:11434/api/generate
     expose:
       - "5000"
     extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - "172.20.0.1:host-gateway"
     depends_on:
       - db
     volumes:
