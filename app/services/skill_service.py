@@ -1,11 +1,8 @@
 """Geschäftslogik für dynamische Qualifikations-Tags."""
 
 from __future__ import annotations
-
 from typing import Any, Iterable, List, Optional, Tuple
-
 from sqlalchemy import select
-
 from app import db
 from app.models import AuditLog, RoleEnum, Skill, User
 
@@ -15,32 +12,19 @@ class SkillService:
 
     @staticmethod
     def create_skill(
-        name: str,
-        actor_id: int,
-        description: Optional[str] = None,
+        name: str, actor_id: int, description: Optional[str] = None
     ) -> Tuple[Optional[Skill], Optional[str], int]:
-        """Legt einen neuen, eindeutig benannten Skill an.
-
-        Args:
-            name: Sichtbarer Name der Qualifikation.
-            actor_id: Primärschlüssel des berechtigten, ausführenden Benutzers.
-            description: Optionale Erläuterung der Qualifikation.
-
-        Returns:
-            Ein Tupel aus Skill, Fehlermeldung und HTTP-Statuscode.
-        """
+        """Legt einen neuen, eindeutig benannten Skill an."""
         cleaned_name = (name or "").strip()
         if not cleaned_name:
             return None, "Der Name der Qualifikation ist erforderlich.", 400
         if len(cleaned_name) > 100:
-            return (
-                None,
-                "Der Name der Qualifikation darf höchstens 100 Zeichen enthalten.",
-                400,
-            )
+            return None, "Der Name darf höchstens 100 Zeichen enthalten.", 400
+
         cleaned_description = (description or "").strip() or None
         if cleaned_description and len(cleaned_description) > 255:
             return None, "Die Beschreibung darf höchstens 255 Zeichen enthalten.", 400
+
         if Skill.query.filter(
             db.func.lower(Skill.name) == cleaned_name.lower()
         ).first():
@@ -56,6 +40,7 @@ class SkillService:
                 details_json={"skill_id": skill.id, "name": skill.name},
             )
         )
+
         try:
             db.session.commit()
         except Exception:
@@ -64,21 +49,68 @@ class SkillService:
         return skill, None, 201
 
     @staticmethod
+    def update_skill(
+        skill_id: int, data: dict, actor_id: int
+    ) -> Tuple[Optional[Skill], Optional[str], int]:
+        """Aktualisiert eine bestehende Qualifikation."""
+        skill = db.session.get(Skill, skill_id)
+        if not skill:
+            return None, "Qualifikation nicht gefunden.", 404
+
+        name = data.get("name", skill.name).strip()
+        if not name:
+            return None, "Der Name der Qualifikation ist erforderlich.", 400
+
+        existing = Skill.query.filter(db.func.lower(Skill.name) == name.lower()).first()
+        if existing and existing.id != skill_id:
+            return None, "Eine Qualifikation mit diesem Namen existiert bereits.", 409
+
+        skill.name = name
+        skill.description = data.get("description", skill.description)
+
+        db.session.add(
+            AuditLog(
+                user_id=actor_id,
+                action="UPDATE_SKILL",
+                details_json={"skill_id": skill.id, "name": skill.name},
+            )
+        )
+
+        try:
+            db.session.commit()
+            return skill, None, 200
+        except Exception:
+            db.session.rollback()
+            return None, "Fehler beim Aktualisieren der Qualifikation.", 500
+
+    @staticmethod
+    def delete_skill(skill_id: int, actor_id: int) -> Tuple[bool, Optional[str], int]:
+        """Löscht eine Qualifikation aus dem System."""
+        skill = db.session.get(Skill, skill_id)
+        if not skill:
+            return False, "Qualifikation nicht gefunden.", 404
+
+        db.session.add(
+            AuditLog(
+                user_id=actor_id,
+                action="DELETE_SKILL",
+                details_json={"skill_id": skill.id, "name": skill.name},
+            )
+        )
+        db.session.delete(skill)
+
+        try:
+            db.session.commit()
+            return True, None, 200
+        except Exception:
+            db.session.rollback()
+            return False, "Fehler beim Löschen der Qualifikation.", 500
+
+    @staticmethod
     def assign_skills(
-        user_id: int,
-        skill_ids: Iterable[Any],
-        actor_id: int,
+        user_id: int, skill_ids: Iterable[Any], actor_id: int
     ) -> Tuple[Optional[User], Optional[str], int]:
-        """Ersetzt die Skill-Zuordnung eines Mitarbeiters atomar.
-
-        Args:
-            user_id: Primärschlüssel des Mitarbeiters.
-            skill_ids: Vollständige Liste der künftig zugeordneten Skill-IDs.
-            actor_id: Primärschlüssel des berechtigten, ausführenden Benutzers.
-
-        Returns:
-            Ein Tupel aus Benutzer, Fehlermeldung und HTTP-Statuscode.
-        """
+        """Ersetzt die Skill-Zuordnung eines Mitarbeiters atomar."""
         if not isinstance(skill_ids, list) or not all(
             isinstance(skill_id, int) for skill_id in skill_ids
         ):
@@ -97,6 +129,7 @@ class SkillService:
         )
         found_ids = {skill.id for skill in skills}
         missing_ids = sorted(set(skill_ids) - found_ids)
+
         if missing_ids:
             return (
                 None,
@@ -117,6 +150,7 @@ class SkillService:
                 },
             )
         )
+
         try:
             db.session.commit()
         except Exception:
@@ -133,14 +167,7 @@ class SkillService:
     def list_users_by_skills(
         skill_ids: Iterable[Any],
     ) -> Tuple[Optional[List[User]], Optional[str], int]:
-        """Findet aktive Mitarbeiter, die sämtliche angeforderten Skills besitzen.
-
-        Args:
-            skill_ids: Skill-IDs, die ein Mitarbeiter vollständig erfüllen muss.
-
-        Returns:
-            Ein Tupel aus Benutzern, Fehlermeldung und HTTP-Statuscode.
-        """
+        """Findet aktive Mitarbeiter, die sämtliche angeforderten Skills besitzen."""
         if (
             not isinstance(skill_ids, list)
             or not skill_ids

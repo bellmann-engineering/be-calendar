@@ -2,7 +2,13 @@ from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from flask_jwt_extended import JWTManager
 from flask_migrate import Migrate
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from app.config import Config
+
+limiter = Limiter(
+    key_func=get_remote_address, default_limits=["200 per day", "50 per hour"]
+)
 
 db = SQLAlchemy()
 jwt = JWTManager()
@@ -16,6 +22,7 @@ def create_app(config_class=Config):
     db.init_app(app)
     jwt.init_app(app)
     migrate.init_app(app, db)
+    limiter.init_app(app)
 
     # Blueprints registrieren
     from app.routes.auth_routes import auth_bp
@@ -26,6 +33,7 @@ def create_app(config_class=Config):
     from app.routes.team_routes import team_bp
     from app.routes.notification_routes import notification_bp
     from app.routes.calendar_routes import calendar_bp
+    from app.routes.customer_routes import customer_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(event_bp)
@@ -35,6 +43,10 @@ def create_app(config_class=Config):
     app.register_blueprint(team_bp)
     app.register_blueprint(notification_bp)
     app.register_blueprint(calendar_bp)
+    app.register_blueprint(customer_bp)
+
+    with app.app_context():
+        db.create_all()
 
     @app.route("/health", methods=["GET"])
     def health_check():

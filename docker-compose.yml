@@ -3,6 +3,8 @@ services:
     build: .
     container_name: bellmann_web
     restart: always
+    env_file:
+      - .env
     environment:
       - FLASK_ENV=production
       - DATABASE_URL=postgresql+psycopg://bellmann_user:bellmann_pass@bellmann_db:5432/bellmann_db

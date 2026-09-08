@@ -3,7 +3,7 @@ from app.models import Skill
 
 app = create_app()
 with app.app_context():
-    # Datos extraídos directamente de bellmann-engineering.com
+    # Direkt extrahierte Daten von bellmann-engineering.com
     real_skills = [
         (
             "Agile Projekte mit Scrum",
@@ -41,7 +41,7 @@ with app.app_context():
         if not Skill.query.filter_by(name=name).first():
             db.session.add(
                 Skill(name=name, description=desc[:250])
-            )  # Limitado a 255 chars por el modelo
+            )  # Begrenzt auf 255 Zeichen durch das Modell
             added += 1
 
     db.session.commit()

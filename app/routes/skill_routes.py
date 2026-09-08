@@ -2,7 +2,6 @@
 
 from flask import Blueprint, jsonify, request
 from flask_jwt_extended import get_jwt_identity, jwt_required
-
 from app.decorators.auth import role_required
 from app.services.skill_service import SkillService
 
@@ -66,6 +65,38 @@ def create_skill():
         ),
         201,
     )
+
+
+@skill_bp.route("/<int:skill_id>", methods=["PUT"])
+@jwt_required()
+@role_required("CEO", "ADMIN")
+def update_skill(skill_id: int):
+    """Aktualisiert eine Qualifikation."""
+    data = request.get_json(silent=True) or {}
+    skill, error, status_code = SkillService.update_skill(
+        skill_id, data, int(get_jwt_identity())
+    )
+    if error:
+        return jsonify({"error": error}), status_code
+    return (
+        jsonify(
+            {"message": "Qualifikation aktualisiert.", "skill": _serialize_skill(skill)}
+        ),
+        200,
+    )
+
+
+@skill_bp.route("/<int:skill_id>", methods=["DELETE"])
+@jwt_required()
+@role_required("CEO", "ADMIN")
+def delete_skill(skill_id: int):
+    """Löscht eine Qualifikation."""
+    success, error, status_code = SkillService.delete_skill(
+        skill_id, int(get_jwt_identity())
+    )
+    if error:
+        return jsonify({"error": error}), status_code
+    return jsonify({"message": "Qualifikation gelöscht."}), 200
 
 
 @skill_bp.route("/users/<int:user_id>", methods=["PUT"])

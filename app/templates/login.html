@@ -13,6 +13,28 @@
         </div>
         <div id="login-error" class="text-red-600 text-sm hidden"></div>
         <button type="submit" class="w-full bg-[#1A365D] text-white py-2 px-4 rounded hover:bg-[#2B6CB0] transition">Anmelden</button>
+        <div class="text-center mt-4">
+            <a href="#" id="forgot-password-link" class="text-sm text-[#2B6CB0] hover:underline">Passwort vergessen?</a>
+        </div>
     </form>
 </div>
+
+<script>
+document.getElementById("forgot-password-link")?.addEventListener("click", async (e) => {
+    e.preventDefault();
+    const email = prompt("Bitte gib deine E-Mail-Adresse ein, um das Passwort zurückzusetzen:");
+    if (!email) return;
+    try {
+        const res = await fetch("/api/v1/auth/forgot-password", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: email })
+        });
+        const data = await res.json();
+        alert(data.message || "Anfrage gesendet.");
+    } catch (err) {
+        alert("Fehler beim Senden der Anfrage.");
+    }
+});
+</script>
 {% endblock %}

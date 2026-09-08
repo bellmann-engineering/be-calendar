@@ -211,6 +211,10 @@ class EventService:
                 buffer_after_mins=buffer_after,
                 created_by_id=creator_id,
                 assigned_to_id=assigned_to_id,
+                is_all_day=data.get("is_all_day", False),
+                is_mandatory=data.get("is_mandatory", False),
+                customer_id=data.get("customer_id"),
+                meeting_link=data.get("meeting_link"),
             )
             new_event.required_skills = required_skills
             db.session.add(new_event)
@@ -451,6 +455,16 @@ class EventService:
             event.buffer_before_mins = buffer_before
             event.buffer_after_mins = buffer_after
             event.assigned_to_id = assigned_to_id
+            event.is_all_day = data.get(
+                "is_all_day", getattr(event, "is_all_day", False)
+            )
+            event.is_mandatory = data.get(
+                "is_mandatory", getattr(event, "is_mandatory", False)
+            )
+            event.customer_id = data.get(
+                "customer_id", getattr(event, "customer_id", None)
+            )
+            event.meeting_link = data.get("meeting_link", event.meeting_link)
             event.reallocation_required = assigned_to_id is None
             event.required_skills = required_skills
 

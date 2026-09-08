@@ -1,0 +1,20 @@
+# Python & Umgebungen
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Umgebungsvariablen und Geheimnisse
+.env
+
+# Datenbanken und Docker-Volumes
+postgres_data/
+
+# IDEs und Betriebssysteme
+.vscode/
+.idea/
+.DS_Store
+
+# Temporär generierte Dateien
+proyecto_status*.txt

@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="flex justify-between items-center mb-6">
+    <div><h1 class="text-2xl font-bold text-[#1A365D]">Kunden & Projekte</h1><p class="text-sm text-gray-600">Verwalte externe Kunden und weise ihnen Farben für den Kalender zu.</p></div>
+    <button onclick="openCModal()" class="bg-[#1A365D] text-white px-4 py-2 rounded text-sm font-bold hover:bg-[#2B6CB0] transition shadow">+ Neuer Kunde</button>
+</div>
+<div class="bg-white border rounded shadow-sm overflow-hidden">
+    <table class="w-full text-left text-sm text-gray-700">
+        <thead class="bg-gray-50 text-gray-900 border-b"><tr><th class="p-3 font-bold">Farbe</th><th class="p-3 font-bold">Kunde / Projekt</th><th class="p-3 font-bold">E-Mail</th><th class="p-3 font-bold text-right">Aktion</th></tr></thead>
+        <tbody id="c-tbody" class="divide-y"></tbody>
+    </table>
+</div>
+<div id="c-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
+    <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-md">
+        <h2 id="c-modal-title" class="text-xl font-bold text-[#1A365D] mb-4">Neuen Kunden anlegen</h2>
+        <form id="c-form" class="space-y-3">
+            <input type="hidden" id="c-id">
+            <div><label class="block text-xs font-bold mb-1">Name / Firma</label><input type="text" id="c-name" required class="w-full border-gray-300 rounded p-2 border text-sm"></div>
+            <div><label class="block text-xs font-bold mb-1">E-Mail (Optional)</label><input type="email" id="c-email" class="w-full border-gray-300 rounded p-2 border text-sm"></div>
+            <div><label class="block text-xs font-bold mb-1">Kalender-Farbe</label><input type="color" id="c-color" value="#2B6CB0" class="w-full h-10 p-1 border border-gray-300 rounded cursor-pointer"></div>
+            <div id="c-err" class="text-red-600 text-xs hidden"></div>
+            <div class="flex justify-end space-x-3 mt-6">
+                <button type="button" onclick="document.getElementById('c-modal').classList.add('hidden')" class="px-4 py-2 text-gray-600 text-sm">Abbrechen</button>
+                <button type="submit" class="bg-[#1A365D] text-white px-4 py-2 rounded text-sm font-bold">Speichern</button>
+            </div>
+        </form>
+    </div>
+</div>
+<script>
+window.openCModal = (id='', name='', email='', color='#2B6CB0') => {
+    document.getElementById("c-id").value = id;
+    document.getElementById("c-name").value = name;
+    document.getElementById("c-email").value = email;
+    document.getElementById("c-color").value = color;
+    document.getElementById("c-modal-title").innerText = id ? "Kunden bearbeiten" : "Neuen Kunden anlegen";
+    document.getElementById("c-err").classList.add("hidden");
+    document.getElementById('c-modal').classList.remove('hidden');
+};
+
+document.addEventListener("DOMContentLoaded", () => {
+    const token = localStorage.getItem("access_token"); if(!token) return;
+    const load = async () => {
+        const res = await fetch("/api/v1/customers", {headers:{"Authorization":`Bearer ${token}`}});
+        const data = await res.json();
+        document.getElementById("c-tbody").innerHTML = data.map(c => `<tr class="hover:bg-gray-50"><td class="p-3"><div class="w-6 h-6 rounded border shadow-sm" style="background-color:${c.color_hex}"></div></td><td class="p-3 font-bold text-[#1A365D]">${c.name}</td><td class="p-3">${c.email||'-'}</td><td class="p-3 text-right"><button onclick="openCModal(${c.id}, '${c.name.replace(/'/g, "\\'")}', '${(c.email||'').replace(/'/g, "\\'")}', '${c.color_hex}')" class="text-xs text-blue-600 font-bold hover:bg-blue-50 px-2 py-1 rounded border border-blue-200 mr-2">Bearbeiten</button><button onclick="delC(${c.id})" class="text-xs text-red-600 font-bold hover:bg-red-50 px-2 py-1 rounded border border-red-200">Löschen</button></td></tr>`).join('');
+    };
+    load();
+    window.delC = async (id) => { if(confirm("Löschen?")) { await fetch(`/api/v1/customers/${id}`, {method:"DELETE", headers:{"Authorization":`Bearer ${token}`}}); load(); }};
+    
+    document.getElementById("c-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const errDiv = document.getElementById("c-err"); errDiv.classList.add("hidden");
+        const id = document.getElementById("c-id").value;
+        const payload = { name: document.getElementById("c-name").value, email: document.getElementById("c-email").value, color_hex: document.getElementById("c-color").value };
+
+        try {
+            const res = await fetch(id ? `/api/v1/customers/${id}` : "/api/v1/customers", {
+                method: id ? "PUT" : "POST", 
+                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, 
+                body: JSON.stringify(payload)
+            });
+            if(res.ok) { document.getElementById('c-modal').classList.add('hidden'); document.getElementById("c-form").reset(); load(); } 
+            else { const data = await res.json(); errDiv.innerText = data.error || "Fehler."; errDiv.classList.remove("hidden"); }
+        } catch (err) { errDiv.innerText = "Netzwerkfehler."; errDiv.classList.remove("hidden"); }
+    });
+});
+</script>
+{% endblock %}

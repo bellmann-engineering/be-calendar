@@ -1,0 +1,276 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="mb-4">
+    <h1 class="text-2xl font-bold text-[#1A365D]">System Audit Logs</h1>
+    <p class="text-sm text-gray-600">Überwachung und Historie aller Systemaktionen (Filter in Echtzeit).</p>
+</div>
+
+<!-- ERWEITERTE FILTER -->
+<div class="bg-white p-5 border rounded-lg shadow-sm mb-6">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div>
+            <label class="block text-xs font-bold text-gray-700 mb-1">🔍 Freitextsuche</label>
+            <input type="text" id="f-search" placeholder="z.B. Krank, Storno, ID..." class="w-full border-gray-300 rounded p-2 text-sm border focus:ring-[#2B6CB0]">
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+            <div>
+                <label class="block text-xs font-bold text-gray-700 mb-1">Von Datum</label>
+                <input type="date" id="f-date-from" class="w-full border-gray-300 rounded p-2 text-sm border focus:ring-[#2B6CB0]">
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-gray-700 mb-1">Bis Datum</label>
+                <input type="date" id="f-date-to" class="w-full border-gray-300 rounded p-2 text-sm border focus:ring-[#2B6CB0]">
+            </div>
+        </div>
+        <div>
+            <label class="block text-xs font-bold text-gray-700 mb-1">👤 Mitarbeiter</label>
+            <select id="f-user" class="w-full border-gray-300 rounded p-2 text-sm border focus:ring-[#2B6CB0]"><option value="">Alle Mitarbeiter</option></select>
+        </div>
+        <div>
+            <label class="block text-xs font-bold text-gray-700 mb-1">🛡️ System-Rolle</label>
+            <select id="f-role" class="w-full border-gray-300 rounded p-2 text-sm border focus:ring-[#2B6CB0]"><option value="">Alle Rollen</option></select>
+        </div>
+        <div>
+            <label class="block text-xs font-bold text-gray-700 mb-1">⚡ Aktion (Event)</label>
+            <select id="f-action" class="w-full border-gray-300 rounded p-2 text-sm border focus:ring-[#2B6CB0]"><option value="">Alle Aktionen</option></select>
+        </div>
+        <div>
+            <label class="block text-xs font-bold text-gray-700 mb-1">📂 Kategorie</label>
+            <select id="f-category" class="w-full border-gray-300 rounded p-2 text-sm border focus:ring-[#2B6CB0]">
+                <option value="">Alle Kategorien</option>
+                <option value="EVENT">Termine & Kalender</option>
+                <option value="RSVP">Rückmeldungen (RSVP)</option>
+                <option value="USER_TEAM">Benutzer, Skills & Teams</option>
+                <option value="CEO">CEO & Overrides</option>
+            </select>
+        </div>
+        <div>
+            <label class="block text-xs font-bold text-gray-700 mb-1">⏱️ Sortierung</label>
+            <select id="f-sort" class="w-full border-gray-300 rounded p-2 text-sm border focus:ring-[#2B6CB0]">
+                <option value="desc">Neueste zuerst</option>
+                <option value="asc">Älteste zuerst</option>
+            </select>
+        </div>
+    </div>
+    <div class="mt-4 flex justify-between items-center border-t pt-3">
+        <span class="text-xs text-gray-500 font-medium" id="results-count">Lade...</span>
+        <button id="btn-reset-filters" class="text-sm bg-gray-200 text-gray-700 px-3 py-1 rounded hover:bg-gray-300 font-medium transition">Filter zurücksetzen ↺</button>
+    </div>
+</div>
+
+<!-- ERGEBNISTABELLE -->
+<div class="bg-white border rounded shadow-sm overflow-hidden">
+    <div class="max-h-[700px] overflow-y-auto">
+        <table class="w-full text-left text-sm text-gray-700">
+            <thead class="bg-gray-50 text-gray-900 border-b sticky top-0 shadow-sm z-10">
+                <tr>
+                    <th class="p-3 font-bold w-40">Datum & Zeit</th>
+                    <th class="p-3 font-bold w-48">Ausführender</th>
+                    <th class="p-3 font-bold w-56">Aktionstyp</th>
+                    <th class="p-3 font-bold">Details</th>
+                </tr>
+            </thead>
+            <tbody id="logs-table-body" class="divide-y">
+                <tr><td colspan='4' class='p-4 text-center text-gray-500 animate-pulse'>Lade Audit Logs aus der Datenbank...</td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+let globalLogs = []; 
+
+document.addEventListener("DOMContentLoaded", async () => {
+    const token = localStorage.getItem("access_token");
+    if (!token) { window.location.href = "/login"; return; }
+    try {
+        const res = await fetch("/api/v1/events/audit", { headers: { "Authorization": `Bearer ${token}` } });
+        if (res.ok) {
+            globalLogs = await res.json();
+            populateDropdowns(globalLogs);
+            applyFilters(); 
+        } else {
+            document.getElementById("logs-table-body").innerHTML = "<tr><td colspan='4' class='p-4 text-center text-red-500'>Fehler beim Laden (Token evtl. abgelaufen).</td></tr>";
+        }
+    } catch (err) {
+        document.getElementById("logs-table-body").innerHTML = "<tr><td colspan='4' class='p-4 text-center text-red-500'>Netzwerkfehler.</td></tr>";
+    }
+
+    document.querySelectorAll('[id^="f-"]').forEach(el => el.addEventListener('input', applyFilters));
+    document.getElementById('btn-reset-filters').addEventListener('click', () => {
+        document.querySelectorAll('[id^="f-"]').forEach(el => el.value = el.id === 'f-sort' ? 'desc' : '');
+        applyFilters();
+    });
+});
+
+function populateDropdowns(logs) {
+    const users = new Set(), roles = new Set(), actions = new Set();
+    logs.forEach(l => {
+        if (l.user_name) users.add(l.user_name);
+        if (l.role) roles.add(l.role);
+        if (l.action) actions.add(l.action);
+    });
+    const userSel = document.getElementById('f-user');
+    const roleSel = document.getElementById('f-role');
+    const actionSel = document.getElementById('f-action');
+    Array.from(users).sort().forEach(u => userSel.add(new Option(u, u)));
+    Array.from(roles).sort().forEach(r => roleSel.add(new Option(r, r)));
+    Array.from(actions).sort().forEach(a => actionSel.add(new Option(a, a)));
+}
+
+function applyFilters() {
+    const search = document.getElementById('f-search').value.toLowerCase();
+    const dateFrom = document.getElementById('f-date-from').value;
+    const dateTo = document.getElementById('f-date-to').value;
+    const user = document.getElementById('f-user').value;
+    const role = document.getElementById('f-role').value;
+    const action = document.getElementById('f-action').value;
+    const category = document.getElementById('f-category').value;
+    const sort = document.getElementById('f-sort').value;
+
+    let filtered = globalLogs.filter(l => {
+        if (search) {
+            const rowText = `${l.user_name} ${l.role} ${l.action} ${JSON.stringify(l.details)}`.toLowerCase();
+            if (!rowText.includes(search)) return false;
+        }
+        const logDate = new Date(l.timestamp);
+        if (dateFrom && logDate < new Date(dateFrom)) return false;
+        if (dateTo) {
+            let toDt = new Date(dateTo);
+            toDt.setHours(23, 59, 59);
+            if (logDate > toDt) return false;
+        }
+        if (user && l.user_name !== user) return false;
+        if (role && l.role !== role) return false;
+        if (action && l.action !== action) return false;
+        if (category) {
+            if (category === 'EVENT' && !l.action.includes('EVENT')) return false;
+            if (category === 'RSVP' && !l.action.includes('RSVP')) return false;
+            if (category === 'CEO' && !l.action.includes('CEO')) return false;
+            if (category === 'USER_TEAM' && !['USER', 'TEAM', 'SKILL', 'ASSIGN'].some(kw => l.action.includes(kw))) return false;
+        }
+        return true;
+    });
+
+    if (sort === 'asc') filtered = filtered.reverse();
+    renderTable(filtered);
+}
+
+// MENSCHLICHES FORMAT 
+function formatAuditDetails(details) {
+    if (!details) return '<span class="text-gray-400 italic">Keine Details</span>';
+    
+    // Übersetzer und Reparierer von Python zu echtem JSON
+    if (typeof details === 'string') {
+        try { 
+            let fixed = details.replace(/'/g, '"').replace(/\bNone\b/g, 'null').replace(/\bTrue\b/g, 'true').replace(/\bFalse\b/g, 'false');
+            details = JSON.parse(fixed); 
+        } 
+        catch(e) { return `<span class="text-gray-500 font-mono text-[10px] break-all">${details}</span>`; }
+    }
+
+    const translateKey = (k) => {
+        const map = {
+            'title': 'Termin-Titel', 'start_time': 'Startzeit', 'end_time': 'Endzeit',
+            'assigned_to_id': 'Zugewiesener Mitarbeiter (ID)', 'buffer_before_mins': 'Puffer Vorher (Min)',
+            'buffer_after_mins': 'Puffer Nachher (Min)', 'reallocation_required': 'Muss neu zugewiesen werden?',
+            'required_skill_ids': 'Benötigte Qualifikationen (IDs)', 'description': 'Beschreibung',
+            'conflict_overridden': 'Konflikt ignoriert?', 'conflicting_event_id': 'ID des kollidierenden Termins'
+        };
+        return map[k] || k.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    };
+
+    const formatValue = (v) => {
+        if (v === null || v === '') return 'Leer / Nicht zugewiesen';
+        if (v === true) return 'Ja';
+        if (v === false) return 'Nein';
+        if (Array.isArray(v)) return v.length > 0 ? v.join(', ') : 'Keine';
+        if (typeof v === 'string' && v.includes('T') && v.includes('-')) {
+            return new Date(v).toLocaleString('de-DE', { day:'2-digit', month:'2-digit', year:'numeric', hour:'2-digit', minute:'2-digit' }) + ' Uhr';
+        }
+        return v;
+    };
+
+    let html = '<div class="space-y-1.5 text-[13px] leading-tight text-gray-700">';
+
+    // FALL 1: Feldänderungen (Update)
+    if (details.previous && details.new) {
+        let changed = false;
+        for (let key in details.new) {
+            let oldVal = details.previous[key];
+            let newVal = details.new[key];
+            if (JSON.stringify(oldVal) !== JSON.stringify(newVal)) {
+                changed = true;
+                html += `<div class="flex flex-col sm:flex-row sm:items-center gap-2">
+                    <span class="text-[#1A365D] font-bold w-56 shrink-0">📌 ${translateKey(key)}:</span>
+                    <div class="flex items-center gap-2 flex-wrap text-xs">
+                        <span class="line-through text-red-500 bg-red-50 px-1.5 py-0.5 rounded">${formatValue(oldVal)}</span>
+                        <span class="text-gray-400">➔</span>
+                        <span class="text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">${formatValue(newVal)}</span>
+                    </div>
+                </div>`;
+            }
+        }
+        if (!changed) html += `<span class="text-gray-500 italic">Es wurden keine Felder verändert.</span>`;
+        if (details.conflict_overridden) {
+            html += `<div class="mt-2 text-orange-700 font-bold bg-orange-50 px-2 py-1.5 rounded border border-orange-200 flex items-center gap-1">⚠️ Warnung: Ein Termin-Konflikt wurde vom CEO überschrieben!</div>`;
+        }
+    }
+    // FALL 2: Antworten (RSVP)
+    else if (details.new_status || details.previous_status) {
+        html += `<div class="flex items-center gap-2 text-[13px]">
+            <span class="text-[#1A365D] font-bold">Status:</span>
+            <span class="text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">${details.previous_status || 'NEU'}</span>
+            <span class="text-gray-400">➔</span>
+            <span class="font-bold px-1.5 py-0.5 rounded ${details.new_status === 'DECLINED' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}">${details.new_status}</span>
+         </div>`;
+         if (details.rejection_reason) {
+             html += `<div class="mt-2 p-2.5 bg-red-50 border-l-4 border-red-500 text-red-900 rounded text-sm italic">" ${details.rejection_reason} "</div>`;
+         }
+    }
+    // FALL 3: Erstellung / Allgemeine Informationen
+    else {
+        for (let key in details) {
+            if (details[key] === null || details[key] === '' || key === 'qualification_warning') continue;
+            html += `<div class="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-2 border-b border-gray-100 pb-1">
+                <span class="text-[#1A365D] font-bold w-56 shrink-0">🔹 ${translateKey(key)}:</span>
+                <span class="text-gray-800">${formatValue(details[key])}</span>
+            </div>`;
+        }
+    }
+
+    if (details.qualification_warning) {
+        html += `<div class="mt-2 text-orange-700 font-medium bg-orange-50 p-2 rounded border border-orange-200">⚠️ ${details.qualification_warning}</div>`;
+    }
+
+    html += '</div>';
+    return html;
+}
+
+function renderTable(logsToRender) {
+    const tbody = document.getElementById('logs-table-body');
+    const counter = document.getElementById('results-count');
+    counter.innerText = `Zeige ${logsToRender.length} von ${globalLogs.length} Einträgen`;
+    if (logsToRender.length === 0) {
+        tbody.innerHTML = "<tr><td colspan='4' class='p-8 text-center text-gray-500'>Keine Logs entsprechen den gewählten Filtern.</td></tr>";
+        return;
+    }
+    
+    tbody.innerHTML = logsToRender.map(l => `
+        <tr class="hover:bg-blue-50 transition border-b group">
+            <td class="p-3 whitespace-nowrap text-xs text-gray-500">${new Date(l.timestamp).toLocaleString('de-DE')}</td>
+            <td class="p-3 font-medium text-sm text-[#1A365D] border-l border-transparent group-hover:border-[#2B6CB0]">
+                ${l.user_name} <br>
+                <span class="text-[10px] text-gray-400 font-normal uppercase tracking-wider">${l.role}</span>
+            </td>
+            <td class="p-3">
+                <span class="bg-gray-100 text-gray-800 px-2 py-1.5 rounded text-[10px] font-bold border border-gray-200 shadow-sm uppercase tracking-wide">${l.action}</span>
+            </td>
+            <td class="p-4 bg-gray-50/30 group-hover:bg-white transition">
+                ${formatAuditDetails(l.details)}
+            </td>
+        </tr>
+    `).join('');
+}
+</script>
+{% endblock %}

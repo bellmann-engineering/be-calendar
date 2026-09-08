@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="mb-6">
+    <h1 class="text-2xl font-bold text-[#1A365D]">Mitarbeiter Vergleichen</h1>
+    <p class="text-sm text-gray-600">Wähle ein Datum und zwei Mitarbeiter aus, um ihre Verfügbarkeit Seite an Seite zu vergleichen.</p>
+</div>
+
+<!-- Steuerungen -->
+<div class="bg-white p-4 border rounded shadow-sm mb-6 flex flex-wrap items-end gap-4">
+    <div>
+        <label class="block text-xs font-bold text-gray-700 mb-1">Datum (Tag)</label>
+        <input type="date" id="compare-date" class="border-gray-300 rounded p-2 border text-sm">
+    </div>
+    <div class="flex-1 min-w-[200px]">
+        <label class="block text-xs font-bold text-gray-700 mb-1">Mitarbeiter:</label>
+        <select id="trainer-a" class="w-full border-gray-300 rounded p-2 border text-sm">
+            <option value="">-- Bitte wählen --</option>
+            {% for trainer in trainers %}
+                <option value="{{ trainer.id }}">{{ trainer.first_name }} {{ trainer.last_name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="flex-1 min-w-[200px]">
+        <label class="block text-xs font-bold text-gray-700 mb-1">Mitarbeiter:</label>
+        <select id="trainer-b" class="w-full border-gray-300 rounded p-2 border text-sm">
+            <option value="">-- Bitte wählen --</option>
+            {% for trainer in trainers %}
+                <option value="{{ trainer.id }}">{{ trainer.first_name }} {{ trainer.last_name }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <button id="btn-compare" class="bg-[#1A365D] text-white px-6 py-2 rounded text-sm font-bold hover:bg-[#2B6CB0] transition">
+        Suchen & Vergleichen
+    </button>
+</div>
+
+<!-- Seite-an-Seite-Layout -->
+<div id="comparison-results" class="grid grid-cols-1 md:grid-cols-2 gap-6 hidden">
+    <div class="bg-white border rounded shadow-sm overflow-hidden">
+        <div class="bg-[#2B6CB0] text-white text-center py-2 font-bold" id="title-a">Mitarbeiter</div>
+        <div id="calendar-a" class="p-2 min-h-[500px]"></div>
+    </div>
+    <div class="bg-white border rounded shadow-sm overflow-hidden">
+        <div class="bg-emerald-600 text-white text-center py-2 font-bold" id="title-b">Mitarbeiter</div>
+        <div id="calendar-b" class="p-2 min-h-[500px]"></div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const calendarElA = document.getElementById('calendar-a');
+    const calendarElB = document.getElementById('calendar-b');
+    const token = localStorage.getItem("access_token");
+
+    const commonConfig = {
+        initialView: 'timeGridDay',
+        headerToolbar: false,
+        slotMinTime: '06:00:00',
+        slotMaxTime: '20:00:00',
+        allDaySlot: false,
+        height: 'auto'
+    };
+
+    let calendarA = new FullCalendar.Calendar(calendarElA, {
+        ...commonConfig,
+        events: function(fetchInfo, successCallback, failureCallback) {
+            fetch(`/api/v1/events?start=${fetchInfo.startStr}&end=${fetchInfo.endStr}`, {
+                headers: { "Authorization": `Bearer ${token}` }
+            })
+                .then(res => res.json())
+                .then(data => {
+                    const trainerA_ID = document.getElementById('trainer-a').value;
+                    const filtered = data.filter(event => String(event.assigned_to_id) === String(trainerA_ID)).map(e => ({
+                        id: e.id, title: e.title, start: e.start_time, end: e.end_time, backgroundColor: '#2B6CB0'
+                    }));
+                    successCallback(filtered);
+                })
+                .catch(err => failureCallback(err));
+        }
+    });
+
+    let calendarB = new FullCalendar.Calendar(calendarElB, {
+        ...commonConfig,
+        events: function(fetchInfo, successCallback, failureCallback) {
+            fetch(`/api/v1/events?start=${fetchInfo.startStr}&end=${fetchInfo.endStr}`, {
+                headers: { "Authorization": `Bearer ${token}` }
+            })
+                .then(res => res.json())
+                .then(data => {
+                    const trainerB_ID = document.getElementById('trainer-b').value;
+                    const filtered = data.filter(event => String(event.assigned_to_id) === String(trainerB_ID)).map(e => ({
+                        id: e.id, title: e.title, start: e.start_time, end: e.end_time, backgroundColor: '#10B981'
+                    }));
+                    successCallback(filtered);
+                })
+                .catch(err => failureCallback(err));
+        }
+    });
+
+    calendarA.render();
+    calendarB.render();
+
+    document.getElementById('btn-compare').addEventListener('click', function() {
+        const selectedDate = document.getElementById('compare-date').value;
+        const trainerA = document.getElementById('trainer-a');
+        const trainerB = document.getElementById('trainer-b');
+
+        if (!selectedDate || !trainerA.value || !trainerB.value) {
+            alert("Bitte wähle ein Datum und beide Mitarbeiter aus.");
+            return;
+        }
+
+        document.getElementById('comparison-results').classList.remove('hidden');
+        document.getElementById('title-a').textContent = trainerA.options[trainerA.selectedIndex].text;
+        document.getElementById('title-b').textContent = trainerB.options[trainerB.selectedIndex].text;
+
+        calendarA.gotoDate(selectedDate);
+        calendarB.gotoDate(selectedDate);
+        calendarA.refetchEvents();
+        calendarB.refetchEvents();
+    });
+});
+</script>
+{% endblock %}

@@ -8,7 +8,7 @@ app = create_app()
 
 def init_dev_user():
     with app.app_context():
-        dev_email = os.getenv("DEV_USER_EMAIL", "***ENTFERNT***")
+        dev_email = os.getenv("DEV_USER_EMAIL", "dev-email@bellmann-engineering.com")
         dev_password = os.getenv("DEV_USER_PASSWORD")
 
         if not dev_password:

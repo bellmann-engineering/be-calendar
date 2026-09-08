@@ -6,25 +6,40 @@
     <title>Bellmann Calendar</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
+    <style>
+        .fc-event { cursor: pointer !important; }
+    </style>
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans antialiased">
     <nav class="bg-[#1A365D] text-white shadow-md">
         <div class="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
-            <div class="text-xl font-bold">Bellmann Engineering</div>
+            
+            <div class="flex items-center">
+                <div class="text-xl font-bold mr-8">Bellmann Engineering</div>
+                <div class="hidden md:flex space-x-4 h-full items-center">
+                    <a href="/dashboard" id="nav-dashboard" class="text-sm hover:text-gray-300 pb-1 border-b-2 {% if request.path == '/dashboard' %}border-emerald-400{% else %}border-transparent{% endif %}">
+                        Dashboard
+                    </a>
+                    <a href="/compare" id="nav-compare" class="hidden text-sm hover:text-gray-300 pb-1 border-b-2 {% if request.path == '/compare' %}border-emerald-400{% else %}border-transparent{% endif %}">
+                        Vergleichen
+                    </a>
+                    <a href="/logs" id="nav-logs" class="hidden text-sm hover:text-gray-300 pb-1 border-b-2 {% if request.path == '/logs' %}border-emerald-400{% else %}border-transparent{% endif %}">
+                        Logs
+                    </a>
+                    <a href="/members" id="nav-members" class="hidden text-sm hover:text-gray-300 pb-1 border-b-2 {% if request.path == '/members' %}border-emerald-400{% else %}border-transparent{% endif %}">Mitarbeiter</a>
+                    <a href="/customers" id="nav-customers" class="hidden text-sm hover:text-gray-300 pb-1 border-b-2 {% if request.path == '/customers' %}border-emerald-400{% else %}border-transparent{% endif %}">Kunden</a>
+                </div>
+            </div>
+
             <div id="user-info" class="hidden flex items-center space-x-5">
-                
-                <!-- Notification Center (Modul D) -->
                 <div class="relative cursor-pointer" id="notification-bell">
                     <svg class="w-6 h-6 text-gray-300 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
                     </svg>
                     <span id="notif-badge" class="absolute -top-1 -right-2 inline-flex items-center justify-center px-1.5 py-0.5 text-xs font-bold leading-none text-white bg-red-600 rounded-full hidden">0</span>
                     
-                    <!-- Dropdown -->
                     <div id="notif-dropdown" class="absolute right-0 mt-3 w-80 bg-white rounded-md shadow-xl overflow-hidden z-[100] hidden border">
-                        <div class="py-1 max-h-96 overflow-y-auto" id="notif-list">
-                            <!-- In-App Benachrichtigungen landen hier -->
-                        </div>
+                        <div class="py-1 max-h-96 overflow-y-auto" id="notif-list"></div>
                     </div>
                 </div>
 
