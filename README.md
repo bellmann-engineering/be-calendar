@@ -1,25 +1,41 @@
-**Bellmann Calendar System**
+# Bellmann Calendar System
 
-Kalender-Managementsystem.
+Ein professionelles Kalender-Managementsystem für Bellmann Engineering (Clean Architecture).
 
-**Voraussetzungen**
-1. Docker und Docker Compose sind installiert.
+## Voraussetzungen
+1. **Git** ist auf dem System installiert.
+2. **Docker Desktop** (inkl. Docker Compose) ist installiert und läuft im Hintergrund.
 
-**Installationsanleitung**
+## 🚀 Schnellstart (Automatische Installation)
 
-1. **Umgebung konfigurieren:**
-   in `.env`: Passe die Datenbankvariablen, die Administrator-Anmeldeinformationen an.
+Am einfachsten lässt sich das Projekt über das beiliegende Setup-Skript starten. Es erstellt automatisch die benötigte sichere `.env`-Datei, startet die Docker-Container und befüllt die Datenbank mit den initialen Systemrollen, Qualifikationen und dem Admin-Zugang.
 
-2. **Container starten:**
-   Erstelle und starte die Datenbank, das Flask-Backend und den Nginx-Server mit folgendem Befehl:
-   `docker compose up -d --build`
+**Im Terminal ausführen:**
+```bash
+# 1. Skript ausführbar machen (nur Mac/Linux nötig)
+chmod +x setup.sh
 
-3. **Datenbank und Testdaten initialisieren:**
-   Sobald die Container laufen, führe die Migrationen und Seed-Skripte aus, um die Rollen und Qualifikationen zu laden:
-   `docker exec -it bellmann_web flask db upgrade`
-   `docker exec -it bellmann_web python seed.py`
-   `docker exec -it bellmann_web python seed_dev.py`
-   `docker exec -it bellmann_web python create_skills.py`
+# 2. Automatisches Setup starten
+./setup.sh
 
-4. **Systemzugriff:**
-   Öffne deinen Webbrowser und rufe `http://localhost:8080` auf.
+=====================================================================================================================================================
+=====================================================================================================================================================
+
+🛠 Manuelle Installation (Alternativ)
+Falls das Setup-Skript in deiner Umgebung nicht ausgeführt werden kann, kannst du das System manuell starten:
+
+Umgebung konfigurieren:
+Erstelle eine Datei namens .env im Hauptverzeichnis (die Vorlage für die benötigten Variablen findest du im setup.sh Skript).
+
+Docker Container starten:
+
+Bash
+docker compose up -d --build
+Datenbank initialisieren:
+Sobald die Container laufen, führe nacheinander diese Befehle aus:
+
+Bash
+docker exec -it bellmann_web flask db upgrade
+docker exec -it bellmann_web python seed.py
+docker exec -it bellmann_web python seed_dev.py
+docker exec -it bellmann_web python create_skills.py
