@@ -27,7 +27,6 @@ def create_app(config_class=Config):
     # Blueprints registrieren
     from app.routes.auth_routes import auth_bp
     from app.routes.event_routes import event_bp
-    from app.routes.ai_routes import ai_bp
     from app.routes.rsvp_routes import rsvp_bp
     from app.routes.skill_routes import skill_bp
     from app.routes.team_routes import team_bp
@@ -37,7 +36,6 @@ def create_app(config_class=Config):
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(event_bp)
-    app.register_blueprint(ai_bp)
     app.register_blueprint(rsvp_bp)
     app.register_blueprint(skill_bp)
     app.register_blueprint(team_bp)

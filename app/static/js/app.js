@@ -25,7 +25,6 @@ document.addEventListener("DOMContentLoaded", () => {
         .then(data => {
             currentUserRole = data.role;
             
-            // Strikte Zuordnung von Registerkartenzugriffen in der UI
             const allowedTabs = {
                 'nav-compare': ['CEO', 'ADMIN', 'TEAM_LEADER'],
                 'nav-logs': ['CEO', 'ADMIN'],
@@ -39,12 +38,6 @@ document.addEventListener("DOMContentLoaded", () => {
                     if (!roles.includes(currentUserRole)) el.classList.add('hidden');
                     else el.classList.remove('hidden');
                 }
-            }
-            
-            const kiSection = document.getElementById('ki-analyzer-section');
-            if (kiSection) {
-                if (currentUserRole === 'TRAINER') kiSection.classList.add('hidden');
-                else kiSection.classList.remove('hidden');
             }
             
             if (document.getElementById("user-name")) {
@@ -68,10 +61,8 @@ document.addEventListener("DOMContentLoaded", () => {
         if (document.getElementById("calendar-container")) {
             renderCalendar(token, document.getElementById("calendar-container"));
         }
-        setupAILogic(token); 
         setupEventCreation(token); 
         setupRSVPModals();
-        setupAIResolveModal(token);
     }
     setupAuth();
 
@@ -270,7 +261,6 @@ function setupEventCreation(token) {
         let s_val = document.getElementById("event-start").value; 
         let e_val = document.getElementById("event-end").value; 
 
-        // Datum normalisieren, um Parsing-Fehler durch regionales Browserformat zu vermeiden
         let start_time = s_val;
         let end_time = e_val;
         if (s_val.includes('.')) {
@@ -323,117 +313,6 @@ function setupEventCreation(token) {
             }
         } catch (err) { 
             errorDiv.innerText = "Netzwerkfehler oder Server nicht erreichbar."; 
-            errorDiv.classList.remove("hidden"); 
-        }
-    });
-}
-
-function setupAILogic(token) {
-    const btn = document.getElementById("run-ai-btn");
-    const box = document.getElementById("ai-result-box");
-    const timeframeSelect = document.getElementById("ai-timeframe");
-    const actionContainer = document.getElementById("ai-action-container");
-
-    btn?.addEventListener("click", async () => {
-        if (!globalCalendar) return;
-        
-        const timeframe = timeframeSelect.value;
-        const events = timeframe === "visible" ? globalCalendar.getEvents().map(e => ({ title: e.title, start: e.startStr, end: e.endStr })) : [];
-
-        btn.disabled = true;
-        box.classList.remove("hidden");
-        actionContainer.innerHTML = "";
-        
-        const loadingMsgs = ["Sammle Kalenderdaten...", "Kontaktiere Ollama KI...", "Analysiere Konflikte...", "Erstelle Bericht..."];
-        let msgIdx = 0;
-        box.innerHTML = `<span class='text-emerald-600 font-medium animate-pulse'>${loadingMsgs[msgIdx]}</span>`;
-        const msgInterval = setInterval(() => {
-            msgIdx = (msgIdx + 1) % loadingMsgs.length;
-            box.innerHTML = `<span class='text-emerald-600 font-medium animate-pulse'>${loadingMsgs[msgIdx]}</span>`;
-        }, 2000);
-        
-        try {
-            const res = await fetch("/api/v1/ai/analyze", {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-                body: JSON.stringify({ events, timeframe })
-            });
-            const data = await res.json();
-            clearInterval(msgInterval);
-            
-            if (res.ok) {
-                let cleanHtml = data.analysis.replace(/```html/gi, '').replace(/```/g, '').trim();
-                box.innerHTML = `<div class='text-gray-800 text-sm pl-2'>${cleanHtml}</div>`;
-                
-                const actionBtn = document.createElement("button");
-                actionBtn.id = "btn-open-resolve";
-                actionBtn.className = "w-full mt-4 bg-emerald-100 text-emerald-800 border border-emerald-300 py-2 rounded text-sm font-bold hover:bg-emerald-200 transition shadow-sm";
-                actionBtn.innerText = "⚡ Termine anpassen & Konflikt lösen";
-                
-                actionBtn.onclick = () => {
-                    const eventSelect = document.getElementById("resolve-event-select");
-                    const resolveModal = document.getElementById("ai-resolve-modal");
-                    
-                    eventSelect.innerHTML = "<option value=''>-- Wähle einen Termin --</option>";
-                    globalCalendar.getEvents().forEach(e => {
-                        const opt = document.createElement("option");
-                        opt.value = e.id;
-                        opt.innerText = `${e.title} (${e.start.toLocaleDateString()} ${e.start.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})})`;
-                        eventSelect.appendChild(opt);
-                    });
-                    resolveModal.classList.remove("hidden");
-                };
-                actionContainer.appendChild(actionBtn);
-            } else {
-                box.innerHTML = `<span class='text-red-600'>Fehler: ${data.error}</span>`;
-            }
-        } catch (err) { 
-            clearInterval(msgInterval);
-            box.innerHTML = "<span class='text-red-600'>Netzwerkfehler.</span>"; 
-        } finally { 
-            btn.innerText = "Konflikte analysieren"; 
-            btn.disabled = false; 
-        }
-    });
-}
-
-function setupAIResolveModal(token) {
-    const resolveModal = document.getElementById("ai-resolve-modal");
-    const closeResolveBtn = document.getElementById("close-resolve-btn");
-    const resolveForm = document.getElementById("ai-resolve-form");
-    const eventSelect = document.getElementById("resolve-event-select");
-
-    closeResolveBtn?.addEventListener("click", () => {
-        resolveModal.classList.add("hidden");
-        resolveForm.reset();
-    });
-
-    resolveForm?.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const eventId = eventSelect.value;
-        const newStart = document.getElementById("resolve-start").value;
-        const newEnd = document.getElementById("resolve-end").value;
-        const errorDiv = document.getElementById("resolve-error");
-
-        try {
-            const response = await fetch(`/api/v1/events/${eventId}`, {
-                method: "PUT",
-                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-                body: JSON.stringify({ start_time: newStart, end_time: newEnd })
-            });
-            const data = await response.json();
-            
-            if (response.ok) {
-                resolveModal.classList.add("hidden");
-                resolveForm.reset();
-                globalCalendar.refetchEvents();
-                document.getElementById("ai-result-box").innerHTML = "<span class='text-emerald-700 font-bold'>Konflikt erfolgreich gelöst! ✓</span>";
-            } else {
-                errorDiv.innerText = data.error || "Fehler beim Verschieben."; 
-                errorDiv.classList.remove("hidden");
-            }
-        } catch (err) { 
-            errorDiv.innerText = "Netzwerkfehler."; 
             errorDiv.classList.remove("hidden"); 
         }
     });

@@ -1,11 +1,7 @@
 from typing import Optional, Tuple, List
-import csv
-import io
-import secrets
 from werkzeug.security import generate_password_hash
 from app import db
 from app.models import AuditLog, Role, User
-from app.services.email_service import EmailService
 
 
 class UserService:
@@ -149,73 +145,42 @@ class UserService:
             return False, "Datenbankfehler.", 500
 
     @staticmethod
-    def import_csv(file, actor_id: int) -> Tuple[dict, int]:
-        try:
-            stream = io.StringIO(file.stream.read().decode("UTF8"), newline=None)
-            reader = csv.DictReader(stream)
-        except Exception:
-            return {
-                "error": "Konnte die Datei nicht lesen. Bitte UTF-8 CSV verwenden."
-            }, 400
+    def delete_user(target_user_id: int, actor_id: int):
+        target_user = db.session.get(User, target_user_id)
+        if not target_user:
+            return False, "Benutzer nicht gefunden.", 404
+        if target_user.id == actor_id:
+            return False, "Du kannst dich nicht selbst löschen.", 400
 
-        roles_cache = {r.name: r for r in Role.query.all()}
-        success_count, errors = 0, []
+        from app.models import Event, EventRSVP, Team, AuditLog
 
-        for row_idx, row in enumerate(reader, start=1):
-            email = (row.get("email") or "").strip().lower()
-            first_name = (row.get("first_name") or "").strip()
-            last_name = (row.get("last_name") or "").strip()
-            role_name = (row.get("role") or "TRAINER").strip().upper()
-
-            if not email or not first_name or not last_name:
-                errors.append(f"Zeile {row_idx}: Pflichtfelder fehlen.")
-                continue
-            if User.query.filter_by(email=email).first():
-                errors.append(f"Zeile {row_idx}: E-Mail {email} existiert bereits.")
-                continue
-            role = roles_cache.get(role_name)
-            if not role:
-                errors.append(f"Zeile {row_idx}: Rolle '{role_name}' ungültig.")
-                continue
-
-            raw_password = secrets.token_urlsafe(8)
-            user = User(
-                email=email,
-                password_hash=generate_password_hash(raw_password),
-                first_name=first_name,
-                last_name=last_name,
-                role_id=role.id,
-                is_active=True,
+        if Event.query.filter_by(created_by_id=target_user_id).first():
+            return (
+                False,
+                "Benutzer hat bereits eigene Termine erstellt. Bitte 'Deaktivieren' nutzen.",
+                409,
             )
-            db.session.add(user)
-            db.session.flush()
+
+        try:
+            Event.query.filter_by(assigned_to_id=target_user_id).update(
+                {Event.assigned_to_id: None, Event.reallocation_required: True}
+            )
+            EventRSVP.query.filter_by(user_id=target_user_id).delete()
+            Team.query.filter_by(team_leader_id=target_user_id).update(
+                {Team.team_leader_id: None}
+            )
 
             db.session.add(
                 AuditLog(
                     user_id=actor_id,
-                    action="IMPORT_USER_CSV",
-                    details_json={
-                        "created_id": user.id,
-                        "email": email,
-                        "role": role.name,
-                    },
+                    action="DELETE_USER",
+                    details_json={"deleted_email": target_user.email},
                 )
             )
 
-            try:
-                msg = f"Hallo {first_name},\n\ndein Account ist bereit.\nLogin: {email}\nPasswort: {raw_password}\n\nViele Grüße!"
-                EmailService.send_email(email, "Dein Bellmann Calendar Account", msg)
-            except Exception:
-                pass
-
-            success_count += 1
-
-        try:
+            db.session.delete(target_user)
             db.session.commit()
-            return {
-                "message": f"Import fertig. {success_count} Benutzer erstellt.",
-                "errors": errors,
-            }, 200
+            return True, None, 200
         except Exception as e:
             db.session.rollback()
-            return {"error": f"Datenbankfehler: {str(e)}"}, 500
+            return False, f"Datenbank-Sperre: {str(e)}", 500

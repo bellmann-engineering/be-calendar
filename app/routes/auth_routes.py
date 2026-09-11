@@ -168,3 +168,35 @@ def forgot_password():
         ),
         200,
     )
+
+
+@auth_bp.route("/users/<int:user_id>/revoke-tl", methods=["PUT"])
+@jwt_required()
+@role_required("CEO", "ADMIN")
+def revoke_tl_role(user_id):
+    from app.services.admin_service import AdminService
+
+    result, code = AdminService.revoke_team_leader_role(
+        user_id, int(get_jwt_identity())
+    )
+    return jsonify(result), code
+
+
+@auth_bp.route("/users/<int:user_id>/revoke-role", methods=["PUT"])
+@jwt_required()
+@role_required("CEO", "ADMIN")
+def revoke_elevated_role_route(user_id):
+    from app.services.admin_service import AdminService
+
+    result, code = AdminService.revoke_elevated_role(user_id, int(get_jwt_identity()))
+    return jsonify(result), code
+
+
+@auth_bp.route("/users/<int:user_id>", methods=["DELETE"])
+@jwt_required()
+@role_required("CEO", "ADMIN")
+def delete_user_route(user_id):
+    success, msg, code = UserService.delete_user(user_id, int(get_jwt_identity()))
+    if not success:
+        return jsonify({"error": msg}), code
+    return jsonify({"message": "Benutzer erfolgreich und endgültig gelöscht."}), 200

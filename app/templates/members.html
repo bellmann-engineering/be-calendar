@@ -131,14 +131,9 @@
 let allAvailableSkills = [];
 
 window.toggleSkillsVisibility = () => {
-    const role = document.getElementById("m-role").value;
+    // Qualifikationen für ALLE Rollen freigeschaltet
     const wrapper = document.getElementById("m-skills-wrapper");
-    if (role === 'TRAINER') {
-        wrapper.classList.remove('opacity-50', 'pointer-events-none');
-    } else {
-        wrapper.classList.add('opacity-50', 'pointer-events-none');
-        document.querySelectorAll('.m-skill-checkbox').forEach(cb => cb.checked = false);
-    }
+    wrapper.classList.remove('opacity-50', 'pointer-events-none');
 };
 
 // --- USER MANAGEMENT ---
@@ -235,13 +230,12 @@ document.addEventListener("DOMContentLoaded", async () => {
             if (res.ok) { 
                 const targetUserId = id || data.user_id;
                 
-                if (payload.role === 'TRAINER') {
-                    await fetch(`/api/v1/skills/users/${targetUserId}`, {
-                        method: "PUT",
-                        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, 
-                        body: JSON.stringify({ skill_ids: checkedSkills })
-                    });
-                }
+                // Speichert Skills nun unabhängig von der Rolle
+                await fetch(`/api/v1/skills/users/${targetUserId}`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, 
+                    body: JSON.stringify({ skill_ids: checkedSkills })
+                });
                 
                 document.getElementById('manual-modal').classList.add('hidden'); 
                 document.getElementById("manual-form").reset(); 
@@ -289,6 +283,15 @@ async function loadUsers() {
     const users = await res.json();
     tbody.innerHTML = users.map(u => {
         const skillArrayStr = JSON.stringify(u.skill_ids || []);
+        
+        // CEO vs Admin Sichtbarkeitslogik
+        let deleteBtn = `<button onclick="deleteUser(${u.id})" class="text-[11px] font-bold px-3 py-1.5 rounded border border-red-500 text-red-600 hover:bg-red-50 transition mr-2">Löschen</button>`;
+        let revokeBtn = '';
+        if ((currentUserRole === 'CEO' && (u.role === 'ADMIN' || u.role === 'TEAM_LEADER')) || 
+            (currentUserRole === 'ADMIN' && u.role === 'TEAM_LEADER')) {
+            revokeBtn = `<button onclick="revokeRole(${u.id}, '${u.role}')" class="text-[11px] font-bold px-3 py-1.5 rounded border border-orange-300 text-orange-600 hover:bg-orange-50 transition mr-2">Rechte entziehen</button>`;
+        }
+
         return `
         <tr class="hover:bg-gray-50 transition">
             <td class="p-3 font-medium text-[#1A365D]">${u.first_name} ${u.last_name}</td>
@@ -301,6 +304,8 @@ async function loadUsers() {
                 </span>
             </td>
             <td class="p-3 text-right">
+                ${deleteBtn}
+                ${revokeBtn}
                 <button onclick='openManualModal(${u.id}, "${u.first_name.replace(/"/g, '&quot;')}", "${u.last_name.replace(/"/g, '&quot;')}", "${u.email}", "${u.role}", "${skillArrayStr.replace(/"/g, '&quot;')}")' class="text-[11px] font-bold px-3 py-1.5 rounded border border-blue-300 text-blue-600 hover:bg-blue-50 transition mr-2">Bearbeiten</button>
                 <button onclick="toggleStatus(${u.id})" class="text-[11px] font-bold px-3 py-1.5 rounded border ${u.is_active ? 'border-red-300 text-red-600 hover:bg-red-50' : 'border-emerald-300 text-emerald-600 hover:bg-emerald-50'} transition">
                     ${u.is_active ? 'Deaktivieren' : 'Aktivieren'}
@@ -310,6 +315,18 @@ async function loadUsers() {
     `}).join('');
 }
 
+window.revokeRole = async function(id, currentRole) {
+    if(!confirm(`Bist du sicher, dass du die Rechte (${currentRole}) dieses Benutzers entziehen und ihn auf 'TRAINER' zurückstufen möchtest?`)) return;
+    const token = localStorage.getItem("access_token");
+    const res = await fetch(`/api/v1/auth/users/${id}/revoke-role`, { method: "PUT", headers: { "Authorization": `Bearer ${token}` } });
+    const data = await res.json();
+    if(res.ok) {
+        alert(data.message);
+        loadUsers(); // Erzwingt das sofortige Neuladen der Tabelle
+    } else {
+        alert(data.error || "Fehler beim Entziehen der Rechte.");
+    }
+};
 async function toggleStatus(id) {
     const token = localStorage.getItem("access_token");
     const res = await fetch(`/api/v1/auth/${id}/status`, { method: "PUT", headers: { "Authorization": `Bearer ${token}` } });
@@ -376,6 +393,21 @@ window.deleteSkill = async (id) => {
     if (allSkillsRes.ok) {
         const skillData = await allSkillsRes.json();
         allAvailableSkills = skillData.skills;
+    }
+};
+
+
+
+window.deleteUser = async function(id) {
+    if(!confirm("Möchtest du diesen Benutzer WIRKLICH endgültig löschen? Dies kann nicht rückgängig gemacht werden.")) return;
+    const token = localStorage.getItem("access_token");
+    const res = await fetch(`/api/v1/auth/users/${id}`, { method: "DELETE", headers: { "Authorization": `Bearer ${token}` } });
+    const data = await res.json();
+    if(res.ok) {
+        alert(data.message);
+        loadUsers();
+    } else {
+        alert(data.error);
     }
 };
 </script>

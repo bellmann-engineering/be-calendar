@@ -13,10 +13,8 @@ Flask-JWT-Extended==4.6.0          # Sitzungsverwaltung, Access-Tokens und Recht
 python-dotenv==1.0.1               # Laden von Zugangsdaten und Secrets aus der .env-Datei
 
 # --- Service-Integration & KI ---
-requests==2.31.0                   # HTTP-Client für die Kommunikation mit der Ollama-API (KI)
 
 # --- Berichterstellung ---
-reportlab==4.1.0                   # Engine zur Generierung von PDF-Berichten und Audit-Logs
 
 # --- Produktions-Server ---
 gunicorn                           # WSGI-Server für das Docker-Deployment

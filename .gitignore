@@ -17,4 +17,4 @@ postgres_data/
 .DS_Store
 
 # Temporär generierte Dateien
-proyecto_status*.txt
+projekt_status*.txt

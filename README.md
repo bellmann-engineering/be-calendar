@@ -1,15 +1,14 @@
 **Bellmann Calendar System**
 
-Kalender-Managementsystem mit KI-Integration (Ollama) zur Erkennung und Lösung von Terminkonflikten.
+Kalender-Managementsystem.
 
 **Voraussetzungen**
 1. Docker und Docker Compose sind installiert.
-2. Ollama ist lokal installiert (oder im Netzwerk erreichbar) und das Modell `qwen2.5:7b` wurde heruntergeladen.
 
 **Installationsanleitung**
 
 1. **Umgebung konfigurieren:**
-   in `.env`: Passe die Datenbankvariablen, die Administrator-Anmeldeinformationen und die URL deiner Ollama-Instanz an.
+   in `.env`: Passe die Datenbankvariablen, die Administrator-Anmeldeinformationen an.
 
 2. **Container starten:**
    Erstelle und starte die Datenbank, das Flask-Backend und den Nginx-Server mit folgendem Befehl:
