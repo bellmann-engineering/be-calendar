@@ -17,7 +17,8 @@ Wer steuert diese Seite?
 
 Welche Backend-Endpunkte werden (über dashboard.js) genutzt?
   GET/POST/PUT/DELETE /api/v1/events, PUT /api/v1/events/<id>/rsvp,
-  GET /api/v1/auth/trainers, GET /api/v1/customers
+  GET /api/v1/auth/trainers, GET /api/v1/customers,
+  GET /api/v1/google/busy (eigene private Belegt-Zeiten, Hintergrundblöcke)
 
 Abhängigkeiten:
   FullCalendar 6 (selbst gehostet: dist/vendor/fullcalendar.min.js,
@@ -97,6 +98,8 @@ Sichtbarkeit:
             <span class="inline-flex items-center gap-2"><span class="size-2.5 rounded-full bg-brand-600"></span>Termin (Farbe = Kunde)</span>
             <span class="inline-flex items-center gap-2"><span class="size-2.5 rounded-full bg-[#dc2626]"></span>Abgelehnt – neu zuweisen (gestreift)</span>
             <span class="inline-flex items-center gap-2"><span class="h-0.5 w-4 bg-danger"></span>Aktuelle Uhrzeit</span>
+            {# Nur sichtbar, wenn Google verbunden ist und der Benutzer private Belegt-Zeiten hat (dashboard.js::loadGoogleBusy) #}
+            <span id="busy-legend" class="inline-flex items-center gap-2" hidden><span class="bc-google-busy h-2.5 w-4 rounded-sm border border-line-strong" aria-hidden="true"></span>Privat belegt (Google)</span>
         </div>
     </section>
 </div>

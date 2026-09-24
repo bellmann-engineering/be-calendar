@@ -9,6 +9,8 @@ Zweck:
     - Einzelnen Mitarbeiter anlegen / bearbeiten (Dialog "manual-modal")
     - CSV-Massenimport (Dialog "csv-modal")
     - Aktivieren/Deaktivieren, Rechte entziehen, endgültig löschen
+    - Karte "Google-Kalender": Google-Konto verbinden/trennen und je
+      Mitarbeiter einen Google-Kalender zuordnen (Feld im Dialog)
 
 Logik: js/pages/members.js (Endpunkte siehe dort).
 
@@ -40,6 +42,26 @@ Sicherheit:
         <button type="button" id="open-manual-btn" class="btn btn-primary">{{ icon('plus') }}Mitarbeiter anlegen</button>
     </div>
 </div>
+
+{# ---------- Google-Kalender: Verbindungsstatus (befüllt members.js::renderGoogleCard) ---------- #}
+<section id="google-card" class="card mb-6" aria-labelledby="google-heading">
+    <div class="flex flex-col gap-4 p-5 md:flex-row md:items-center">
+        <div class="flex min-w-0 flex-1 items-start gap-4">
+            <div class="stat-icon bg-accent-soft text-accent">{{ icon('calendar-sync') }}</div>
+            <div class="min-w-0 flex-1">
+                <div class="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                    <h2 id="google-heading" class="card-title">Google-Kalender</h2>
+                    <span id="google-badge" class="badge badge-dot badge-gray">Wird geprüft …</span>
+                </div>
+                {# aria-live: Screenreader hören, wenn sich der Verbindungszustand ändert #}
+                <div id="google-details" class="mt-1 space-y-0.5 text-sm text-fg-muted" aria-live="polite">
+                    <span class="skeleton inline-block h-4 w-64 max-w-full align-middle" aria-hidden="true"></span>
+                </div>
+            </div>
+        </div>
+        <div id="google-actions" class="flex flex-wrap gap-2 md:justify-end"></div>
+    </div>
+</section>
 
 <section class="card overflow-hidden" aria-labelledby="members-heading">
     <h2 id="members-heading" class="sr-only">Mitarbeiterliste</h2>
@@ -149,7 +171,22 @@ anna.muster@firma.de,Anna,Muster,TRAINER</pre>
                     <option value="TRAINER">Trainer</option>
                     <option value="TEAM_LEADER">Teamleitung</option>
                     <option value="ADMIN">Administrator</option>
+                    {# Nur sichtbar, wenn ein CEO bearbeitet wird oder der Betrachter CEO ist (members.js) #}
+                    <option value="CEO" id="m-role-ceo" hidden disabled>CEO</option>
                 </select>
+            </div>
+            <div class="sm:col-span-2">
+                {# for= zeigt auf das gerade sichtbare Feld (Auswahl ODER Texteingabe), members.js::prepareGoogleField #}
+                <label class="label" id="m-gcal-label" for="m-gcal-select">Google-Kalender <span class="label-optional">(optional)</span></label>
+                <div class="flex flex-col gap-2 sm:flex-row">
+                    {# Verbunden: Auswahl aus GET /api/v1/google/calendars #}
+                    <select id="m-gcal-select" class="input sm:min-w-0 sm:flex-1" aria-describedby="m-gcal-status m-gcal-help"></select>
+                    {# Nicht verbunden: Kalender-ID von Hand (z. B. Gmail-Adresse) #}
+                    <input type="text" id="m-gcal-input" maxlength="255" autocomplete="off" spellcheck="false" class="input sm:min-w-0 sm:flex-1" placeholder="z. B. anna.muster@gmail.com" aria-describedby="m-gcal-status m-gcal-help" hidden>
+                    <button type="button" id="m-gcal-check" class="btn btn-secondary">{{ icon('check-circle') }}Verbindung prüfen</button>
+                </div>
+                <p id="m-gcal-status" class="hint" aria-live="polite"></p>
+                <p id="m-gcal-help" class="hint">Für die Übertragung von Terminen braucht das verbundene Konto mindestens „Bearbeiten“-Rechte; für die Belegt-Anzeige reicht „Nur Frei/Belegt“.</p>
             </div>
             <div id="manual-error" class="alert alert-error sm:col-span-2" role="alert" hidden></div>
         </div>

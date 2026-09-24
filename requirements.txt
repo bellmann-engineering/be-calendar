@@ -27,6 +27,8 @@ tzdata==2026.4                     # Zeitzonendatenbank für zoneinfo (fehlt im 
 gunicorn==26.2.0                   # WSGI-Server (gthread-Worker, siehe gunicorn.conf.py)
 
 # --- Google Calendar API ---
+cryptography==50.0.1               # verschlüsselt das Google-Refresh-Token in der Datenbank
+requests==2.34.2                   # Token-Widerruf und Kontoadresse bei Google (OAuth)
 google-api-python-client==2.118.0
 google-auth-httplib2==0.2.0
 google-auth-oauthlib==1.2.0

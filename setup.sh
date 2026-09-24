@@ -68,9 +68,6 @@ else
     echo "==> .env existiert bereits – wird nicht verändert."
 fi
 
-# Ordner für den Google-Service-Account (optional, read-only in den Container gemountet).
-mkdir -p secrets
-
 # TLS-Zertifikat für Nginx (selbstsigniert, falls noch keins existiert).
 ./scripts/generate_dev_cert.sh
 

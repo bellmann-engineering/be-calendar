@@ -19,12 +19,14 @@
  *   PUT    /api/v1/events/<id>/rsvp           → Zusage/Absage (Trainer)
  *   GET    /api/v1/auth/trainers              → Mitarbeiter für Zuweisungen
  *   GET    /api/v1/customers                  → Kunden (Farben, Formular)
+ *   GET    /api/v1/google/busy?start=...&end=... → eigene private Belegt-Zeiten
+ *                                               aus Google (Hintergrundblöcke)
  *
  * Abhängigkeiten:
  *   - FullCalendar 6 (global "FullCalendar", dist/vendor/fullcalendar.min.js)
  *   - app.js (apiFetch, readJson, getCurrentUser, toUtcIso, toDatetimeLocal,
  *     toDateLocal, isSafeHttpUrl, isValidHexColor, DEFAULT_EVENT_COLOR,
- *     PLANNER_ROLES)
+ *     PLANNER_ROLES, fetchGoogleBusyEvents)
  *   - ui.js (h, icon, toast, confirmDialog, openDialog, closeDialog,
  *     setBusy, showFormError, hideFormError, readableTextColor)
  *
@@ -287,21 +289,13 @@ function renderCalendar(container) {
         height: "auto",
         expandRows: true,
         dayMaxEvents: true,
-        events: async function (fetchInfo, successCallback, failureCallback) {
-            try {
-                // encodeURIComponent ist nötig, weil startStr ein "+" enthält
-                // (z. B. +02:00), das in einer URL sonst als Leerzeichen gilt.
-                const url = `/api/v1/events?start=${encodeURIComponent(fetchInfo.startStr)}&end=${encodeURIComponent(fetchInfo.endStr)}`;
-                const response = await apiFetch(url);
-                if (!response.ok) throw new Error("Fehler beim Laden");
-                const data = await readJson(response);
-                successCallback((Array.isArray(data) ? data : []).map(toCalendarEvent));
-            } catch (error) {
-                toast("Termine konnten nicht geladen werden.", "error");
-                failureCallback(error);
-            }
+        // Zwei Quellen: 1. Termine aus der App, 2. eigene Belegt-Zeiten aus Google.
+        eventSources: [loadCalendarEvents, loadGoogleBusy],
+        eventClick: info => {
+            // Hintergrundblöcke (Google belegt) haben keine Details.
+            if (info.event.extendedProps.googleBusy) return;
+            openEventDetails(info.event);
         },
-        eventClick: info => openEventDetails(info.event),
         // Klick auf eine freie Stelle: Planer legen direkt dort einen Termin an.
         dateClick: info => {
             if (!isPlanner()) return;
@@ -324,6 +318,44 @@ function renderCalendar(container) {
         },
     });
     calendar.render();
+}
+
+/**
+ * Event-Quelle 1: Termine aus der App im sichtbaren Zeitraum.
+ * Spricht mit: GET /api/v1/events?start=...&end=...
+ * @param {object} fetchInfo - Zeitraum von FullCalendar.
+ * @param {Function} successCallback
+ * @param {Function} failureCallback
+ */
+async function loadCalendarEvents(fetchInfo, successCallback, failureCallback) {
+    try {
+        // encodeURIComponent ist nötig, weil startStr ein "+" enthält
+        // (z. B. +02:00), das in einer URL sonst als Leerzeichen gilt.
+        const url = `/api/v1/events?start=${encodeURIComponent(fetchInfo.startStr)}&end=${encodeURIComponent(fetchInfo.endStr)}`;
+        const response = await apiFetch(url);
+        if (!response.ok) throw new Error("Fehler beim Laden");
+        const data = await readJson(response);
+        successCallback((Array.isArray(data) ? data : []).map(toCalendarEvent));
+    } catch (error) {
+        toast("Termine konnten nicht geladen werden.", "error");
+        failureCallback(error);
+    }
+}
+
+/**
+ * Event-Quelle 2: eigene private Belegt-Zeiten aus Google (nur Zeiträume,
+ * keine Titel) als grau gestreifte Hintergrundblöcke. Ohne Verbindung,
+ * ohne zugeordneten Kalender oder bei Fehlern: keine Blöcke, kein Toast.
+ * Der Legenden-Eintrag erscheint nur, wenn es Blöcke gibt.
+ * Spricht mit: GET /api/v1/google/busy (über app.js::fetchGoogleBusyEvents)
+ * @param {object} fetchInfo - Zeitraum von FullCalendar.
+ * @param {Function} successCallback
+ */
+async function loadGoogleBusy(fetchInfo, successCallback) {
+    const blocks = await fetchGoogleBusyEvents(fetchInfo.startStr, fetchInfo.endStr, null, "Privat belegt (Google)");
+    // Einmal sichtbar, bleibt der Eintrag stehen (sonst "springt" die Legende beim Blättern).
+    if (blocks.length) document.getElementById("busy-legend").hidden = false;
+    successCallback(blocks);
 }
 
 /**

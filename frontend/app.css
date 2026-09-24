@@ -462,7 +462,9 @@
     /* --- Tabellen ------------------------------------------------------------ */
     /* Unter 768 px wird jede Zeile zur Karte (tr/td = block), darüber echte Tabelle. */
     .table {
-        @apply w-full text-left text-sm;
+        /* table-fixed nur mobil: sonst macht eine lange E-Mail die Tabelle breiter als
+           den Bildschirm und die Aktions-Buttons rutschen aus der Karte. */
+        @apply w-full table-fixed text-left text-sm md:table-auto;
     }
 
     .table thead {
@@ -845,6 +847,43 @@
         rgb(255 255 255 / 0.16) 0 6px,
         transparent 6px 12px
     );
+}
+
+/* Private Belegt-Zeiten aus Google (Hintergrundblöcke + Legende): grau gestreift,
+   damit sie klar als "nicht verfügbar, ohne Details" erkennbar sind – auch ohne
+   Farbsehen. Nur Tokens → passt sich dem Dunkelmodus automatisch an. */
+.bc-google-busy,
+.fc .fc-bg-event.bc-google-busy {
+    background-color: color-mix(in srgb, var(--bc-fg-subtle) 14%, transparent);
+    background-image: repeating-linear-gradient(
+        135deg,
+        color-mix(in srgb, var(--bc-fg-subtle) 30%, transparent) 0 3px,
+        transparent 3px 9px
+    );
+}
+
+/* FullCalendar setzt für Hintergrundereignisse per "background"-Kurzschreibweise
+   eine grüne Standardfarbe + opacity 0.3. Deshalb steht die Regel oben zusätzlich
+   mit ".fc .fc-bg-event" (gleiche Spezifität wie FullCalendar, später geladen). */
+.fc .fc-bg-event.bc-google-busy {
+    opacity: 1;
+    cursor: default;
+    box-shadow: none;
+    border-radius: 0;
+    border-left: 3px solid var(--bc-line-strong);
+}
+
+.fc .fc-bg-event.bc-google-busy:hover {
+    filter: none;
+    box-shadow: none;
+}
+
+.fc .fc-bg-event.bc-google-busy .fc-event-title {
+    margin: 0.25rem 0.4rem;
+    font-size: 0.6875rem;
+    font-style: normal;
+    font-weight: 600;
+    color: var(--bc-fg-muted);
 }
 
 .fc .fc-timegrid-now-indicator-line {

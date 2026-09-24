@@ -25,6 +25,7 @@ Kalender- und Einsatzplanung für **Bellmann Engineering**: Termine anlegen und 
 3. [Updates einspielen](#updates-einspielen)
 4. [Konfiguration (.env)](#konfiguration-env)
 5. [E-Mail-Versand (SMTP)](#e-mail-versand-smtp)
+   - [Google-Kalender anbinden](#google-kalender-anbinden)
 6. [HTTPS und Zertifikate](#https-und-zertifikate)
 7. [Datensicherung und Wiederherstellung](#datensicherung-und-wiederherstellung)
 8. [Lokale Entwicklung](#lokale-entwicklung)
@@ -82,7 +83,7 @@ Danach im Browser öffnen: **https://localhost:8443**
 Die Zertifikatswarnung des Browsers einmalig bestätigen (selbstsigniertes Zertifikat, siehe [HTTPS](#https-und-zertifikate)).
 Login-Daten: `DEV_USER_EMAIL` / `DEV_USER_PASSWORD` aus der `.env` – das Passwort nach dem ersten Login ändern.
 
-Optional Google Calendar: Service-Account-Datei als `secrets/google_credentials.json` ablegen (wird read-only in den Container eingehängt).
+Optional Google Kalender: siehe [Google-Kalender anbinden](#google-kalender-anbinden).
 
 ---
 
@@ -135,6 +136,44 @@ SMTP_PASSWORD=...
 MAIL_DEFAULT_SENDER=kalender@bellmann-engineering.com
 ```
 Der Versand erfolgt per STARTTLS, im Hintergrund und erst **nach** dem erfolgreichen Speichern in der Datenbank. Fehler stehen im Log: `docker compose logs web | grep -i mail`.
+
+---
+
+### Google-Kalender anbinden
+
+Ein CEO/Admin verbindet **einmalig sein Google-Konto**. Danach stehen alle Kalender, die dieses Konto in Google Kalender sieht, zur Zuordnung an Mitarbeiter bereit.
+
+**Was die Anbindung macht**
+
+| Funktion | Voraussetzung (Freigabe des Mitarbeiter-Kalenders für das verbundene Konto) |
+|---|---|
+| Kollisionsprüfung gegen private Termine | mind. „Nur Frei/Belegt sehen“ |
+| Graue „Belegt“-Blöcke im Kalender und in der Vergleichsansicht (nur Zeiten, **keine Titel**) | mind. „Nur Frei/Belegt sehen“ |
+| Termine automatisch übertragen: anlegen, verschieben, bei Neu-Zuweisung umziehen, bei Absage/Löschen entfernen | „Änderungen an Terminen vornehmen“ |
+
+**Einrichtung (einmalig, ca. 10 Minuten – durch den Inhaber des Google-Kontos)**
+
+1. [Google Cloud Console](https://console.cloud.google.com/) öffnen → neues Projekt anlegen, z. B. „Bellmann Calendar“.
+2. *APIs & Dienste → Bibliothek* → **Google Calendar API** aktivieren.
+3. *Google Auth Platform → Branding*: App-Name „Bellmann Calendar“ und Support-E-Mail eintragen. *Zielgruppe*: Nutzertyp **Extern**, danach Veröffentlichungsstatus auf **„In Produktion“** setzen.
+   > Im Status „Test“ laufen die Zugänge nach **7 Tagen** ab und müssten ständig neu verbunden werden. Beim Verbinden zeigt Google für nicht geprüfte Apps einen Warnhinweis – über „Erweitert → Weiter zu Bellmann Calendar“ bestätigen. Für die interne Nutzung ist keine Google-Prüfung nötig.
+4. *Clients → Client erstellen*: Typ **Webanwendung**, unter *Autorisierte Weiterleitungs-URIs* exakt eintragen:
+   `https://localhost:8443/api/v1/google/oauth/callback`
+   (später zusätzlich die echte Adresse, z. B. `https://kalender.bellmann-engineering.com/api/v1/google/oauth/callback`).
+5. Client-ID und Clientschlüssel in die `.env` eintragen und neu starten:
+   ```
+   GOOGLE_OAUTH_CLIENT_ID=123456-abc.apps.googleusercontent.com
+   GOOGLE_OAUTH_CLIENT_SECRET=GOCSPX-xxxxxxxxxxxx
+   ```
+   ```bash
+   docker compose up -d
+   ```
+6. In der App als CEO/Admin: **Mitarbeiter → „Mit Google verbinden“** → Google-Konto auswählen → Zugriff erlauben.
+7. Pro Mitarbeiter: **Bearbeiten → Google-Kalender** auswählen → **„Verbindung prüfen“** → speichern.
+
+**Sicherheit:** Das Refresh-Token wird verschlüsselt in der Datenbank gespeichert (Schlüssel abgeleitet aus `SECRET_KEY`) und beim Trennen bei Google widerrufen. Wird `SECRET_KEY` rotiert, muss die Verbindung einmal neu hergestellt werden. Weitere Details: [Wissensdatenbank → Google-Calendar-Anbindung](docs/kb/index.html#a-google).
+
+**Hinweis:** Wird einem Mitarbeiter ein anderer Kalender zugeordnet, ziehen bereits übertragene Termine erst bei ihrer nächsten Änderung in den neuen Kalender um.
 
 ---
 

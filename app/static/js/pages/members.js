@@ -6,6 +6,8 @@
  *   Logik der Mitarbeiterverwaltung (members.html, nur CEO/ADMIN):
  *   Liste mit Suche/Filter, Anlegen/Bearbeiten, CSV-Import,
  *   Aktivieren/Deaktivieren, Rechte entziehen, Löschen.
+ *   Dazu die Karte "Google-Kalender": Google-Konto verbinden/trennen,
+ *   Kalenderliste laden und je Mitarbeiter einen Kalender zuordnen.
  *
  * Mit welchen Backend-Endpunkten spricht diese Datei?
  *   GET    /api/v1/auth                        → Benutzerliste
@@ -15,6 +17,17 @@
  *   PUT    /api/v1/auth/<id>/status            → aktiv/gesperrt umschalten
  *   PUT    /api/v1/auth/users/<id>/revoke-role → Rolle auf TRAINER zurücksetzen
  *   POST   /api/v1/auth/csv                    → CSV-Import (multipart "file")
+ *   GET    /api/v1/google/status               → Google konfiguriert/verbunden?
+ *   POST   /api/v1/google/oauth/start          → Anmelde-URL bei Google holen
+ *   POST   /api/v1/google/disconnect           → Verbindung trennen
+ *   GET    /api/v1/google/calendars            → Kalender des verbundenen Kontos
+ *   POST   /api/v1/google/calendars/check      → Zugriff auf einen Kalender prüfen
+ *
+ * Rückkehr von Google:
+ *   Nach der Anmeldung bei Google leitet das Backend auf
+ *   /members?google=verbunden bzw. /members?google=fehler&grund=... um.
+ *   handleGoogleReturn() zeigt dazu einen Toast und entfernt die
+ *   Parameter wieder aus der Adresszeile.
  *
  * Abhängigkeiten:
  *   app.js (apiFetch, readJson, roleLabel, roleBadgeClass),
@@ -42,6 +55,38 @@ let viewerRole = null;
 
 /** Anzahl Tabellenspalten (für leere Zustände über die ganze Breite). */
 const MEMBER_COLUMNS = 5;
+
+/**
+ * Zuletzt geladener Google-Status (GET /api/v1/google/status) oder null,
+ * solange er nicht geladen ist bzw. der Abruf fehlgeschlagen ist.
+ * @type {{configured: boolean, connected: boolean, account_email: ?string, connected_at: ?string, connected_by: ?string}|null}
+ */
+let googleStatus = null;
+
+/**
+ * Kalender des verbundenen Google-Kontos (Cache für den Dialog).
+ * null = noch nicht geladen; googleCalendarsError enthält ggf. den Fehlertext.
+ * @type {Array<object>|null}
+ */
+let googleCalendars = null;
+let googleCalendarsError = null;
+
+/** Laufender Abruf der Kalenderliste (verhindert doppelte Requests). */
+let googleCalendarsPromise = null;
+
+/** Kalender-ID des Mitarbeiters beim Öffnen des Dialogs ("" = keiner). */
+let gcalOriginal = "";
+
+/** Deutsche Bezeichnungen der Google-Zugriffsrechte (access_role). */
+const GOOGLE_ACCESS_ROLES = {
+    owner: "Besitzer",
+    writer: "Bearbeiten",
+    reader: "Nur lesen",
+    freeBusyReader: "Nur Frei/Belegt",
+};
+
+/** Formatierer für "verbunden seit" (z. B. "25.09.2026, 14:05"). */
+const FMT_GOOGLE_DATE = new Intl.DateTimeFormat("de-DE", { dateStyle: "medium", timeStyle: "short" });
 
 /* ------------------------------------------------------------------ */
 /* Liste                                                              */
@@ -123,7 +168,16 @@ function userRow(u) {
             h("div", { class: "flex items-center gap-3" },
                 h("span", { class: "avatar", "aria-hidden": "true", text: initials(u.first_name, u.last_name) }),
                 h("div", { class: "min-w-0" },
-                    h("p", { class: "truncate font-medium text-fg", text: fullName }),
+                    h("p", { class: "flex items-center gap-1.5 font-medium text-fg" },
+                        h("span", { class: "truncate", text: fullName }),
+                        // Kleines Kalender-Icon, wenn ein Google-Kalender zugeordnet ist.
+                        // role="img" + aria-label: Screenreader lesen die Bedeutung vor.
+                        u.google_calendar_id ? h("span", {
+                            class: "inline-flex shrink-0 text-accent", role: "img",
+                            "aria-label": "Google-Kalender verknüpft",
+                            title: `Google-Kalender verknüpft: ${u.google_calendar_id}`,
+                        }, icon("calendar-check", "size-3.5")) : null,
+                    ),
                     h("p", { class: "truncate text-xs text-fg-muted", text: u.email }),
                 ),
             ),
@@ -259,10 +313,18 @@ function openManualModal(user = null) {
     document.getElementById("m-first").value = isEdit ? user.first_name : "";
     document.getElementById("m-last").value = isEdit ? user.last_name : "";
     document.getElementById("m-email").value = isEdit ? user.email : "";
+    // Option "CEO": Nur ein CEO darf die Rolle vergeben (Server prüft das ebenfalls).
+    // Wird ein CEO bearbeitet, muss sie sichtbar sein – sonst wäre das Feld leer und das
+    // Speichern schlüge mit "Rolle existiert nicht" fehl (z. B. Kalender für Kai zuordnen).
+    const ceoOption = document.getElementById("m-role-ceo");
+    const ceoErlaubt = viewerRole === "CEO" || (isEdit && user.role === "CEO");
+    ceoOption.hidden = !ceoErlaubt;
+    ceoOption.disabled = !ceoErlaubt;
     document.getElementById("m-role").value = isEdit ? user.role : "TRAINER";
     document.getElementById("m-pass").required = !isEdit;
     document.getElementById("m-pass-hint").textContent = isEdit ? "(leer lassen = unverändert)" : "";
     document.getElementById("manual-modal-title").textContent = isEdit ? "Mitarbeiter bearbeiten" : "Mitarbeiter anlegen";
+    prepareGoogleField(isEdit ? user.google_calendar_id : "");
     hideFormError("manual-error");
     openDialog("manual-modal");
     document.getElementById("m-first").focus();
@@ -365,6 +427,8 @@ function setupManualForm() {
         };
         const pass = document.getElementById("m-pass").value;
         if (pass) payload.password = pass; // nur senden, wenn wirklich geändert
+        // Leerer Wert → null = Zuordnung entfernen (so erwartet es das Backend).
+        payload.google_calendar_id = getGoogleFieldValue() || null;
 
         const submit = document.getElementById("manual-submit");
         setBusy(submit, true, "Speichert …");
@@ -389,6 +453,363 @@ function setupManualForm() {
 }
 
 /* ------------------------------------------------------------------ */
+/* Google-Kalender: Verbindung (Karte oberhalb der Tabelle)           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Wertet die Rückkehr von der Google-Anmeldung aus (?google=...) und
+ * entfernt die Parameter danach aus der Adresszeile – sonst käme der
+ * Toast bei jedem Neuladen der Seite erneut.
+ */
+function handleGoogleReturn() {
+    const url = new URL(window.location.href);
+    const result = url.searchParams.get("google");
+    if (!result) return;
+    if (result === "verbunden") {
+        toast("Google-Konto verbunden. Die Kalender stehen jetzt zur Zuordnung bereit.");
+    } else if (result === "fehler") {
+        // "grund" kommt aus der URL → nur als Text anzeigen (toast nutzt textContent).
+        const reason = (url.searchParams.get("grund") || "").trim().slice(0, 200);
+        toast(reason ? `Google-Verbindung fehlgeschlagen: ${reason}` : "Google-Verbindung fehlgeschlagen.", "error");
+    }
+    url.searchParams.delete("google");
+    url.searchParams.delete("grund");
+    history.replaceState(history.state, "", url.pathname + url.search + url.hash);
+}
+
+/**
+ * Lädt den Verbindungsstatus und zeichnet die Karte neu.
+ * Ist das Konto verbunden, wird die Kalenderliste gleich mitgeladen,
+ * damit der Mitarbeiter-Dialog sofort die Auswahl anbieten kann.
+ * Spricht mit: GET /api/v1/google/status
+ */
+async function loadGoogleStatus() {
+    try {
+        const res = await apiFetch("/api/v1/google/status");
+        googleStatus = res.ok ? await readJson(res) : null;
+    } catch (err) {
+        googleStatus = null;
+    }
+    googleCalendars = null;
+    googleCalendarsError = null;
+    renderGoogleCard();
+    if (googleStatus && googleStatus.connected) {
+        await loadGoogleCalendars();
+        renderGoogleCard(); // jetzt mit der Anzahl der Kalender
+    }
+}
+
+/**
+ * Lädt die Kalender des verbundenen Google-Kontos (mit Cache).
+ * Spricht mit: GET /api/v1/google/calendars
+ *   409 = nicht (mehr) verbunden, 502 = Google nicht erreichbar.
+ *
+ * @param {boolean} [force=false] - Cache ignorieren und neu laden.
+ * @returns {Promise<boolean>} true = Liste erfolgreich geladen.
+ */
+function loadGoogleCalendars(force = false) {
+    if (googleCalendarsPromise) return googleCalendarsPromise;
+    if (googleCalendars && !force) return Promise.resolve(true);
+    googleCalendarsPromise = (async () => {
+        try {
+            const res = await apiFetch("/api/v1/google/calendars");
+            const data = await readJson(res);
+            if (!res.ok) throw new Error(data.error || "Die Kalenderliste konnte nicht geladen werden.");
+            googleCalendars = Array.isArray(data.calendars) ? data.calendars : [];
+            googleCalendarsError = null;
+            return true;
+        } catch (err) {
+            googleCalendars = null;
+            googleCalendarsError = err.message || "Die Kalenderliste konnte nicht geladen werden.";
+            return false;
+        } finally {
+            googleCalendarsPromise = null;
+        }
+    })();
+    return googleCalendarsPromise;
+}
+
+/**
+ * Zeichnet die Karte "Google-Kalender" passend zum Zustand:
+ *   - Status unbekannt (Fehler), nicht eingerichtet, nicht verbunden, verbunden.
+ * Alle Werte aus der API (E-Mail, Name) landen als Textknoten im DOM.
+ */
+function renderGoogleCard() {
+    const badge = document.getElementById("google-badge");
+    const details = document.getElementById("google-details");
+    const actions = document.getElementById("google-actions");
+    /** Badge umfärben (Klassen aus frontend/app.css). */
+    const setBadge = (cls, text) => { badge.className = `badge badge-dot ${cls}`; badge.textContent = text; };
+
+    if (!googleStatus) {
+        setBadge("badge-red", "Unbekannt");
+        details.replaceChildren(h("p", { text: "Der Status der Google-Anbindung konnte nicht geladen werden." }));
+        actions.replaceChildren(h("button", {
+            type: "button", class: "btn btn-secondary", on: { click: loadGoogleStatus },
+        }, icon("rotate"), "Erneut versuchen"));
+        return;
+    }
+
+    if (!googleStatus.configured) {
+        setBadge("badge-amber", "Nicht eingerichtet");
+        details.replaceChildren(h("p", {
+            text: "Google-Anbindung ist noch nicht eingerichtet – OAuth-Zugangsdaten in der .env fehlen (siehe README).",
+        }));
+        actions.replaceChildren();
+        return;
+    }
+
+    if (!googleStatus.connected) {
+        setBadge("badge-gray", "Nicht verbunden");
+        details.replaceChildren(h("p", {
+            text: "Verbinde dein Google-Konto einmalig. Danach stehen alle Kalender, die du in Google Kalender siehst, zur Zuordnung bereit.",
+        }));
+        actions.replaceChildren(h("button", {
+            type: "button", class: "btn btn-primary", id: "google-connect-btn",
+            on: { click: (e) => startGoogleConnect(e.currentTarget) },
+        }, icon("external"), "Mit Google verbinden"));
+        return;
+    }
+
+    // Verbunden: Konto, seit wann, von wem – und wie viele Kalender verfügbar sind.
+    setBadge("badge-green", "Verbunden");
+    const since = googleStatus.connected_at ? new Date(googleStatus.connected_at) : null;
+    const meta = [
+        since && !isNaN(since.getTime()) ? `Verbunden seit ${FMT_GOOGLE_DATE.format(since)}` : null,
+        googleStatus.connected_by ? `von ${googleStatus.connected_by}` : null,
+    ].filter(Boolean).join(" ");
+    let calendarsLine = null;
+    if (googleCalendarsError) {
+        calendarsLine = h("p", { class: "flex items-center gap-1.5 text-warning" }, icon("alert", "size-3.5 shrink-0"), h("span", { text: googleCalendarsError }));
+    } else if (googleCalendars) {
+        const n = googleCalendars.length;
+        calendarsLine = h("p", { text: n === 1 ? "1 Kalender verfügbar" : `${n} Kalender verfügbar` });
+    }
+    details.replaceChildren(
+        h("p", {},
+            "Konto: ",
+            h("span", { class: "font-medium break-all text-fg", text: googleStatus.account_email || "unbekannt" }),
+        ),
+        meta ? h("p", { text: meta }) : null,
+        calendarsLine,
+    );
+    actions.replaceChildren(
+        h("button", {
+            type: "button", class: "btn btn-secondary", id: "google-reload-btn",
+            on: { click: (e) => reloadGoogleCalendars(e.currentTarget) },
+        }, icon("rotate"), "Kalender neu laden"),
+        h("button", {
+            type: "button", class: "btn btn-soft-danger", id: "google-disconnect-btn",
+            on: { click: disconnectGoogle },
+        }, icon("x-circle"), "Verbindung trennen"),
+    );
+}
+
+/**
+ * Startet die Anmeldung bei Google: Das Backend liefert die Anmelde-URL,
+ * der Browser wechselt komplett dorthin (keine Popups – funktioniert auch
+ * auf dem Smartphone). Google leitet danach zurück auf /members?google=...
+ * Spricht mit: POST /api/v1/google/oauth/start
+ *
+ * @param {HTMLButtonElement} btn
+ */
+async function startGoogleConnect(btn) {
+    setBusy(btn, true, "Weiterleitung …");
+    try {
+        const res = await apiFetch("/api/v1/google/oauth/start", { method: "POST" });
+        const data = await readJson(res);
+        if (!res.ok) throw new Error(data.error || "Die Verbindung konnte nicht gestartet werden.");
+        const target = parseGoogleUrl(data.authorization_url);
+        if (!target) throw new Error("Ungültige Anmelde-Adresse vom Server erhalten.");
+        window.location.assign(target);
+        return; // Seite wird verlassen → Button bleibt im Lade-Zustand
+    } catch (err) {
+        toast(err.message || "Netzwerkfehler.", "error");
+    }
+    setBusy(btn, false);
+}
+
+/**
+ * Prüft die Anmelde-Adresse vom Server: Weitergeleitet wird nur zu Google
+ * (https + google.com bzw. *.google.com) – nie zu einer beliebigen Adresse.
+ * @param {string} value
+ * @returns {?string} Geprüfte URL oder null.
+ */
+function parseGoogleUrl(value) {
+    try {
+        const url = new URL(value);
+        const isGoogle = url.hostname === "google.com" || url.hostname.endsWith(".google.com");
+        return url.protocol === "https:" && isGoogle ? url.href : null;
+    } catch (e) {
+        return null; // keine gültige absolute URL
+    }
+}
+
+/**
+ * Lädt die Kalenderliste neu (z. B. nachdem in Google ein Kalender
+ * freigegeben wurde) und meldet das Ergebnis.
+ * @param {HTMLButtonElement} btn
+ */
+async function reloadGoogleCalendars(btn) {
+    setBusy(btn, true, "Lädt …");
+    const ok = await loadGoogleCalendars(true);
+    setBusy(btn, false);
+    renderGoogleCard();
+    if (ok) {
+        const n = googleCalendars.length;
+        toast(n === 1 ? "1 Kalender geladen." : `${n} Kalender geladen.`);
+    } else {
+        toast(googleCalendarsError, "error");
+    }
+}
+
+/**
+ * Trennt die Verbindung zum Google-Konto (nach Rückfrage).
+ * Spricht mit: POST /api/v1/google/disconnect
+ */
+async function disconnectGoogle() {
+    const ok = await confirmDialog({
+        title: "Google-Verbindung trennen?",
+        message: "Danach werden keine Termine mehr in Google-Kalender übertragen und keine Belegt-Zeiten mehr angezeigt. Die bei den Mitarbeitern hinterlegten Kalender-IDs bleiben gespeichert.",
+        confirmText: "Verbindung trennen",
+    });
+    if (!ok) return;
+    try {
+        const res = await apiFetch("/api/v1/google/disconnect", { method: "POST" });
+        const data = await readJson(res);
+        if (!res.ok) throw new Error(data.error || "Die Verbindung konnte nicht getrennt werden.");
+        toast(data.message || "Google-Verbindung getrennt.");
+    } catch (err) {
+        toast(err.message || "Netzwerkfehler.", "error");
+    }
+    loadGoogleStatus(); // Karte zeigt in jedem Fall den echten Stand
+}
+
+/* ------------------------------------------------------------------ */
+/* Google-Kalender: Feld im Mitarbeiter-Dialog                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Bereitet das Feld "Google-Kalender" im Dialog vor:
+ *   - verbunden     → Auswahlliste aus dem Google-Konto
+ *   - sonst         → Texteingabe für die Kalender-ID
+ * Label (for=) und Hinweistext folgen dem jeweils sichtbaren Feld.
+ *
+ * @param {?string} currentId - Aktuell zugeordnete Kalender-ID.
+ */
+function prepareGoogleField(currentId) {
+    gcalOriginal = currentId || "";
+    document.getElementById("m-gcal-input").value = gcalOriginal;
+    const connected = Boolean(googleStatus && googleStatus.connected);
+    if (connected && !googleCalendars && !googleCalendarsError) {
+        // Liste lädt noch (oder wurde noch nie geladen) → Platzhalter, danach füllen.
+        showGoogleField("select", "Kalender werden geladen …");
+        const select = document.getElementById("m-gcal-select");
+        select.replaceChildren(new Option("Kalender werden geladen …", ""));
+        select.disabled = true;
+        loadGoogleCalendars().then(() => {
+            // Nur füllen, wenn der Dialog noch offen ist (sonst beim nächsten Öffnen).
+            if (document.getElementById("manual-modal").open) fillGoogleField();
+        });
+        return;
+    }
+    fillGoogleField();
+}
+
+/**
+ * Füllt das Feld anhand des aktuellen Cache-Zustands (Liste, Fehler,
+ * nicht verbunden). Der bisherige Wert bleibt immer auswählbar.
+ */
+function fillGoogleField() {
+    const connected = Boolean(googleStatus && googleStatus.connected);
+    if (!connected || !googleCalendars) {
+        let hint;
+        if (connected && googleCalendarsError) {
+            hint = `Kalenderliste nicht verfügbar (${googleCalendarsError}). Kalender-ID bitte von Hand eintragen.`;
+        } else if (googleStatus && googleStatus.configured) {
+            hint = "Google ist nicht verbunden – Kalender-ID von Hand eintragen. Bei persönlichen Kalendern ist das meist die Gmail-Adresse, sonst steht sie in Google Kalender unter Einstellungen → „Kalender integrieren“.";
+        } else {
+            hint = "Kalender-ID von Hand eintragen – bei persönlichen Kalendern meist die Gmail-Adresse.";
+        }
+        showGoogleField("input", hint);
+        return;
+    }
+
+    const select = document.getElementById("m-gcal-select");
+    const options = [new Option("– Kein Kalender –", "")];
+    googleCalendars.forEach(c => {
+        const role = GOOGLE_ACCESS_ROLES[c.access_role] || c.access_role || "unbekannt";
+        const name = `${c.summary || c.id}${c.primary ? " (Hauptkalender)" : ""}`;
+        // new Option(text, value) setzt beides als Text → kein HTML aus Google-Daten.
+        options.push(new Option(`${name} – ${role}`, c.id));
+    });
+    // Bisherige Zuordnung behalten, auch wenn der Kalender nicht (mehr) in der Liste steht.
+    if (gcalOriginal && !googleCalendars.some(c => c.id === gcalOriginal)) {
+        options.splice(1, 0, new Option(`Aktuell: ${gcalOriginal}`, gcalOriginal));
+    }
+    select.replaceChildren(...options);
+    select.disabled = false;
+    select.value = gcalOriginal;
+    const n = googleCalendars.length;
+    showGoogleField("select", n === 0
+        ? "Im verbundenen Google-Konto wurden keine Kalender gefunden."
+        : `Auswahl aus dem verbundenen Google-Konto (${n === 1 ? "1 Kalender" : `${n} Kalender`}).`);
+}
+
+/**
+ * Blendet Auswahl bzw. Texteingabe ein und setzt Label + Hinweis.
+ * @param {"select"|"input"} mode
+ * @param {string} hint - Text unter dem Feld.
+ */
+function showGoogleField(mode, hint) {
+    const select = document.getElementById("m-gcal-select");
+    const input = document.getElementById("m-gcal-input");
+    select.hidden = mode !== "select";
+    input.hidden = mode !== "input";
+    document.getElementById("m-gcal-label").htmlFor = mode === "select" ? select.id : input.id;
+    document.getElementById("m-gcal-status").textContent = hint;
+}
+
+/**
+ * Liefert die im Dialog gewählte Kalender-ID ("" = keine).
+ * Lädt die Liste noch, gilt der bisherige Wert – sonst würde ein schnelles
+ * Speichern die Zuordnung versehentlich löschen.
+ * @returns {string}
+ */
+function getGoogleFieldValue() {
+    const select = document.getElementById("m-gcal-select");
+    if (!select.hidden) return select.disabled ? gcalOriginal : select.value;
+    return document.getElementById("m-gcal-input").value.trim();
+}
+
+/**
+ * Prüft, ob das verbundene Konto auf den gewählten Kalender zugreifen kann.
+ * Spricht mit: POST /api/v1/google/calendars/check {calendar_id}
+ *   → {ok: true, access_role, message} bzw. {ok: false, message}
+ * @param {HTMLButtonElement} btn
+ */
+async function checkGoogleCalendar(btn) {
+    const calendarId = getGoogleFieldValue();
+    if (!calendarId) {
+        toast("Bitte zuerst einen Kalender auswählen oder eine Kalender-ID eintragen.", "warning");
+        return;
+    }
+    setBusy(btn, true, "Prüft …");
+    try {
+        const res = await apiFetch("/api/v1/google/calendars/check", { method: "POST", body: { calendar_id: calendarId } });
+        const data = await readJson(res);
+        if (res.ok) {
+            toast(data.message || (data.ok ? "Zugriff auf den Kalender bestätigt." : "Kein Zugriff auf diesen Kalender."), data.ok ? "success" : "error");
+        } else {
+            toast(data.error || "Die Prüfung ist fehlgeschlagen.", "error");
+        }
+    } catch (err) {
+        toast("Netzwerkfehler.", "error");
+    }
+    setBusy(btn, false);
+}
+
+/* ------------------------------------------------------------------ */
 /* Seitenstart                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -397,9 +818,12 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (!me) return; // app.js leitet bereits auf /login um
     viewerRole = me.role;
 
+    handleGoogleReturn();
     loadUsers();
+    loadGoogleStatus();
     setupCsvImport();
     setupManualForm();
+    document.getElementById("m-gcal-check").addEventListener("click", (e) => checkGoogleCalendar(e.currentTarget));
     // Event-Delegation: EIN Listener an der Tabelle statt einer pro Button.
     document.getElementById("users-table-body").addEventListener("click", onUserTableClick);
     document.getElementById("member-search").addEventListener("input", renderUsers);

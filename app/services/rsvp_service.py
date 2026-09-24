@@ -23,6 +23,7 @@ import logging
 
 from app import db
 from app.models import AuditLog, Event, EventRSVP, RSVPStatusEnum, Team, User
+from app.services.google_sync_service import synchronisieren
 from app.services.notification_service import NotificationService
 
 logger = logging.getLogger(__name__)
@@ -119,6 +120,10 @@ class RSVPService:
             )
         )
         db.session.commit()
+        if reallocation_required:
+            # Nach dem Commit: Der Termin gehört niemandem mehr -> Kopie aus dem
+            # Google-Kalender des absagenden Trainers entfernen.
+            synchronisieren(event)
         return rsvp, None, 200
 
     @staticmethod

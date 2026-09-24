@@ -37,8 +37,12 @@ class Event(db.Model):
     title = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text, nullable=True)
     meeting_link = db.Column(db.String(500), nullable=True)
-    # ID des gespiegelten Termins in Google Calendar (zum späteren Löschen).
+    # ID des gespiegelten Termins in Google Calendar (zum Ändern/Löschen) ...
     google_event_id = db.Column(db.String(255), nullable=True)
+    # ... und in WELCHEM Google-Kalender diese Kopie liegt. Nötig, weil sich die
+    # Zuweisung (anderer Trainer) oder der Kalender eines Trainers später ändern kann –
+    # dann muss die alte Kopie im alten Kalender gelöscht werden.
+    google_sync_calendar_id = db.Column(db.String(255), nullable=True)
     is_all_day = db.Column(db.Boolean, default=False, nullable=False)
 
     customer_id = db.Column(db.Integer, db.ForeignKey("customers.id"), nullable=True, index=True)

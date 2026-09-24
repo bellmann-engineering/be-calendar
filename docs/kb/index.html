@@ -946,19 +946,68 @@ A.ende  + A.puffer_nachher &gt;  B.start − B.puffer_vorher</code></pre>
 
     <article id="a-google" data-gruppe="Fachlogik" data-titel="Google-Calendar-Anbindung" data-icon="📆">
       <h1>Google-Calendar-Anbindung</h1>
-      <p class="lead">Optional: Die App liest die Frei/Belegt-Zeiten aus dem privaten Google-Kalender eines Mitarbeiters und spiegelt zugewiesene Termine dorthin.</p>
+      <p class="lead">Kai verbindet <b>einmalig sein Google-Konto</b>. Danach sieht die App alle Kalender, die er in Google Kalender sieht, und sie werden den Mitarbeitern zugeordnet – „ein Schlüssel für alle Kalender“.</p>
+      <h2>Der Anmeldeablauf (OAuth 2.0 mit PKCE)</h2>
+      <figure>
+        <div class="diagramm">
+          <svg viewBox="0 0 900 400" role="img" aria-labelledby="d15t d15d">
+            <title id="d15t">Sequenzdiagramm: Google-Konto verbinden</title>
+            <desc id="d15d">Der Admin startet die Verbindung, die App erzeugt state und PKCE und leitet zu Google weiter. Nach der Zustimmung leitet Google mit einem Code zurück; die App prüft den state, tauscht den Code gegen Tokens und speichert das Refresh-Token verschlüsselt.</desc>
+            <g text-anchor="middle">
+              <rect x="30" y="10" width="160" height="40" rx="8" class="d-box akzent"/><text x="110" y="35" class="d-text">Browser (Kai)</text>
+              <rect x="370" y="10" width="160" height="40" rx="8" class="d-box"/><text x="450" y="35" class="d-text">Bellmann-App</text>
+              <rect x="710" y="10" width="160" height="40" rx="8" class="d-box warn"/><text x="790" y="35" class="d-text">Google</text>
+            </g>
+            <line x1="110" y1="50" x2="110" y2="390" class="d-lebenslinie"/><line x1="450" y1="50" x2="450" y2="390" class="d-lebenslinie"/><line x1="790" y1="50" x2="790" y2="390" class="d-lebenslinie"/>
+            <g class="d-klein">
+              <line x1="110" y1="85" x2="446" y2="85" class="d-linie akzent" marker-end="url(#pfeil-akzent)"/><text x="278" y="78" text-anchor="middle">① „Mit Google verbinden“ (POST /google/oauth/start)</text>
+              <text x="460" y="112">② state + PKCE-Verifier in signierter Session merken</text>
+              <line x1="446" y1="135" x2="114" y2="135" class="d-linie" marker-end="url(#pfeil)"/><text x="278" y="128" text-anchor="middle">③ Anmelde-URL (mit state, code_challenge)</text>
+              <line x1="110" y1="170" x2="786" y2="170" class="d-linie akzent" marker-end="url(#pfeil-akzent)"/><text x="450" y="163" text-anchor="middle">④ Anmelden und Zugriff auf Kalender erlauben</text>
+              <line x1="786" y1="205" x2="114" y2="205" class="d-linie ok" marker-end="url(#pfeil-ok)"/><text x="450" y="198" text-anchor="middle">⑤ Weiterleitung mit ?code=…&amp;state=…</text>
+              <line x1="110" y1="240" x2="446" y2="240" class="d-linie akzent" marker-end="url(#pfeil-akzent)"/><text x="278" y="233" text-anchor="middle">⑥ GET /google/oauth/callback</text>
+              <text x="460" y="266">⑦ state vergleichen (Schutz gegen CSRF)</text>
+              <line x1="450" y1="290" x2="786" y2="290" class="d-linie" marker-end="url(#pfeil)"/><text x="618" y="283" text-anchor="middle">⑧ Code + PKCE-Verifier → Tokens</text>
+              <text x="460" y="320">⑨ Refresh-Token VERSCHLÜSSELT speichern</text>
+              <line x1="446" y1="350" x2="114" y2="350" class="d-linie ok" marker-end="url(#pfeil-ok)"/><text x="278" y="343" text-anchor="middle">⑩ Weiterleitung auf /members?google=verbunden</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption>Abbildung 15 – Einmaliges Verbinden des Google-Kontos. Danach erneuert die App ihr Access-Token selbstständig mit dem Refresh-Token.</figcaption>
+      </figure>
+      <div class="tabelle-wrap"><table>
+        <tr><th>Begriff</th><th>Bedeutung</th></tr>
+        <tr><td>Access-Token</td><td>kurzlebiger Ausweis (ca. 1 Stunde), wird automatisch erneuert und nur im Arbeitsspeicher gehalten</td></tr>
+        <tr><td>Refresh-Token</td><td>dauerhafter Zugang – verschlüsselt in <code>google_connections</code> (Fernet, Schlüssel aus <code>SECRET_KEY</code> abgeleitet), beim Trennen bei Google widerrufen</td></tr>
+        <tr><td>state</td><td>Zufallswert, der beweist, dass die Rückkehr zu <i>unserer</i> Anmeldung gehört</td></tr>
+        <tr><td>PKCE</td><td>„Proof Key for Code Exchange“: Wer den Code aus der Weiterleitung abfängt, kann ihn ohne den geheimen Verifier nicht einlösen</td></tr>
+      </table></div>
+      <div class="hinweis warn"><b>Warum eine eigene Session für den Rückweg?</b> Die Login-Cookies sind <code>SameSite=Strict</code> – der Browser schickt sie bei der Weiterleitung von google.com <b>nicht</b> mit. Den state merkt sich die App deshalb in einem eigenen, signierten Cookie mit <code>SameSite=Lax</code>, das bei normalen Weiterleitungen mitkommt.</div>
+      <h2>Synchronisierung</h2>
+      <p>Nach jeder Änderung entscheidet <a data-datei="app/services/google_sync_service.py">google_sync_service.py</a>, was in Google passieren muss. Dafür merkt sich jeder Termin, in welchem Kalender seine Kopie liegt (<code>google_sync_calendar_id</code>).</p>
+      <div class="tabelle-wrap"><table>
+        <tr><th>Ereignis</th><th>Aktion in Google</th></tr>
+        <tr><td>Termin angelegt und zugewiesen</td><td>Kopie im Kalender des Mitarbeiters anlegen</td></tr>
+        <tr><td>Zeit, Titel oder Beschreibung geändert</td><td>Kopie ändern</td></tr>
+        <tr><td>Anderem Mitarbeiter zugewiesen</td><td>beim alten löschen, beim neuen anlegen</td></tr>
+        <tr><td>Absage (RSVP) oder Termin gelöscht</td><td>Kopie löschen</td></tr>
+      </table></div>
+      <h2>Anzeige und Kollisionsprüfung</h2>
       <ul>
-        <li><b>Zugang:</b> ein Google-Service-Account. Die Schlüsseldatei liegt unter <code>secrets/google_credentials.json</code> und wird read-only nach <code>/run/secrets</code> in den Container eingehängt – nie ins Image kopiert.</li>
-        <li><b>Freigabe:</b> Jeder Mitarbeiter muss seinen Kalender für die E-Mail-Adresse des Service-Accounts freigeben.</li>
-        <li><b>Test:</b> <code>docker compose exec web python scripts/test_google_api.py name@firma.de</code></li>
+        <li>Die <b>Kollisionsprüfung</b> fragt die Frei/Belegt-API ab – ein privater Termin blockiert die Zuweisung (409).</li>
+        <li>Im <b>Dashboard</b> und in der <b>Vergleichsansicht</b> erscheinen private Termine als graue „Belegt (Google)“-Blöcke – bewusst <b>nur Zeiten, keine Titel</b> (Privatsphäre). Wer welche Blöcke sieht, folgt denselben Regeln wie bei Terminen.</li>
+        <li>Antworten werden 60 Sekunden zwischengespeichert, bis zu 50 Kalender pro Anfrage gebündelt.</li>
       </ul>
-      <div class="hinweis"><b>Thread-Sicherheit</b> Die Google-Bibliothek nutzt <code>httplib2</code>, das <i>nicht</i> threadsicher ist. Weil Gunicorn mehrere Threads pro Prozess verwendet, bekommt jeder Thread sein eigenes Service-Objekt (<code>threading.local</code>); die Zugangsdaten werden einmal pro Prozess geladen. Jeder Aufruf hat ein Timeout von 10 Sekunden.</div>
-      <div class="quiz" data-richtig="1"><h3>🧠 Wissensfrage</h3><p>Was passiert, wenn die Datei mit den Google-Zugangsdaten fehlt?</p>
-        <button>Die App startet nicht</button><button>Die App läuft normal, nur ohne Google-Abgleich</button><button>Alle Termine kollidieren</button>
-        <p class="erklärung">Alle Google-Methoden sind dann „No-Ops“ – es wird eine Warnung geloggt, sonst passiert nichts.</p></div>
+      <div class="hinweis"><b>Einrichtung</b> Die Schritt-für-Schritt-Anleitung (Google Cloud Console, OAuth-Client, <code>.env</code>) steht in der README im Abschnitt „Google-Kalender anbinden“. Wichtig: App auf „In Produktion“ stellen – im Testmodus laufen die Zugänge nach 7 Tagen ab.</div>
+      <div class="quiz" data-richtig="2"><h3>🧠 Wissensfrage</h3><p>Warum reicht ein einfacher Google-API-Key nicht, um die Kalender der Mitarbeiter zu lesen?</p>
+        <button>API-Keys sind zu langsam</button><button>API-Keys kosten Geld</button><button>Ein API-Key identifiziert nur das Projekt, nicht eine Person – er kann nur öffentliche Kalender lesen</button>
+        <p class="erklärung">Private Kalender brauchen die Zustimmung einer Person (OAuth) – hier die von Kai, der die Kalender der Mitarbeiter bereits geteilt bekommen hat.</p></div>
       <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://developers.google.com/identity/protocols/oauth2/web-server" target="_blank" rel="noopener">OAuth 2.0 für Webserver-Anwendungen</a><span class="typ">Google</span></li>
         <li><a href="https://developers.google.com/calendar/api/v3/reference/freebusy/query" target="_blank" rel="noopener">Free/Busy-API</a><span class="typ">Google</span></li>
-        <li><a href="https://cloud.google.com/iam/docs/service-account-overview" target="_blank" rel="noopener">Service-Accounts</a><span class="typ">Google Cloud</span></li>
+        <li><a href="https://oauth.net/2/pkce/" target="_blank" rel="noopener">PKCE erklärt</a><span class="typ">oauth.net</span></li>
+        <li><a href="https://cryptography.io/en/latest/fernet/" target="_blank" rel="noopener">Fernet-Verschlüsselung</a><span class="typ">cryptography</span></li>
+        <li><a href="https://developer.mozilla.org/de/docs/Web/HTTP/Headers/Set-Cookie#samesitesamesite-value" target="_blank" rel="noopener">SameSite-Cookies</a><span class="typ">MDN (Deutsch)</span></li>
       </ul></div>
     </article>
 
@@ -1218,7 +1267,7 @@ logger.exception(<span class="s">"Unbehandelte Ausnahme …"</span>)
             <title id="d10t">Container, Ports und Volumes</title>
             <rect x="10" y="10" width="160" height="300" rx="12" class="d-box"/><text x="90" y="36" text-anchor="middle" class="d-text">Host (dein PC)</text>
             <text x="90" y="120" text-anchor="middle" class="d-mono">:8080</text><text x="90" y="200" text-anchor="middle" class="d-mono">:8443</text>
-            <text x="90" y="280" text-anchor="middle" class="d-klein">./secrets · ./nginx/certs</text>
+            <text x="90" y="280" text-anchor="middle" class="d-klein">./nginx/certs</text>
             <rect x="210" y="10" width="680" height="300" rx="12" fill="none" class="d-linie d-strich"/><text x="226" y="34" class="d-klein">Docker-Netzwerk „bellmann-calendar_default“</text>
             <g data-geh="a-nginx" tabindex="0" role="link" aria-label="nginx-Container">
               <rect x="240" y="100" width="170" height="110" rx="10" class="d-box navy"/><text x="325" y="138" text-anchor="middle" class="d-weiß">bellmann_nginx</text>

@@ -7,7 +7,8 @@ Wer benutzt sie?
 Womit spricht sie?
     * PostgreSQL: Tabellen ``events``, ``event_rsvps``, ``users``, ``customers``, ``audit_logs``
     * NotificationService (In-App + E-Mail an den zugewiesenen Mitarbeiter)
-    * GoogleCalendarService (optional: Frei/Belegt prüfen, Termin spiegeln/löschen)
+    * GoogleCalendarService (Frei/Belegt prüfen) und google_sync_service (Termin in den
+      Google-Kalender des Mitarbeiters spiegeln, ändern, umziehen, löschen)
 
 Wovon hängt sie ab?
     AuthorizationService (wer darf was), app/utils/time.py (UTC-Umrechnung).
@@ -36,9 +37,9 @@ from app.models import (
     User,
 )
 from app.services.authorization_service import AuthorizationService
+from app.services.google_sync_service import synchronisieren
 from app.services.notification_service import NotificationService
 from app.utils.time import isoformat_utc, parse_iso_datetime, utc_now
-from app.utils.transaction import call_after_commit
 
 logger = logging.getLogger(__name__)
 
@@ -316,30 +317,9 @@ class EventService:
             )
         db.session.commit()
 
-        EventService._mirror_to_google(new_event, assigned_user)
+        # Nach dem Commit: Kopie im Google-Kalender des Mitarbeiters anlegen.
+        synchronisieren(new_event)
         return new_event, None, 201
-
-    @staticmethod
-    def _mirror_to_google(event: Event, assigned_user: User | None) -> None:
-        """Spiegelt den Termin (nach dem Commit) in den Google-Kalender des Mitarbeiters.
-
-        Läuft bewusst NACH dem ersten Commit: Scheitert Google, bleibt der Termin trotzdem
-        gespeichert. Die Google-ID wird in einem zweiten, kleinen Commit nachgetragen.
-        """
-        if not assigned_user or not assigned_user.google_calendar_id:
-            return
-        from app.services.calendar_service import GoogleCalendarService
-
-        google_id = GoogleCalendarService().insert_event(
-            calendar_id=assigned_user.google_calendar_id,
-            title=event.title,
-            start_time=event.start_time,
-            end_time=event.end_time,
-            description=event.description,
-        )
-        if google_id:
-            event.google_event_id = google_id
-            db.session.commit()
 
     # ------------------------------------------------------------------ Löschen
     @staticmethod
@@ -361,19 +341,6 @@ class EventService:
         event.is_deleted = True
         event.deleted_at = utc_now()
 
-        # Google-Löschung erst nach erfolgreichem Commit (HTTP-Aufruf nach außen).
-        assignee = event.assigned_to
-        if event.google_event_id and assignee and assignee.google_calendar_id:
-            calendar_id = assignee.google_calendar_id
-            google_event_id = event.google_event_id
-
-            def _delete_in_google() -> None:
-                from app.services.calendar_service import GoogleCalendarService
-
-                GoogleCalendarService().delete_event(calendar_id, google_event_id)
-
-            call_after_commit(_delete_in_google)
-
         db.session.add(
             AuditLog(
                 event_id=event.id,
@@ -383,6 +350,8 @@ class EventService:
             )
         )
         db.session.commit()
+        # Nach dem Commit: Kopie im Google-Kalender entfernen (Soll-Kalender = keiner).
+        synchronisieren(event)
         return True, None, 200
 
     # ------------------------------------------------------------------ Ändern
@@ -516,6 +485,8 @@ class EventService:
             )
         )
         db.session.commit()
+        # Nach dem Commit: Google-Kopie ändern bzw. bei Neu-Zuweisung umziehen.
+        synchronisieren(event)
         return event, None, 200
 
     @staticmethod

@@ -6,11 +6,11 @@ Aufruf:
     (in Docker: docker compose exec web python scripts/test_google_api.py <kalender-id>)
 
 Was passiert?
-    1. Lädt die Service-Account-Datei (GOOGLE_CREDENTIALS_FILE, Standard:
-       ./google_credentials.json).
+    1. Nutzt die Google-Verbindung, die ein CEO/Admin auf der Mitarbeiter-Seite
+       hergestellt hat ("Mit Google verbinden", siehe README).
     2. Fragt die belegten Zeiten der nächsten 7 Tage über die Free/Busy-API ab.
-    3. Gibt das Ergebnis aus. Leeres Ergebnis heißt oft: Der Kalender wurde nicht für
-       die E-Mail-Adresse des Service-Accounts freigegeben.
+    3. Gibt das Ergebnis aus. Leeres Ergebnis heißt oft: Der Kalender ist nicht mit dem
+       verbundenen Google-Konto geteilt.
 """
 
 import os
@@ -31,7 +31,9 @@ def check_calendar(calendar_id: str) -> None:
     with create_app().app_context():
         service = GoogleCalendarService()
         if not service.service:
-            print("[!] ABBRUCH: Anmeldung bei Google fehlgeschlagen. Fehlt die Credentials-Datei?")
+            print(
+                "[!] ABBRUCH: Kein Google-Konto verbunden (Mitarbeiter-Seite → Mit Google verbinden)."
+            )
             return
 
         print("[2] Erfolgreich authentifiziert! Frage die nächsten 7 Tage ab...")
@@ -46,7 +48,7 @@ def check_calendar(calendar_id: str) -> None:
         print("Keine Termine gefunden.")
         print(
             "WICHTIG: Ist der Kalender leer ODER wurde er nicht für die "
-            "Service-Account-Adresse freigegeben?"
+            "verbundenen Google-Konto geteilt?"
         )
 
 

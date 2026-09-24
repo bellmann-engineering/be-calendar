@@ -18,6 +18,8 @@
  *                              (window.currentUserPromise)
  *        - isSafeHttpUrl(), isValidHexColor(), toDatetimeLocal(),
  *          toDateLocal(), toUtcIso(), roleLabel(), roleBadgeClass()
+ *        - fetchGoogleBusyEvents() → Belegt-Zeiten aus Google als
+ *                              FullCalendar-Hintergrundblöcke (Kalender, Vergleich)
  *   2. Die App-Kopfzeile: rollenabhängige Navigation, mobiles Menü,
  *      Benutzermenü mit Abmelden, Benachrichtigungs-Glocke.
  *   3. Sitzungsschutz: Auf geschützten Seiten ohne Login → /login.
@@ -26,6 +28,7 @@
  *   POST /api/v1/auth/refresh       → neues Access-Token per Refresh-Cookie
  *   POST /api/v1/auth/logout        → Cookies löschen
  *   GET  /api/v1/auth/me            → Daten des eingeloggten Benutzers
+ *   GET  /api/v1/google/busy        → Belegt-Zeiten aus Google (fetchGoogleBusyEvents)
  *   GET  /api/v1/notifications      → In-App-Benachrichtigungen
  *   PUT  /api/v1/notifications/<id>/read
  *
@@ -388,6 +391,56 @@ function toUtcIso(value, isEnd) {
 
     const date = new Date(normalized); // ohne Offset → wird als LOKALE Zeit gelesen
     return isNaN(date.getTime()) ? null : date.toISOString();
+}
+
+/* ------------------------------------------------------------------ */
+/* Google-Kalender: Belegt-Zeiten                                     */
+/* ------------------------------------------------------------------ */
+
+/** CSS-Klasse der Belegt-Blöcke (grau gestreift, siehe frontend/app.css). */
+const GOOGLE_BUSY_CLASS = "bc-google-busy";
+
+/**
+ * Lädt die Belegt-Zeiten aus Google für einen Zeitraum und liefert sie als
+ * FullCalendar-Hintergrundereignisse (display: "background").
+ * Spricht mit: GET /api/v1/google/busy?start=...&end=...[&user_ids=...]
+ *   → {connected, busy: {"<user_id>": [{start, end}, ...]}}
+ *
+ * Fehlertolerant: Ist Google nicht verbunden, hat der Benutzer keinen
+ * Kalender oder schlägt der Abruf fehl, kommt einfach eine leere Liste
+ * zurück – die Belegt-Anzeige ist eine Zusatzinformation und darf den
+ * Kalender nie blockieren.
+ *
+ * @param {string} startStr - Beginn (ISO, z. B. fetchInfo.startStr).
+ * @param {string} endStr - Ende (ISO).
+ * @param {number|string} [userId] - Mitarbeiter; ohne = nur der eingeloggte Benutzer.
+ * @param {string} [title="Belegt (Google)"] - Beschriftung der Blöcke.
+ * @returns {Promise<object[]>}
+ */
+async function fetchGoogleBusyEvents(startStr, endStr, userId, title = "Belegt (Google)") {
+    // encodeURIComponent: Die Zeiten enthalten "+02:00" – ein nacktes "+" wäre in der URL ein Leerzeichen.
+    let url = `/api/v1/google/busy?start=${encodeURIComponent(startStr)}&end=${encodeURIComponent(endStr)}`;
+    if (userId !== undefined && userId !== null && userId !== "") url += `&user_ids=${encodeURIComponent(userId)}`;
+    try {
+        const res = await apiFetch(url);
+        if (!res.ok) return [];
+        const data = await readJson(res);
+        if (!data.connected || !data.busy || typeof data.busy !== "object") return [];
+        // Ohne userId liefert der Server nur den eingeloggten Benutzer → alle Einträge nehmen.
+        const lists = userId ? [data.busy[String(userId)]] : Object.values(data.busy);
+        return lists.flat()
+            .filter(b => b && b.start && b.end)
+            .map(b => ({
+                start: b.start,
+                end: b.end,
+                title,
+                display: "background",
+                classNames: [GOOGLE_BUSY_CLASS],
+                extendedProps: { googleBusy: true }, // zum Erkennen in eventClick/eventDidMount
+            }));
+    } catch (err) {
+        return []; // Netzwerkfehler: ohne Belegt-Blöcke weiterarbeiten
+    }
 }
 
 /* ------------------------------------------------------------------ */

@@ -32,6 +32,30 @@ from app.services.email_service import EmailService
 logger = logging.getLogger(__name__)
 
 
+_KEIN_WERT = object()
+
+
+def _kalender_id(data: dict) -> tuple[object, str | None]:
+    """Liest ``google_calendar_id`` aus dem Request.
+
+    Rückgabe: (wert, fehler). ``_KEIN_WERT`` = Feld nicht mitgeschickt (nichts ändern),
+    ``None`` = Zuordnung entfernen, sonst die bereinigte Kalender-ID.
+    Eine Kalender-ID ist z. B. eine Gmail-Adresse oder "…@group.calendar.google.com".
+    """
+    if "google_calendar_id" not in data:
+        return _KEIN_WERT, None
+    wert = data.get("google_calendar_id")
+    if wert is None or (isinstance(wert, str) and not wert.strip()):
+        return None, None
+    if (
+        not isinstance(wert, str)
+        or len(wert.strip()) > 255
+        or any(c.isspace() for c in wert.strip())
+    ):
+        return _KEIN_WERT, "Ungültige Google-Kalender-ID (max. 255 Zeichen, keine Leerzeichen)."
+    return wert.strip(), None
+
+
 class UserService:
     """Kapselt alle Anwendungsfälle rund um Benutzerkonten."""
 
@@ -58,6 +82,9 @@ class UserService:
         password_error = AuthService.validate_password(password)
         if password_error:
             return None, password_error, 400
+        kalender, kalender_fehler = _kalender_id(data)
+        if kalender_fehler:
+            return None, kalender_fehler, 400
 
         actor = db.session.get(User, actor_id)
         allowed, error = AuthorizationService.can_manage_user(actor, None, role_name)
@@ -77,6 +104,7 @@ class UserService:
             last_name=last_name,
             role_id=role.id,
             is_active=True,
+            google_calendar_id=None if kalender is _KEIN_WERT else kalender,
         )
         db.session.add(user)
         # flush() schickt das INSERT an die DB (ohne Commit), damit user.id bekannt ist.
@@ -113,6 +141,10 @@ class UserService:
         if not role:
             return None, f"Die Rolle '{role_name}' existiert nicht.", 404
 
+        kalender, kalender_fehler = _kalender_id(data)
+        if kalender_fehler:
+            return None, kalender_fehler, 400
+
         password = data.get("password")
         if password:
             password_error = AuthService.validate_password(password)
@@ -124,6 +156,11 @@ class UserService:
         user.first_name = str(data.get("first_name", user.first_name)).strip()
         user.last_name = str(data.get("last_name", user.last_name)).strip()
         user.role_id = role.id
+        kalender_geaendert = kalender is not _KEIN_WERT and kalender != user.google_calendar_id
+        if kalender_geaendert:
+            # Hinweis: Bereits gespiegelte Termine bleiben im alten Kalender, bis sie das
+            # nächste Mal geändert werden – dann zieht google_sync_service sie automatisch um.
+            user.google_calendar_id = kalender
 
         db.session.add(
             AuditLog(
@@ -134,6 +171,7 @@ class UserService:
                     "email": user.email,
                     "role": role.name,
                     "password_changed": bool(password),
+                    "google_calendar_changed": kalender_geaendert,
                 },
             )
         )
@@ -165,6 +203,7 @@ class UserService:
                 "team_name": u.team.name if u.team else "-",
                 "is_active": u.is_active,
                 "created_at": u.created_at.isoformat() if u.created_at else None,
+                "google_calendar_id": u.google_calendar_id,
             }
             for u in users
         ]

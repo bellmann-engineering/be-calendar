@@ -106,6 +106,7 @@ def create_app(config_class: type[BaseConfig] | None = None) -> Flask:
     from app.routes.calendar_routes import calendar_bp
     from app.routes.customer_routes import customer_bp
     from app.routes.event_routes import event_bp
+    from app.routes.google_routes import google_bp
     from app.routes.notification_routes import notification_bp
     from app.routes.rsvp_routes import rsvp_bp
     from app.routes.team_routes import team_bp
@@ -118,6 +119,7 @@ def create_app(config_class: type[BaseConfig] | None = None) -> Flask:
     app.register_blueprint(notification_bp)  # /api/v1/notifications/...
     app.register_blueprint(calendar_bp)  # HTML-Seiten: /, /login, /dashboard, ...
     app.register_blueprint(customer_bp)  # /api/v1/customers/...
+    app.register_blueprint(google_bp)  # /api/v1/google/... (Google-Kalender-Anbindung)
 
     # asset_url() für die Templates (Cache-Busting) + Cache-Header für /static/...
     from app.utils.assets import register_asset_helpers

@@ -11,6 +11,7 @@ Datenmodelle (SQLAlchemy ORM) – jede Klasse entspricht einer PostgreSQL-Tabell
                     ├──< event_rsvps >── users   (Rückmeldung je Termin & Benutzer)
                     └──< audit_logs  >── users   (unveränderliche Historie)
     users ──< notifications                      (In-App-Benachrichtigungen)
+    google_connections (höchstens 1 Zeile)        (verbundenes Google-Konto, Token verschlüsselt)
 
 Wer benutzt dieses Paket?
     Services (``app/services``) und Routen importieren von hier, z. B.
@@ -24,6 +25,7 @@ niemals über ``db.create_all()``.
 from app.models.audit import AuditLog
 from app.models.customer import Customer
 from app.models.event import Event
+from app.models.google_connection import GoogleConnection
 from app.models.notification import Notification
 from app.models.role import Role, RoleEnum
 from app.models.rsvp import EventRSVP, RSVPStatusEnum
@@ -41,4 +43,5 @@ __all__ = [
     "RSVPStatusEnum",
     "AuditLog",
     "Notification",
+    "GoogleConnection",
 ]

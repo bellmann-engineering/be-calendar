@@ -125,11 +125,30 @@ class BaseConfig:
     MAIL_ASYNC = True
 
     # --- Google Calendar -----------------------------------------------------------------
-    # Pfad zur Service-Account-Datei. Lokal: ./secrets/google_credentials.json.
-    # In Docker wird ./secrets read-only nach /run/secrets eingehängt (docker-compose.yml).
-    GOOGLE_CREDENTIALS_FILE = os.getenv(
-        "GOOGLE_CREDENTIALS_FILE", os.path.join(os.getcwd(), "secrets", "google_credentials.json")
+    # OAuth-Client aus der Google Cloud Console ("Webanwendung"). Damit verbindet ein
+    # CEO/ADMIN einmalig sein Google-Konto; die App sieht danach alle Kalender, die dieses
+    # Konto in Google Kalender sieht (siehe app/services/google_oauth_service.py).
+    GOOGLE_OAUTH_CLIENT_ID = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "")
+    GOOGLE_OAUTH_CLIENT_SECRET = os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", "")
+    # Muss EXAKT so in der Google Cloud Console als "Autorisierte Weiterleitungs-URI"
+    # eingetragen sein. Standard: <APP_BASE_URL>/api/v1/google/oauth/callback
+    GOOGLE_OAUTH_REDIRECT_URI = os.getenv(
+        "GOOGLE_OAUTH_REDIRECT_URI", f"{APP_BASE_URL}/api/v1/google/oauth/callback"
     )
+    # Wie lange Frei/Belegt-Antworten von Google zwischengespeichert werden (Sekunden).
+    # Spart API-Aufrufe, wenn mehrere Personen gleichzeitig den Kalender ansehen.
+    GOOGLE_BUSY_CACHE_SECONDS = int(os.getenv("GOOGLE_BUSY_CACHE_SECONDS", 60))
+
+    # --- Flask-Session (NUR für den Google-Anmeldeablauf) ---------------------------------
+    # Die Login-Cookies (JWT) sind SameSite=Strict und werden deshalb bei der Rückkehr von
+    # accounts.google.com NICHT mitgeschickt. Den OAuth-"state" (Schutz gegen CSRF beim
+    # Anmelden) merken wir uns daher in einer eigenen, signierten Session mit SameSite=Lax:
+    # Lax-Cookies sendet der Browser bei einer normalen Weiterleitung (GET) von fremden Seiten.
+    SESSION_COOKIE_NAME = "bellmann_oauth"
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = "Lax"
+    SESSION_COOKIE_SECURE = _env_bool("COOKIE_SECURE", True)
+    PERMANENT_SESSION_LIFETIME = timedelta(minutes=15)
 
     # --- Passwort-Reset / Einladungen ----------------------------------------------------
     PASSWORD_RESET_MAX_AGE = int(os.getenv("PASSWORD_RESET_MAX_AGE", 30 * 60))
@@ -151,6 +170,7 @@ class DevelopmentConfig(BaseConfig):
     DEBUG = _env_bool("FLASK_DEBUG", False)
     # Lokal ohne HTTPS: Secure-Cookies standardmäßig aus (per COOKIE_SECURE überschreibbar).
     JWT_COOKIE_SECURE = _env_bool("COOKIE_SECURE", False)
+    SESSION_COOKIE_SECURE = JWT_COOKIE_SECURE
     # Damit man lokal ohne .env-Secrets starten kann, werden hier Wegwerf-Schlüssel
     # erzeugt. Sie ändern sich bei jedem Neustart (-> alle Logins ungültig). Gewollt.
     SECRET_KEY = BaseConfig.SECRET_KEY or os.urandom(32).hex()
@@ -183,6 +203,11 @@ class TestingConfig(BaseConfig):
     SECRET_KEY = "test-secret-key-" + "x" * 32
     JWT_SECRET_KEY = "test-jwt-secret-" + "x" * 32
     JWT_COOKIE_SECURE = False
+    SESSION_COOKIE_SECURE = False
+    GOOGLE_OAUTH_CLIENT_ID = "test-client-id.apps.googleusercontent.com"
+    GOOGLE_OAUTH_CLIENT_SECRET = "test-client-secret"  # noqa: S105 - nur Testwert
+    GOOGLE_OAUTH_REDIRECT_URI = "http://localhost/api/v1/google/oauth/callback"
+    GOOGLE_BUSY_CACHE_SECONDS = 0
     RATELIMIT_ENABLED = False
     MAIL_ASYNC = False
     # Kleiner Pool reicht für Tests; NullPool wäre auch möglich.
