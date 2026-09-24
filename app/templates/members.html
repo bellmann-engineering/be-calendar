@@ -1,23 +1,56 @@
+{#
+=====================================================================
+Datei: app/templates/members.html
+---------------------------------------------------------------------
+Zweck:
+  Mitarbeiterverwaltung für CEO und ADMIN:
+    - Tabelle aller Benutzer (Name, E-Mail, Rolle, Team, Status)
+    - Einzelnen Mitarbeiter anlegen / bearbeiten (Modal "manual-modal")
+    - CSV-Massenimport (Modal "csv-modal")
+    - Aktivieren/Deaktivieren, Rechte entziehen, endgültig löschen
+
+Mit welchen Backend-Endpunkten spricht diese Seite?
+  GET    /api/v1/auth                       → Benutzerliste
+  POST   /api/v1/auth/users                 → Benutzer anlegen
+  PUT    /api/v1/auth/users/<id>            → Benutzer bearbeiten
+  DELETE /api/v1/auth/users/<id>            → Benutzer löschen
+  PUT    /api/v1/auth/<id>/status           → aktiv/gesperrt umschalten
+  PUT    /api/v1/auth/users/<id>/revoke-role→ Rolle auf TRAINER zurücksetzen
+  POST   /api/v1/auth/csv                   → CSV-Import (multipart "file")
+
+Abhängigkeiten:
+  app.js → apiFetch (Cookies + CSRF), escapeHtml, readJson,
+           getCurrentUser (Rolle des Eingeloggten für die Button-Logik)
+
+Sicherheit:
+  - Alle Werte aus der API werden vor dem Einfügen in HTML escaped.
+  - Buttons tragen nur eine numerische ID in data-Attributen; die
+    Klicks werden per Event-Delegation an der Tabelle behandelt.
+    Früher standen Namen/E-Mails direkt in onclick="..."-Strings –
+    das war eine Einfallstür für XSS.
+  - Die hier gezeigten Einschränkungen (wer wen löschen darf ...) sind
+    nur Komfort. Die verbindliche Prüfung macht das Backend
+    (AuthorizationService.can_manage_user).
+=====================================================================
+#}
 {% extends "base.html" %}
 {% block content %}
 <div class="flex justify-between items-center mb-6">
     <div>
         <h1 class="text-2xl font-bold text-[#1A365D]">Member Management</h1>
-        <p class="text-sm text-gray-600">Mitarbeiter verwalten, Qualifikationen anpassen und CSV-Import durchführen.</p>
+        <p class="text-sm text-gray-600">Mitarbeiter verwalten und CSV-Import durchführen.</p>
     </div>
     <div class="flex space-x-3">
-        <button onclick="openSkillsModal()" class="bg-indigo-100 text-indigo-800 border border-indigo-300 px-4 py-2 rounded text-sm font-bold hover:bg-indigo-200 transition shadow-sm">
-            ⚙️ Qualifikationen (Einstellungen)
-        </button>
-        <button onclick="document.getElementById('csv-modal').classList.remove('hidden')" class="bg-gray-100 text-gray-800 border border-gray-300 px-4 py-2 rounded text-sm font-bold hover:bg-gray-200 transition shadow-sm">
+        <button id="open-csv-btn" class="bg-gray-100 text-gray-800 border border-gray-300 px-4 py-2 rounded text-sm font-bold hover:bg-gray-200 transition shadow-sm">
             📁 CSV Import
         </button>
-        <button onclick="openManualModal()" class="bg-[#1A365D] text-white px-4 py-2 rounded text-sm font-bold hover:bg-[#2B6CB0] transition shadow-sm">
+        <button id="open-manual-btn" class="bg-[#1A365D] text-white px-4 py-2 rounded text-sm font-bold hover:bg-[#2B6CB0] transition shadow-sm">
             + Neuer Mitarbeiter
         </button>
     </div>
 </div>
 
+{# ---------- Benutzertabelle (Zeilen erzeugt loadUsers()) ---------- #}
 <div class="bg-white border rounded shadow-sm overflow-hidden">
     <table class="w-full text-left text-sm text-gray-700">
         <thead class="bg-gray-50 text-gray-900 border-b sticky top-0">
@@ -36,151 +69,150 @@
     </table>
 </div>
 
-<!-- Modal: Skills verwalten -->
-<div id="skills-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
-    <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-2xl">
-        <h2 class="text-xl font-bold text-[#1A365D] mb-4">Qualifikationen (Skills) verwalten</h2>
-        <div class="flex gap-4">
-            <div class="w-1/2 border rounded shadow-sm overflow-hidden flex flex-col h-80 bg-gray-50">
-                <div class="overflow-y-auto flex-1 p-3 space-y-2" id="skills-list"></div>
-            </div>
-            <div class="w-1/2 bg-white p-4 rounded border shadow-sm h-80">
-                <h3 id="skill-form-title" class="font-bold text-[#1A365D] text-sm mb-4">Neue Qualifikation anlegen</h3>
-                <form id="skill-form" class="space-y-4">
-                    <input type="hidden" id="s-id">
-                    <div>
-                        <label class="block text-xs font-bold text-gray-700 mb-1">Name der Qualifikation</label>
-                        <input type="text" id="s-name" required class="w-full border-gray-300 rounded p-2 text-sm border focus:border-[#2B6CB0] focus:ring focus:ring-[#2B6CB0] focus:ring-opacity-50">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-bold text-gray-700 mb-1">Beschreibung (Optional)</label>
-                        <textarea id="s-desc" class="w-full border-gray-300 rounded p-2 text-sm border focus:border-[#2B6CB0] focus:ring focus:ring-[#2B6CB0] focus:ring-opacity-50" rows="3"></textarea>
-                    </div>
-                    <div id="s-error" class="text-red-600 text-xs hidden"></div>
-                    <div class="flex justify-end space-x-2 pt-4">
-                        <button type="button" onclick="resetSkillForm()" class="px-3 py-1.5 text-gray-600 text-xs font-bold border rounded bg-white hover:bg-gray-100">Neu / Leeren</button>
-                        <button type="submit" class="bg-[#1A365D] text-white px-4 py-1.5 rounded text-xs font-bold hover:bg-[#2B6CB0] transition shadow-sm">Speichern</button>
-                    </div>
-                </form>
-            </div>
-        </div>
-        <div class="flex justify-end mt-6 pt-4 border-t">
-            <button type="button" onclick="document.getElementById('skills-modal').classList.add('hidden')" class="bg-gray-200 text-gray-800 px-4 py-2 rounded text-sm hover:bg-gray-300 font-bold transition">Schließen</button>
-        </div>
-    </div>
-</div>
-
-<!-- Modal: CSV Import -->
+{# ---------- Modal: CSV Import ---------- #}
 <div id="csv-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
     <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-md">
         <h2 class="text-xl font-bold text-[#1A365D] mb-4">CSV Massen-Import</h2>
         <div class="bg-blue-50 p-3 rounded border border-blue-100 mb-4 text-xs text-blue-800">
             <strong>Format (Spalten):</strong> email, first_name, last_name, role<br>
-            Erlaubte Rollen: TRAINER, TEAM_LEADER, ADMIN, CEO.<br>
-            <em>*Passwörter werden automatisch generiert und per E-Mail gesendet.</em>
+            Erlaubte Rollen: TRAINER, TEAM_LEADER, ADMIN (nur der CEO darf ADMINs anlegen).<br>
+            <em>*Jeder importierte Mitarbeiter erhält per E-Mail einen Link, um sein Passwort selbst festzulegen.</em>
         </div>
         <form id="csv-form" class="space-y-4">
             <input type="file" id="csv-file" accept=".csv" required class="block w-full border border-gray-300 rounded p-2 text-sm">
+            {# Ergebnis/Fehler des Imports – wird per DOM-Knoten (nicht innerHTML) befüllt #}
             <div id="csv-msg" class="text-xs hidden"></div>
             <div class="flex justify-end space-x-3 mt-6">
-                <button type="button" onclick="document.getElementById('csv-modal').classList.add('hidden')" class="px-4 py-2 text-gray-600 hover:text-gray-900 text-sm">Schließen</button>
+                <button type="button" data-close-modal="csv-modal" class="px-4 py-2 text-gray-600 hover:text-gray-900 text-sm">Schließen</button>
                 <button type="submit" id="csv-btn" class="bg-emerald-600 text-white px-4 py-2 rounded hover:bg-emerald-700 text-sm font-bold">Hochladen & Importieren</button>
             </div>
         </form>
     </div>
 </div>
 
-<!-- Modal: Manuelle Anlage -->
+{# ---------- Modal: Manuelle Anlage / Bearbeitung ---------- #}
 <div id="manual-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
     <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-md">
         <h2 id="manual-modal-title" class="text-xl font-bold text-[#1A365D] mb-4">Einzelnen Mitarbeiter anlegen</h2>
         <form id="manual-form" class="space-y-3">
+            {# Leer = neu anlegen (POST), gefüllt = bearbeiten (PUT) #}
             <input type="hidden" id="m-id">
             <div class="grid grid-cols-2 gap-3">
-                <div><label class="block text-xs font-bold text-gray-700 mb-1">Vorname</label><input type="text" id="m-first" required class="w-full border-gray-300 rounded p-2 border text-sm"></div>
-                <div><label class="block text-xs font-bold text-gray-700 mb-1">Nachname</label><input type="text" id="m-last" required class="w-full border-gray-300 rounded p-2 border text-sm"></div>
+                <div><label class="block text-xs font-bold text-gray-700 mb-1" for="m-first">Vorname</label><input type="text" id="m-first" required maxlength="50" class="w-full border-gray-300 rounded p-2 border text-sm"></div>
+                <div><label class="block text-xs font-bold text-gray-700 mb-1" for="m-last">Nachname</label><input type="text" id="m-last" required maxlength="50" class="w-full border-gray-300 rounded p-2 border text-sm"></div>
             </div>
-            <div><label class="block text-xs font-bold text-gray-700 mb-1">E-Mail</label><input type="email" id="m-email" required class="w-full border-gray-300 rounded p-2 border text-sm"></div>
-            <div><label class="block text-xs font-bold text-gray-700 mb-1">Passwort <span id="m-pass-hint" class="text-gray-500 font-normal"></span></label><input type="password" id="m-pass" required class="w-full border-gray-300 rounded p-2 border text-sm"></div>
-            
-            <div class="grid grid-cols-2 gap-3">
-                <div>
-                    <label class="block text-xs font-bold text-gray-700 mb-1">Rolle</label>
-                    <select id="m-role" class="w-full border-gray-300 rounded p-2 border text-sm" onchange="toggleSkillsVisibility()">
-                        <option value="TRAINER">Trainer</option>
-                        <option value="TEAM_LEADER">Team Leader</option>
-                        <option value="ADMIN">Administrator</option>
-                    </select>
-                </div>
-                <div id="m-skills-wrapper">
-                    <label class="block text-xs font-bold text-gray-700 mb-1">Qualifikationen</label>
-                    <div id="m-skills-container" class="space-y-1 max-h-24 overflow-y-auto border border-gray-300 p-2 rounded bg-gray-50 text-sm"></div>
-                </div>
+            <div><label class="block text-xs font-bold text-gray-700 mb-1" for="m-email">E-Mail</label><input type="email" id="m-email" required maxlength="120" class="w-full border-gray-300 rounded p-2 border text-sm"></div>
+            <div>
+                <label class="block text-xs font-bold text-gray-700 mb-1" for="m-pass">Passwort <span id="m-pass-hint" class="text-gray-500 font-normal"></span></label>
+                {# minlength 10 = gleiche Regel wie im Backend #}
+                <input type="password" id="m-pass" required minlength="10" autocomplete="new-password" class="w-full border-gray-300 rounded p-2 border text-sm">
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-gray-700 mb-1" for="m-role">Rolle</label>
+                <select id="m-role" class="w-full border-gray-300 rounded p-2 border text-sm">
+                    <option value="TRAINER">Trainer</option>
+                    <option value="TEAM_LEADER">Team Leader</option>
+                    <option value="ADMIN">Administrator</option>
+                </select>
             </div>
 
             <div id="manual-error" class="text-red-600 text-xs hidden"></div>
             <div class="flex justify-end space-x-3 mt-6">
-                <button type="button" onclick="document.getElementById('manual-modal').classList.add('hidden')" class="px-4 py-2 text-gray-600 hover:text-gray-900 text-sm">Abbrechen</button>
+                <button type="button" data-close-modal="manual-modal" class="px-4 py-2 text-gray-600 hover:text-gray-900 text-sm">Abbrechen</button>
                 <button type="submit" class="bg-[#1A365D] text-white px-4 py-2 rounded hover:bg-[#2B6CB0] text-sm font-bold">Speichern</button>
             </div>
         </form>
     </div>
 </div>
+{% endblock %}
 
+{% block scripts %}
 <script>
-let allAvailableSkills = [];
+/**
+ * Zwischenspeicher der zuletzt geladenen Benutzer (ID → Benutzerobjekt).
+ * WARUM: Beim Klick auf "Bearbeiten" holen wir die Daten hier heraus,
+ * statt sie (unsicher) in onclick-Strings mitzuschleppen.
+ * @type {Map<number, object>}
+ */
+const usersById = new Map();
 
-window.toggleSkillsVisibility = () => {
-    // Qualifikationen für ALLE Rollen freigeschaltet
-    const wrapper = document.getElementById("m-skills-wrapper");
-    wrapper.classList.remove('opacity-50', 'pointer-events-none');
-};
+/** Rolle des eingeloggten Benutzers (wird beim Seitenstart gesetzt). */
+let viewerRole = null;
 
-// --- USER MANAGEMENT ---
-window.openManualModal = (id='', first='', last='', email='', role='TRAINER', skillIdsStr='[]') => {
-    document.getElementById("m-id").value = id;
-    document.getElementById("m-first").value = first;
-    document.getElementById("m-last").value = last;
-    document.getElementById("m-email").value = email;
-    document.getElementById("m-role").value = role;
-    document.getElementById("m-pass").value = '';
-    document.getElementById("m-pass").required = !id; 
-    document.getElementById("m-pass-hint").innerText = id ? "(Leer lassen für keine Änderung)" : "";
-    document.getElementById("manual-modal-title").innerText = id ? "Mitarbeiter bearbeiten" : "Einzelnen Mitarbeiter anlegen";
+/**
+ * Öffnet das Modal zum Anlegen (ohne Parameter) oder Bearbeiten (mit Benutzer).
+ * Beim Bearbeiten ist das Passwort optional: leer = unverändert.
+ *
+ * @param {object|null} user - Benutzer aus der Liste oder null für "neu".
+ */
+function openManualModal(user = null) {
+    const isEdit = Boolean(user);
+    document.getElementById("m-id").value = isEdit ? user.id : "";
+    document.getElementById("m-first").value = isEdit ? user.first_name : "";
+    document.getElementById("m-last").value = isEdit ? user.last_name : "";
+    document.getElementById("m-email").value = isEdit ? user.email : "";
+    document.getElementById("m-role").value = isEdit ? user.role : "TRAINER";
+    document.getElementById("m-pass").value = "";
+    document.getElementById("m-pass").required = !isEdit;
+    document.getElementById("m-pass-hint").textContent = isEdit ? "(Leer lassen für keine Änderung)" : "";
+    document.getElementById("manual-modal-title").textContent = isEdit ? "Mitarbeiter bearbeiten" : "Einzelnen Mitarbeiter anlegen";
     document.getElementById("manual-error").classList.add("hidden");
-    
-    const userSkills = JSON.parse(skillIdsStr);
-    const container = document.getElementById("m-skills-container");
-    
-    if (allAvailableSkills.length === 0) {
-        container.innerHTML = '<div class="text-[10px] text-gray-500">Keine Qualifikationen im System.</div>';
-    } else {
-        container.innerHTML = allAvailableSkills.map(s => `
-            <label class="flex items-center space-x-2 cursor-pointer mb-1">
-                <input type="checkbox" value="${s.id}" class="m-skill-checkbox rounded text-[#2B6CB0] w-3 h-3" ${userSkills.includes(s.id) ? 'checked' : ''}>
-                <span class="text-[11px] text-gray-800 leading-tight">${s.name}</span>
-            </label>
-        `).join('');
-    }
-    
-    toggleSkillsVisibility();
-    document.getElementById('manual-modal').classList.remove('hidden');
-};
+    document.getElementById("manual-modal").classList.remove("hidden");
+}
 
+/**
+ * Zeigt das Ergebnis des CSV-Imports an. Alle Texte (auch die vom Server
+ * gemeldeten Zeilenfehler, die E-Mails aus der CSV enthalten) werden als
+ * Textknoten eingefügt – eine präparierte CSV kann so kein HTML einschleusen.
+ *
+ * @param {HTMLElement} msgDiv - Ausgabebereich.
+ * @param {string} message - Erfolgsmeldung des Servers.
+ * @param {string[]} errors - Liste der Warnungen pro Zeile.
+ */
+function renderCsvResult(msgDiv, message, errors) {
+    msgDiv.replaceChildren();
+    const strong = document.createElement("b");
+    strong.textContent = "Erfolg: ";
+    msgDiv.append(strong, document.createTextNode(message || ""));
+    if (errors.length > 0) {
+        const heading = document.createElement("b");
+        heading.textContent = "Warnungen:";
+        msgDiv.append(document.createElement("br"), document.createElement("br"), heading);
+        errors.forEach(err => {
+            msgDiv.append(document.createElement("br"), document.createTextNode(err));
+        });
+    }
+}
+
+/**
+ * Seitenstart: Rolle ermitteln, Liste laden, Formulare und Buttons verdrahten.
+ */
 document.addEventListener("DOMContentLoaded", async () => {
-    const token = localStorage.getItem("access_token");
-    if (!token) { window.location.href = "/login"; return; }
-    
-    try {
-        const res = await fetch("/api/v1/skills", { headers: { "Authorization": `Bearer ${token}` } });
-        if (res.ok) {
-            const data = await res.json();
-            allAvailableSkills = data.skills;
-        }
-    } catch (e) {}
+    const me = await getCurrentUser();
+    if (!me) return; // apiFetch leitet bereits auf /login um
+    viewerRole = me.role;
 
     loadUsers();
 
+    // Modals öffnen/schließen (ersetzt die früheren Inline-onclick-Handler).
+    document.getElementById("open-csv-btn").addEventListener("click", () => {
+        document.getElementById("csv-modal").classList.remove("hidden");
+    });
+    document.getElementById("open-manual-btn").addEventListener("click", () => openManualModal());
+    document.querySelectorAll("[data-close-modal]").forEach(btn => {
+        btn.addEventListener("click", () => {
+            document.getElementById(btn.dataset.closeModal).classList.add("hidden");
+        });
+    });
+
+    // Event-Delegation: EIN Listener an der Tabelle statt einer pro Button.
+    document.getElementById("users-table-body").addEventListener("click", onUserTableClick);
+
+    /**
+     * CSV-Upload. Spricht mit: POST /api/v1/auth/csv (multipart/form-data).
+     * FormData wird von apiFetch unverändert gesendet; der Browser setzt
+     * den Content-Type inkl. Boundary selbst.
+     */
     document.getElementById("csv-form").addEventListener("submit", async (e) => {
         e.preventDefault();
         const file = document.getElementById("csv-file").files[0];
@@ -188,227 +220,192 @@ document.addEventListener("DOMContentLoaded", async () => {
         const msgDiv = document.getElementById("csv-msg");
         const formData = new FormData();
         formData.append("file", file);
-        
-        btn.innerText = "Importiert..."; btn.disabled = true;
+
+        btn.textContent = "Importiert..."; btn.disabled = true;
         try {
-            const res = await fetch("/api/v1/auth/csv", { method: "POST", headers: { "Authorization": `Bearer ${token}` }, body: formData });
-            const data = await res.json();
+            const res = await apiFetch("/api/v1/auth/csv", { method: "POST", body: formData });
+            const data = await readJson(res);
             msgDiv.classList.remove("hidden", "text-red-600", "text-emerald-600");
             if (res.ok) {
                 msgDiv.classList.add("text-emerald-600");
-                msgDiv.innerHTML = `<b>Erfolg:</b> ${data.message}<br>` + (data.errors.length > 0 ? `<br><b>Warnungen:</b><br>${data.errors.join('<br>')}` : '');
+                renderCsvResult(msgDiv, data.message, Array.isArray(data.errors) ? data.errors : []);
                 loadUsers();
             } else {
-                msgDiv.classList.add("text-red-600"); msgDiv.innerText = data.error;
+                msgDiv.classList.add("text-red-600");
+                msgDiv.textContent = data.error || "Import fehlgeschlagen.";
             }
-        } catch(err) { msgDiv.classList.remove("hidden"); msgDiv.classList.add("text-red-600"); msgDiv.innerText = "Netzwerkfehler."; }
-        finally { btn.innerText = "Hochladen & Importieren"; btn.disabled = false; }
+        } catch (err) {
+            msgDiv.classList.remove("hidden"); msgDiv.classList.add("text-red-600");
+            msgDiv.textContent = "Netzwerkfehler.";
+        } finally {
+            btn.textContent = "Hochladen & Importieren"; btn.disabled = false;
+        }
     });
 
+    /**
+     * Anlegen/Bearbeiten.
+     * Spricht mit: POST /api/v1/auth/users bzw. PUT /api/v1/auth/users/<id>
+     */
     document.getElementById("manual-form").addEventListener("submit", async (e) => {
         e.preventDefault();
         const errDiv = document.getElementById("manual-error");
         const id = document.getElementById("m-id").value;
         const payload = {
-            first_name: document.getElementById("m-first").value, 
+            first_name: document.getElementById("m-first").value,
             last_name: document.getElementById("m-last").value,
-            email: document.getElementById("m-email").value, 
-            role: document.getElementById("m-role").value
+            email: document.getElementById("m-email").value,
+            role: document.getElementById("m-role").value,
         };
         const pass = document.getElementById("m-pass").value;
-        if (pass) payload.password = pass;
-
-        const checkedSkills = Array.from(document.querySelectorAll('.m-skill-checkbox:checked')).map(cb => parseInt(cb.value));
+        if (pass) payload.password = pass; // nur senden, wenn wirklich geändert
 
         try {
-            const res = await fetch(id ? `/api/v1/auth/users/${id}` : "/api/v1/auth/users", { 
-                method: id ? "PUT" : "POST", 
-                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, 
-                body: JSON.stringify(payload) 
-            });
-            const data = await res.json();
-            if (res.ok) { 
-                const targetUserId = id || data.user_id;
-                
-                // Speichert Skills nun unabhängig von der Rolle
-                await fetch(`/api/v1/skills/users/${targetUserId}`, {
-                    method: "PUT",
-                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` }, 
-                    body: JSON.stringify({ skill_ids: checkedSkills })
-                });
-                
-                document.getElementById('manual-modal').classList.add('hidden'); 
-                document.getElementById("manual-form").reset(); 
-                loadUsers(); 
-            } 
-            else { errDiv.innerText = data.error; errDiv.classList.remove("hidden"); }
-        } catch(err) { errDiv.innerText = "Netzwerkfehler."; errDiv.classList.remove("hidden"); }
-    });
-
-    // SKILL FORM SUBMIT
-    document.getElementById("skill-form").addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const errDiv = document.getElementById("s-error");
-        const id = document.getElementById("s-id").value;
-        const payload = { name: document.getElementById("s-name").value, description: document.getElementById("s-desc").value };
-        
-        try {
-            const res = await fetch(id ? `/api/v1/skills/${id}` : "/api/v1/skills", {
+            const res = await apiFetch(id ? `/api/v1/auth/users/${encodeURIComponent(id)}` : "/api/v1/auth/users", {
                 method: id ? "PUT" : "POST",
-                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-                body: JSON.stringify(payload)
+                body: payload,
             });
-            if (res.ok) { 
-                resetSkillForm(); 
-                await loadSkillsList(); 
-                
-                // Interne Liste für das Benutzermodal aktualisieren
-                const allSkillsRes = await fetch("/api/v1/skills", { headers: { "Authorization": `Bearer ${token}` } });
-                if (allSkillsRes.ok) {
-                    const skillData = await allSkillsRes.json();
-                    allAvailableSkills = skillData.skills;
-                }
-            } 
-            else { const data = await res.json(); errDiv.innerText = data.error || "Fehler."; errDiv.classList.remove("hidden"); }
-        } catch(err) { errDiv.innerText = "Netzwerkfehler."; errDiv.classList.remove("hidden"); }
+            const data = await readJson(res);
+            if (res.ok) {
+                document.getElementById("manual-modal").classList.add("hidden");
+                document.getElementById("manual-form").reset();
+                loadUsers();
+            } else {
+                errDiv.textContent = data.error || "Fehler beim Speichern.";
+                errDiv.classList.remove("hidden");
+            }
+        } catch (err) {
+            errDiv.textContent = "Netzwerkfehler.";
+            errDiv.classList.remove("hidden");
+        }
     });
 });
 
+/**
+ * Lädt alle Benutzer und rendert die Tabelle.
+ * Spricht mit: GET /api/v1/auth
+ *
+ * Jeder Wert läuft durch escapeHtml(). Die Buttons enthalten nur
+ * data-action + data-id; ausgewertet wird das in onUserTableClick().
+ */
 async function loadUsers() {
-    const token = localStorage.getItem("access_token");
     const tbody = document.getElementById("users-table-body");
-    const res = await fetch("/api/v1/auth", { headers: { "Authorization": `Bearer ${token}` } });
-    if (!res.ok) { tbody.innerHTML = "<tr><td colspan='6' class='p-4 text-center text-red-500'>Keine Berechtigung.</td></tr>"; return; }
-    
-    const users = await res.json();
-    tbody.innerHTML = users.map(u => {
-        const skillArrayStr = JSON.stringify(u.skill_ids || []);
-        
-        // CEO vs Admin Sichtbarkeitslogik
-        let deleteBtn = `<button onclick="deleteUser(${u.id})" class="text-[11px] font-bold px-3 py-1.5 rounded border border-red-500 text-red-600 hover:bg-red-50 transition mr-2">Löschen</button>`;
-        let revokeBtn = '';
-        if ((currentUserRole === 'CEO' && (u.role === 'ADMIN' || u.role === 'TEAM_LEADER')) || 
-            (currentUserRole === 'ADMIN' && u.role === 'TEAM_LEADER')) {
-            revokeBtn = `<button onclick="revokeRole(${u.id}, '${u.role}')" class="text-[11px] font-bold px-3 py-1.5 rounded border border-orange-300 text-orange-600 hover:bg-orange-50 transition mr-2">Rechte entziehen</button>`;
-        }
+    const res = await apiFetch("/api/v1/auth");
+    if (!res.ok) {
+        tbody.innerHTML = "<tr><td colspan='6' class='p-4 text-center text-red-500'>Keine Berechtigung.</td></tr>";
+        return;
+    }
+
+    const users = await readJson(res);
+    usersById.clear();
+    (Array.isArray(users) ? users : []).forEach(u => usersById.set(Number(u.id), u));
+
+    tbody.innerHTML = Array.from(usersById.values()).map(u => {
+        const id = escapeHtml(u.id);
+
+        // Sichtbarkeitslogik: CEO darf ADMIN/TL zurückstufen, ADMIN nur TL.
+        const canRevoke = (viewerRole === "CEO" && (u.role === "ADMIN" || u.role === "TEAM_LEADER"))
+            || (viewerRole === "ADMIN" && u.role === "TEAM_LEADER");
+        const revokeBtn = canRevoke
+            ? `<button data-action="revoke" data-id="${id}" class="text-[11px] font-bold px-3 py-1.5 rounded border border-orange-300 text-orange-600 hover:bg-orange-50 transition mr-2">Rechte entziehen</button>`
+            : "";
 
         return `
         <tr class="hover:bg-gray-50 transition">
-            <td class="p-3 font-medium text-[#1A365D]">${u.first_name} ${u.last_name}</td>
-            <td class="p-3 text-gray-600 text-xs">${u.email}</td>
-            <td class="p-3"><span class="bg-blue-50 text-blue-800 px-2 py-1 rounded text-[10px] font-bold uppercase">${u.role}</span></td>
-            <td class="p-3 text-xs text-gray-500">${u.team_name}</td>
+            <td class="p-3 font-medium text-[#1A365D]">${escapeHtml(u.first_name)} ${escapeHtml(u.last_name)}</td>
+            <td class="p-3 text-gray-600 text-xs">${escapeHtml(u.email)}</td>
+            <td class="p-3"><span class="bg-blue-50 text-blue-800 px-2 py-1 rounded text-[10px] font-bold uppercase">${escapeHtml(u.role)}</span></td>
+            <td class="p-3 text-xs text-gray-500">${escapeHtml(u.team_name)}</td>
             <td class="p-3">
-                <span class="${u.is_active ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'} px-2 py-1 rounded text-[10px] font-bold">
-                    ${u.is_active ? 'AKTIV' : 'GESPERRT'}
+                <span class="${u.is_active ? "bg-emerald-100 text-emerald-800" : "bg-red-100 text-red-800"} px-2 py-1 rounded text-[10px] font-bold">
+                    ${u.is_active ? "AKTIV" : "GESPERRT"}
                 </span>
             </td>
             <td class="p-3 text-right">
-                ${deleteBtn}
+                <button data-action="delete" data-id="${id}" class="text-[11px] font-bold px-3 py-1.5 rounded border border-red-500 text-red-600 hover:bg-red-50 transition mr-2">Löschen</button>
                 ${revokeBtn}
-                <button onclick='openManualModal(${u.id}, "${u.first_name.replace(/"/g, '&quot;')}", "${u.last_name.replace(/"/g, '&quot;')}", "${u.email}", "${u.role}", "${skillArrayStr.replace(/"/g, '&quot;')}")' class="text-[11px] font-bold px-3 py-1.5 rounded border border-blue-300 text-blue-600 hover:bg-blue-50 transition mr-2">Bearbeiten</button>
-                <button onclick="toggleStatus(${u.id})" class="text-[11px] font-bold px-3 py-1.5 rounded border ${u.is_active ? 'border-red-300 text-red-600 hover:bg-red-50' : 'border-emerald-300 text-emerald-600 hover:bg-emerald-50'} transition">
-                    ${u.is_active ? 'Deaktivieren' : 'Aktivieren'}
+                <button data-action="edit" data-id="${id}" class="text-[11px] font-bold px-3 py-1.5 rounded border border-blue-300 text-blue-600 hover:bg-blue-50 transition mr-2">Bearbeiten</button>
+                <button data-action="toggle" data-id="${id}" class="text-[11px] font-bold px-3 py-1.5 rounded border ${u.is_active ? "border-red-300 text-red-600 hover:bg-red-50" : "border-emerald-300 text-emerald-600 hover:bg-emerald-50"} transition">
+                    ${u.is_active ? "Deaktivieren" : "Aktivieren"}
                 </button>
             </td>
-        </tr>
-    `}).join('');
+        </tr>`;
+    }).join("");
 }
 
-window.revokeRole = async function(id, currentRole) {
-    if(!confirm(`Bist du sicher, dass du die Rechte (${currentRole}) dieses Benutzers entziehen und ihn auf 'TRAINER' zurückstufen möchtest?`)) return;
-    const token = localStorage.getItem("access_token");
-    const res = await fetch(`/api/v1/auth/users/${id}/revoke-role`, { method: "PUT", headers: { "Authorization": `Bearer ${token}` } });
-    const data = await res.json();
-    if(res.ok) {
-        alert(data.message);
-        loadUsers(); // Erzwingt das sofortige Neuladen der Tabelle
+/**
+ * Zentraler Klick-Handler der Tabelle (Event-Delegation).
+ * Ermittelt über data-action, welche Aktion gemeint ist.
+ *
+ * @param {MouseEvent} e
+ */
+function onUserTableClick(e) {
+    const btn = e.target.closest("button[data-action]");
+    if (!btn) return;
+    const id = Number(btn.dataset.id);
+    const user = usersById.get(id);
+    if (!user) return;
+
+    switch (btn.dataset.action) {
+        case "edit": openManualModal(user); break;
+        case "delete": deleteUser(id); break;
+        case "toggle": toggleStatus(id); break;
+        case "revoke": revokeRole(id, user.role); break;
+    }
+}
+
+/**
+ * Setzt einen Benutzer auf die Rolle TRAINER zurück.
+ * Spricht mit: PUT /api/v1/auth/users/<id>/revoke-role
+ *
+ * @param {number} id
+ * @param {string} currentRole - nur für die Rückfrage angezeigt.
+ */
+async function revokeRole(id, currentRole) {
+    if (!confirm(`Bist du sicher, dass du die Rechte (${currentRole}) dieses Benutzers entziehen und ihn auf 'TRAINER' zurückstufen möchtest?`)) return;
+    const res = await apiFetch(`/api/v1/auth/users/${encodeURIComponent(id)}/revoke-role`, { method: "PUT" });
+    const data = await readJson(res);
+    if (res.ok) {
+        alert(data.message || "Rechte entzogen.");
+        loadUsers(); // sofort neu laden, damit die Tabelle den neuen Stand zeigt
     } else {
         alert(data.error || "Fehler beim Entziehen der Rechte.");
     }
-};
-async function toggleStatus(id) {
-    const token = localStorage.getItem("access_token");
-    const res = await fetch(`/api/v1/auth/${id}/status`, { method: "PUT", headers: { "Authorization": `Bearer ${token}` } });
-    if(res.ok) loadUsers(); else { const data = await res.json(); alert(data.error); }
 }
 
-// --- SKILL MANAGEMENT ---
-window.openSkillsModal = async () => {
-    document.getElementById('skills-modal').classList.remove('hidden');
-    resetSkillForm();
-    await loadSkillsList();
-};
-
-window.resetSkillForm = () => {
-    document.getElementById('s-id').value = '';
-    document.getElementById('s-name').value = '';
-    document.getElementById('s-desc').value = '';
-    document.getElementById('skill-form-title').innerText = 'Neue Qualifikation anlegen';
-    document.getElementById('s-error').classList.add('hidden');
-};
-
-window.loadSkillsList = async () => {
-    const token = localStorage.getItem("access_token");
-    const res = await fetch("/api/v1/skills", { headers: { "Authorization": `Bearer ${token}` } });
-    if (!res.ok) return;
-    const data = await res.json();
-    const container = document.getElementById("skills-list");
-    
-    if (data.skills.length === 0) {
-        container.innerHTML = '<div class="text-sm text-gray-500 text-center p-4">Keine Qualifikationen gefunden.</div>';
-        return;
-    }
-    
-    container.innerHTML = data.skills.map(s => `
-        <div class="border p-3 rounded bg-white text-sm flex justify-between items-start hover:border-[#2B6CB0] transition shadow-sm">
-            <div class="flex-1 pr-4">
-                <div class="font-bold text-[#1A365D] mb-1">${s.name}</div>
-                <div class="text-[11px] text-gray-500 leading-tight">${s.description || '-'}</div>
-            </div>
-            <div class="flex flex-col space-y-1.5 shrink-0">
-                <button onclick="editSkill(${s.id}, '${s.name.replace(/'/g, "\\'")}', '${(s.description||'').replace(/'/g, "\\'")}')" class="text-[11px] text-blue-600 font-bold border border-blue-300 rounded px-2 py-1 hover:bg-blue-50">Bearbeiten</button>
-                <button onclick="deleteSkill(${s.id})" class="text-[11px] text-red-600 font-bold border border-red-300 rounded px-2 py-1 hover:bg-red-50">Löschen</button>
-            </div>
-        </div>
-    `).join('');
-};
-
-window.editSkill = (id, name, desc) => {
-    document.getElementById('s-id').value = id;
-    document.getElementById('s-name').value = name;
-    document.getElementById('s-desc').value = desc;
-    document.getElementById('skill-form-title').innerText = 'Qualifikation bearbeiten';
-    document.getElementById('s-error').classList.add('hidden');
-};
-
-window.deleteSkill = async (id) => {
-    if(!confirm("Bist du sicher, dass du diese Qualifikation löschen möchtest?")) return;
-    const token = localStorage.getItem("access_token");
-    await fetch(`/api/v1/skills/${id}`, { method: "DELETE", headers: { "Authorization": `Bearer ${token}` } });
-    loadSkillsList();
-    
-    // Allgemeinen Cache aktualisieren
-    const allSkillsRes = await fetch("/api/v1/skills", { headers: { "Authorization": `Bearer ${token}` } });
-    if (allSkillsRes.ok) {
-        const skillData = await allSkillsRes.json();
-        allAvailableSkills = skillData.skills;
-    }
-};
-
-
-
-window.deleteUser = async function(id) {
-    if(!confirm("Möchtest du diesen Benutzer WIRKLICH endgültig löschen? Dies kann nicht rückgängig gemacht werden.")) return;
-    const token = localStorage.getItem("access_token");
-    const res = await fetch(`/api/v1/auth/users/${id}`, { method: "DELETE", headers: { "Authorization": `Bearer ${token}` } });
-    const data = await res.json();
-    if(res.ok) {
-        alert(data.message);
+/**
+ * Aktiviert bzw. sperrt einen Benutzer.
+ * Spricht mit: PUT /api/v1/auth/<id>/status
+ *
+ * @param {number} id
+ */
+async function toggleStatus(id) {
+    const res = await apiFetch(`/api/v1/auth/${encodeURIComponent(id)}/status`, { method: "PUT" });
+    if (res.ok) {
         loadUsers();
     } else {
-        alert(data.error);
+        const data = await readJson(res);
+        alert(data.error || "Status konnte nicht geändert werden.");
     }
-};
+}
+
+/**
+ * Löscht einen Benutzer endgültig (nach Rückfrage).
+ * Spricht mit: DELETE /api/v1/auth/users/<id>
+ * Hat der Benutzer bereits Termine erstellt, verweigert das Backend das
+ * Löschen (409) – dann soll "Deaktivieren" genutzt werden.
+ *
+ * @param {number} id
+ */
+async function deleteUser(id) {
+    if (!confirm("Möchtest du diesen Benutzer WIRKLICH endgültig löschen? Dies kann nicht rückgängig gemacht werden.")) return;
+    const res = await apiFetch(`/api/v1/auth/users/${encodeURIComponent(id)}`, { method: "DELETE" });
+    const data = await readJson(res);
+    if (res.ok) {
+        alert(data.message || "Benutzer gelöscht.");
+        loadUsers();
+    } else {
+        alert(data.error || "Benutzer konnte nicht gelöscht werden.");
+    }
+}
 </script>
 {% endblock %}

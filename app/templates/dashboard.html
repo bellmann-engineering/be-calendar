@@ -1,55 +1,97 @@
+{#
+=====================================================================
+Datei: app/templates/dashboard.html
+---------------------------------------------------------------------
+Zweck:
+  Hauptseite nach dem Login: Wochenkalender mit allen Terminen, die
+  der eingeloggte Benutzer sehen darf, plus zwei Modals:
+    1. "event-modal"         → Termin anlegen / bearbeiten
+    2. "event-details-modal" → Details, RSVP (Trainer),
+                               Neu-Zuweisung und Verwaltung (CEO/ADMIN/TL)
+
+Wer steuert diese Seite?
+  Ausschließlich app.js (renderCalendar, setupEventCreation,
+  openEventDetails ...). Diese Vorlage enthält bewusst KEIN eigenes
+  JavaScript – nur die HTML-Struktur mit festen IDs, auf die app.js
+  zugreift. Werden IDs umbenannt, muss app.js angepasst werden.
+
+Welche Backend-Endpunkte werden (über app.js) genutzt?
+  GET/POST/PUT/DELETE /api/v1/events, PUT /api/v1/events/<id>/rsvp,
+  GET /api/v1/auth/trainers, GET /api/v1/customers
+
+Sichtbarkeit:
+  "dashboard-content" und "open-modal-btn" sind anfangs versteckt und
+  werden von app.js erst nach erfolgreichem Login (bzw. je nach Rolle)
+  eingeblendet.
+=====================================================================
+#}
 {% extends "base.html" %}
 {% block content %}
 <div id="dashboard-content" class="hidden">
     <div class="flex justify-between items-center mb-6">
         <h1 class="text-2xl font-bold text-[#1A365D]">Dashboard</h1>
+        {# Nur für CEO/ADMIN/TEAM_LEADER sichtbar (app.js entfernt "hidden") #}
         <button id="open-modal-btn" class="bg-[#2B6CB0] text-white px-4 py-2 rounded text-sm font-medium hover:bg-[#1A365D] transition shadow hidden">
             + Neuer Termin
         </button>
     </div>
     <div class="grid grid-cols-1 gap-6">
         <div class="bg-white p-4 border rounded shadow-sm min-h-[600px]">
+            {# Hier zeichnet FullCalendar den Kalender hinein (app.js::renderCalendar) #}
             <div id="calendar-container"></div>
         </div>
     </div>
 </div>
 
-<!-- Modal: Neuer / Bearbeiten Termin -->
+{# ================= Modal: Neuer / Bearbeiten Termin ================= #}
 <div id="event-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
     <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-md">
         <h2 id="event-modal-title" class="text-xl font-bold text-[#1A365D] mb-4">Neuen Termin anlegen</h2>
         <form id="event-form" class="space-y-4">
+            {# Leer = neuer Termin (POST), gefüllt = Bearbeiten (PUT /api/v1/events/<id>) #}
             <input type="hidden" id="editing-event-id" value="">
             <div>
-                <label class="block text-sm font-medium text-gray-700">Titel</label>
-                <input type="text" id="event-title" required class="mt-1 block w-full border-gray-300 rounded p-2 border focus:ring-[#2B6CB0]">
+                <label class="block text-sm font-medium text-gray-700" for="event-title">Titel</label>
+                <input type="text" id="event-title" required maxlength="200" class="mt-1 block w-full border-gray-300 rounded p-2 border focus:ring-[#2B6CB0]">
             </div>
             <div>
-                <label class="block text-sm font-medium text-gray-700">Teams / Meeting Link (Optional)</label>
-                <input type="url" id="event-meeting-link" class="mt-1 block w-full border-gray-300 rounded p-2 border focus:ring-[#2B6CB0]" placeholder="https://teams.microsoft.com/...">
+                <label class="block text-sm font-medium text-gray-700" for="event-meeting-link">Teams / Meeting Link (Optional)</label>
+                {# type="url" hilft dem Browser; app.js zeigt Links später nur an, wenn sie http(s) sind #}
+                <input type="url" id="event-meeting-link" maxlength="500" class="mt-1 block w-full border-gray-300 rounded p-2 border focus:ring-[#2B6CB0]" placeholder="https://teams.microsoft.com/...">
             </div>
             <div>
-                <label class="block text-sm font-medium text-gray-700">Zuweisen an (Mitarbeiter)</label>
+                <label class="block text-sm font-medium text-gray-700" for="event-assignee">Zuweisen an (Mitarbeiter)</label>
+                {# Optionen lädt app.js::loadTrainers() aus GET /api/v1/auth/trainers #}
                 <select id="event-assignee" class="mt-1 block w-full border-gray-300 rounded p-2 border focus:ring-[#2B6CB0]">
                     <option value="">-- Unzugewiesen --</option>
                 </select>
             </div>
-            <div>
-                <label class="hidden">Benötigte Qualifikationen</label>
-                <div id="skills-container" class="hidden"></div>
+
+            <div class="flex items-center space-x-2 mb-2 bg-blue-50 p-2 rounded border border-blue-100">
+                {# Umschalten zwischen Datum+Uhrzeit und reinem Datum (app.js::setAllDayInputs) #}
+                <input type="checkbox" id="event-is-all-day" class="rounded text-[#2B6CB0] border-gray-300 w-4 h-4 cursor-pointer">
+                <label class="text-sm font-bold text-[#1A365D] cursor-pointer" for="event-is-all-day">Ganztägiger Termin (All-Day)</label>
             </div>
-            <div class="flex items-center space-x-2 mb-2 bg-blue-50 p-2 rounded border border-blue-100"><input type="checkbox" id="event-is-all-day" class="rounded text-[#2B6CB0] border-gray-300 w-4 h-4 cursor-pointer"><label class="text-sm font-bold text-[#1A365D] cursor-pointer" for="event-is-all-day">Ganztägiger Termin (All-Day)</label></div>
-            
-            <div><label class="block text-sm font-medium text-gray-700">Kunde / Projekt (Farbe)</label><select id="event-customer" class="mt-1 block w-full border-gray-300 rounded p-2 border focus:ring-[#2B6CB0] mb-3"><option value="">-- Intern / Kein Kunde --</option></select></div><div class="grid grid-cols-2 gap-4">
+
+            <div>
+                <label class="block text-sm font-medium text-gray-700" for="event-customer">Kunde / Projekt (Farbe)</label>
+                {# Optionen lädt app.js::loadCustomers(); die Kundenfarbe färbt den Termin im Kalender #}
+                <select id="event-customer" class="mt-1 block w-full border-gray-300 rounded p-2 border focus:ring-[#2B6CB0] mb-3">
+                    <option value="">-- Intern / Kein Kunde --</option>
+                </select>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
                 <div>
-                    <label class="block text-sm font-medium text-gray-700">Start</label>
+                    <label class="block text-sm font-medium text-gray-700" for="event-start">Start</label>
+                    {# Eingabe in Lokalzeit; app.js::toUtcIso rechnet vor dem Senden in UTC um #}
                     <input type="datetime-local" id="event-start" required class="mt-1 block w-full border-gray-300 rounded p-2 border focus:ring-[#2B6CB0]">
                 </div>
                 <div>
-                    <label class="block text-sm font-medium text-gray-700">Ende</label>
+                    <label class="block text-sm font-medium text-gray-700" for="event-end">Ende</label>
                     <input type="datetime-local" id="event-end" required class="mt-1 block w-full border-gray-300 rounded p-2 border focus:ring-[#2B6CB0]">
                 </div>
             </div>
+            {# Server-Fehler (z. B. 409 Terminkollision) werden hier als Text angezeigt #}
             <div id="event-error" class="text-red-600 text-sm hidden"></div>
             <div class="flex justify-end space-x-3 mt-6">
                 <button type="button" id="close-modal-btn" class="px-4 py-2 text-gray-600 hover:text-gray-900">Abbrechen</button>
@@ -59,13 +101,15 @@
     </div>
 </div>
 
-<!-- Modal: RSVP / Details -->
+{# ================= Modal: Termindetails / RSVP ================= #}
 <div id="event-details-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
     <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-md">
         <h2 id="detail-title" class="text-xl font-bold text-[#1A365D] mb-2"></h2>
         <p id="detail-time" class="text-sm text-gray-600 mb-2"></p>
-        <a id="detail-link" href="#" target="_blank" class="text-sm text-[#2B6CB0] font-bold hover:underline mb-4 hidden block break-all">🎥 Online-Meeting beitreten</a>
-        
+        {# Wird nur eingeblendet, wenn der Link eine gültige http(s)-URL ist (app.js::isSafeHttpUrl) #}
+        <a id="detail-link" target="_blank" rel="noopener noreferrer" class="text-sm text-[#2B6CB0] font-bold hover:underline mb-4 hidden block break-all">🎥 Online-Meeting beitreten</a>
+
+        {# --- Nur für Trainer: Zusage / Absage --- #}
         <div id="rsvp-section" class="hidden border-t pt-4 mt-4">
             <h3 class="text-sm font-bold text-gray-800 mb-2">Deine Rückmeldung:</h3>
             <div class="flex space-x-3 mb-3">
@@ -73,15 +117,17 @@
                 <button id="btn-decline" class="flex-1 bg-red-600 text-white py-2 rounded text-sm hover:bg-red-700 transition">Ablehnen</button>
             </div>
             <div id="decline-container" class="hidden space-y-2">
-                <label class="block text-xs font-medium text-gray-700">Begründung (Pflichtfeld):</label>
+                <label class="block text-xs font-medium text-gray-700" for="decline-reason">Begründung (Pflichtfeld):</label>
                 <textarea id="decline-reason" class="w-full border-gray-300 rounded p-2 border text-sm" rows="2"></textarea>
                 <button id="btn-submit-decline" class="w-full bg-red-800 text-white py-2 rounded text-sm hover:bg-red-900 transition">Absenden</button>
             </div>
             <div id="rsvp-error" class="text-red-600 text-xs hidden mt-2"></div>
         </div>
 
+        {# --- CEO/ADMIN/TL: abgelehnten Termin neu zuweisen --- #}
         <div id="reassign-section" class="hidden border-t pt-4 mt-4">
             <h3 class="text-sm font-bold text-red-600 mb-2">Termin abgelehnt! Neu zuweisen:</h3>
+            {# Ablehnungsgrund = Benutzertext → app.js setzt ihn per textContent #}
             <p id="detail-rejection-reason" class="text-xs text-gray-700 italic bg-gray-100 p-2 rounded mb-2 hidden"></p>
             <select id="reassign-select" class="block w-full border-gray-300 rounded p-2 border text-sm mb-3">
                 <option value="">-- Wähle neuen Mitarbeiter --</option>
@@ -89,6 +135,7 @@
             <button id="btn-reassign" class="w-full bg-[#1A365D] text-white py-2 rounded text-sm hover:bg-[#2B6CB0] transition">Speichern & Zuweisen</button>
         </div>
 
+        {# --- CEO/ADMIN/TL: Bearbeiten / Löschen --- #}
         <div id="admin-actions" class="hidden border-t pt-4 mt-4">
             <h3 class="text-sm font-bold text-gray-800 mb-2">Verwaltung:</h3>
             <div class="flex space-x-3">
@@ -99,28 +146,6 @@
 
         <div class="flex justify-end mt-6">
             <button type="button" id="close-details-btn" class="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300">Schließen</button>
-        </div>
-    </div>
-</div>
-
-<!-- LOG-BEREICH (STANDARDMÄSSIG VERSTECKT) -->
-<div id="logs-content" class="hidden">
-    <div class="flex justify-between items-center mb-6">
-        <h1 class="text-2xl font-bold text-[#1A365D]">System Audit Logs</h1>
-    </div>
-    <div class="bg-white border rounded shadow-sm overflow-hidden">
-        <div class="max-h-[700px] overflow-y-auto">
-            <table class="w-full text-left text-sm text-gray-700">
-                <thead class="bg-gray-50 text-gray-900 border-b sticky top-0">
-                    <tr>
-                        <th class="p-3 font-bold">Datum & Zeit</th>
-                        <th class="p-3 font-bold">Benutzer</th>
-                        <th class="p-3 font-bold">Aktion</th>
-                        <th class="p-3 font-bold">Details</th>
-                    </tr>
-                </thead>
-                <tbody id="logs-table-body" class="divide-y"></tbody>
-            </table>
         </div>
     </div>
 </div>

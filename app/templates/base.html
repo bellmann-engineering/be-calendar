@@ -1,22 +1,65 @@
+{#
+=====================================================================
+Datei: app/templates/base.html
+---------------------------------------------------------------------
+Zweck:
+  Grundgerüst (Layout) für ALLE HTML-Seiten des Bellmann Calendar.
+  Jede Seite erweitert diese Vorlage per {% extends "base.html" %}
+  und füllt die Blöcke:
+    - {% block content %}  → sichtbarer Seiteninhalt
+    - {% block scripts %}  → seitenspezifisches JavaScript
+
+Wer rendert diese Datei?
+  Flask (Jinja2) über die Routen in app/routes/calendar_routes.py
+  (/dashboard, /compare, /logs, /members, /customers, /login,
+  /reset-password).
+
+Abhängigkeiten:
+  - Tailwind CSS (Play-CDN)  → Styling über Utility-Klassen.
+      TODO (bekannt): Das Play-CDN ist laut Tailwind nicht für die
+      Produktion gedacht. Es erzeugt die Styles zur Laufzeit im Browser
+      und zwingt die Content-Security-Policy zu 'unsafe-inline'.
+      Ziel: CSS beim Docker-Build mit der Tailwind-CLI kompilieren und
+      als statische Datei ausliefern.
+  - FullCalendar 6 (jsDelivr-CDN, feste Version) → Kalender-Widget.
+  - static/js/app.js → globale Helfer (apiFetch, escapeHtml, ...),
+      Navigation, Login/Logout, Dashboard-Logik.
+
+Reihenfolge der Skripte (wichtig!):
+  app.js wird VOR {% block scripts %} geladen. So stehen die Helfer
+  (apiFetch, escapeHtml, getCurrentUser ...) bereits zur Verfügung,
+  wenn die Seiten-Skripte ausgeführt werden.
+
+Sicherheit:
+  Die Navigations-Tabs sind standardmäßig versteckt (class "hidden")
+  und werden von app.js je nach Rolle eingeblendet. Das ist reine
+  Optik – die echte Rechteprüfung passiert im Backend.
+=====================================================================
+#}
 <!DOCTYPE html>
 <html lang="de">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Bellmann Calendar</title>
+    {# Tailwind Play-CDN – siehe TODO im Kopfkommentar #}
     <script src="https://cdn.tailwindcss.com"></script>
+    {# FullCalendar mit fest gepinnter Version, damit ein Update nicht ungewollt das UI ändert #}
     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
     <style>
+        /* Termine im Kalender sollen als klickbar erkennbar sein. */
         .fc-event { cursor: pointer !important; }
     </style>
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans antialiased">
+    {# ---------- Obere Navigationsleiste ---------- #}
     <nav class="bg-[#1A365D] text-white shadow-md">
         <div class="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
-            
+
             <div class="flex items-center">
                 <div class="text-xl font-bold mr-8">Bellmann Engineering</div>
                 <div class="hidden md:flex space-x-4 h-full items-center">
+                    {# request.path markiert den aktiven Tab mit einer grünen Unterstreichung #}
                     <a href="/dashboard" id="nav-dashboard" class="text-sm hover:text-gray-300 pb-1 border-b-2 {% if request.path == '/dashboard' %}border-emerald-400{% else %}border-transparent{% endif %}">
                         Dashboard
                     </a>
@@ -31,13 +74,16 @@
                 </div>
             </div>
 
+            {# Benutzerbereich: wird von app.js nach erfolgreichem /api/v1/auth/me eingeblendet #}
             <div id="user-info" class="hidden flex items-center space-x-5">
                 <div class="relative cursor-pointer" id="notification-bell">
                     <svg class="w-6 h-6 text-gray-300 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
                     </svg>
+                    {# Zähler ungelesener Benachrichtigungen #}
                     <span id="notif-badge" class="absolute -top-1 -right-2 inline-flex items-center justify-center px-1.5 py-0.5 text-xs font-bold leading-none text-white bg-red-600 rounded-full hidden">0</span>
-                    
+
+                    {# Dropdown-Liste; Einträge erzeugt app.js::loadNotifications() #}
                     <div id="notif-dropdown" class="absolute right-0 mt-3 w-80 bg-white rounded-md shadow-xl overflow-hidden z-[100] hidden border">
                         <div class="py-1 max-h-96 overflow-y-auto" id="notif-list"></div>
                     </div>
@@ -48,9 +94,14 @@
             </div>
         </div>
     </nav>
+
+    {# ---------- Seiteninhalt ---------- #}
     <main class="max-w-7xl mx-auto px-4 py-6">
         {% block content %}{% endblock %}
     </main>
+
+    {# Globale Helfer zuerst, danach die Seiten-Skripte #}
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    {% block scripts %}{% endblock %}
 </body>
 </html>

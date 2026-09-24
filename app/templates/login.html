@@ -1,16 +1,41 @@
+{#
+=====================================================================
+Datei: app/templates/login.html
+---------------------------------------------------------------------
+Zweck:
+  Anmeldeseite des Systems (öffentlich, ohne Login erreichbar).
+
+Wie funktioniert der Login?
+  Das Formular "login-form" wird von app.js::setupAuth() verarbeitet:
+  POST /api/v1/auth/login → der Server setzt HttpOnly-Cookies mit dem
+  JWT. Danach leitet app.js auf /dashboard weiter.
+
+"Passwort vergessen?":
+  Das Skript unten sendet nur die E-Mail an
+  POST /api/v1/auth/forgot-password. Der Server antwortet IMMER mit
+  derselben neutralen Meldung (egal ob die E-Mail existiert), damit
+  niemand herausfinden kann, welche Konten es gibt
+  (Schutz vor "User Enumeration"). Existiert das Konto, erhält der
+  Benutzer eine E-Mail mit einem zeitlich begrenzten Link auf
+  /reset-password?token=...
+
+Abhängigkeiten: base.html, app.js (apiFetch, readJson).
+=====================================================================
+#}
 {% extends "base.html" %}
 {% block content %}
 <div class="max-w-md mx-auto bg-white p-8 border rounded shadow-sm mt-10">
     <h2 class="text-2xl font-bold text-[#1A365D] mb-6 text-center">System-Login</h2>
     <form id="login-form" class="space-y-4">
         <div>
-            <label class="block text-sm font-medium text-gray-700">E-Mail</label>
-            <input type="email" id="email" required class="mt-1 block w-full border-gray-300 rounded-md shadow-sm p-2 border focus:border-[#2B6CB0] focus:ring focus:ring-[#2B6CB0] focus:ring-opacity-50">
+            <label class="block text-sm font-medium text-gray-700" for="email">E-Mail</label>
+            <input type="email" id="email" required autocomplete="username" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm p-2 border focus:border-[#2B6CB0] focus:ring focus:ring-[#2B6CB0] focus:ring-opacity-50">
         </div>
         <div>
-            <label class="block text-sm font-medium text-gray-700">Passwort</label>
-            <input type="password" id="password" required class="mt-1 block w-full border-gray-300 rounded-md shadow-sm p-2 border focus:border-[#2B6CB0] focus:ring focus:ring-[#2B6CB0] focus:ring-opacity-50">
+            <label class="block text-sm font-medium text-gray-700" for="password">Passwort</label>
+            <input type="password" id="password" required autocomplete="current-password" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm p-2 border focus:border-[#2B6CB0] focus:ring focus:ring-[#2B6CB0] focus:ring-opacity-50">
         </div>
+        {# Fehlermeldungen setzt app.js per textContent #}
         <div id="login-error" class="text-red-600 text-sm hidden"></div>
         <button type="submit" class="w-full bg-[#1A365D] text-white py-2 px-4 rounded hover:bg-[#2B6CB0] transition">Anmelden</button>
         <div class="text-center mt-4">
@@ -18,20 +43,27 @@
         </div>
     </form>
 </div>
+{% endblock %}
 
+{% block scripts %}
 <script>
+/**
+ * Startet den "Passwort vergessen"-Ablauf.
+ * Spricht mit: POST /api/v1/auth/forgot-password {email}
+ * Zeigt die (bewusst neutrale) Server-Meldung an.
+ */
 document.getElementById("forgot-password-link")?.addEventListener("click", async (e) => {
     e.preventDefault();
     const email = prompt("Bitte gib deine E-Mail-Adresse ein, um das Passwort zurückzusetzen:");
     if (!email) return;
     try {
-        const res = await fetch("/api/v1/auth/forgot-password", {
+        const res = await apiFetch("/api/v1/auth/forgot-password", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ email: email })
+            body: { email: email.trim() },
         });
-        const data = await res.json();
-        alert(data.message || "Anfrage gesendet.");
+        const data = await readJson(res);
+        // alert() zeigt reinen Text an – kein HTML, daher kein XSS-Risiko.
+        alert(data.message || data.error || "Anfrage gesendet.");
     } catch (err) {
         alert("Fehler beim Senden der Anfrage.");
     }
