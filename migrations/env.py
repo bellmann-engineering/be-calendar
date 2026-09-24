@@ -1,3 +1,13 @@
+"""
+Alembic-Umgebung für Flask-Migrate.
+
+Wird ausgeführt bei: ``flask db upgrade | downgrade | migrate | check | stamp``.
+Holt sich Engine (DATABASE_URL) und Metadaten (alle Models aus app/models) aus der
+laufenden Flask-App (FLASK_APP=wsgi.py) und führt die Skripte in migrations/versions aus.
+
+Wichtig: Schemaänderungen NUR über neue Migrationsdateien – nie per db.create_all().
+"""
+
 import logging
 from logging.config import fileConfig
 
@@ -16,12 +26,12 @@ logger = logging.getLogger("alembic.env")
 
 
 def get_engine():
-    try:
-        # this works with Flask-SQLAlchemy<3 and Alchemical
-        return current_app.extensions["migrate"].db.get_engine()
-    except (TypeError, AttributeError):
-        # this works with Flask-SQLAlchemy>=3
-        return current_app.extensions["migrate"].db.engine
+    """Die SQLAlchemy-Engine der Flask-App (Flask-SQLAlchemy >= 3: ``db.engine``).
+
+    Früher stand hier zuerst ``db.get_engine()`` – das ist seit Flask-SQLAlchemy 3.1
+    veraltet und erzeugte bei jedem ``flask db upgrade`` eine DeprecationWarning.
+    """
+    return current_app.extensions["migrate"].db.engine
 
 
 def get_engine_url():
@@ -94,9 +104,7 @@ def run_migrations_online():
     connectable = get_engine()
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection, target_metadata=get_metadata(), **conf_args
-        )
+        context.configure(connection=connection, target_metadata=get_metadata(), **conf_args)
 
         with context.begin_transaction():
             context.run_migrations()

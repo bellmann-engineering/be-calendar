@@ -1,7 +1,7 @@
 """Initial schema: roles, users, events, rsvps, audit_logs
 
 Revision ID: b02c2c99c1a7
-Revises: 
+Revises:
 Create Date: 2026-09-02 13:29:11.218199
 """
 
@@ -60,15 +60,9 @@ def upgrade():
         sa.PrimaryKeyConstraint("id"),
     )
     with op.batch_alter_table("events", schema=None) as batch_op:
-        batch_op.create_index(
-            batch_op.f("ix_events_end_time"), ["end_time"], unique=False
-        )
-        batch_op.create_index(
-            batch_op.f("ix_events_is_deleted"), ["is_deleted"], unique=False
-        )
-        batch_op.create_index(
-            batch_op.f("ix_events_start_time"), ["start_time"], unique=False
-        )
+        batch_op.create_index(batch_op.f("ix_events_end_time"), ["end_time"], unique=False)
+        batch_op.create_index(batch_op.f("ix_events_is_deleted"), ["is_deleted"], unique=False)
+        batch_op.create_index(batch_op.f("ix_events_start_time"), ["start_time"], unique=False)
 
     op.create_table(
         "audit_logs",
@@ -83,9 +77,7 @@ def upgrade():
         sa.PrimaryKeyConstraint("id"),
     )
     with op.batch_alter_table("audit_logs", schema=None) as batch_op:
-        batch_op.create_index(
-            batch_op.f("ix_audit_logs_timestamp"), ["timestamp"], unique=False
-        )
+        batch_op.create_index(batch_op.f("ix_audit_logs_timestamp"), ["timestamp"], unique=False)
 
     op.create_table(
         "event_rsvps",
