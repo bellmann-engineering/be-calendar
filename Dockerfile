@@ -3,8 +3,11 @@
 # Dockerfile – Image für den Web-Service "web" (Flask + Gunicorn)
 # -----------------------------------------------------------------------------
 # Multi-Stage-Build:
-#   Stufe 1 "builder": lädt/baut alle Python-Pakete als Wheels.
-#   Stufe 2 "runtime": installiert nur die fertigen Wheels + den App-Code.
+#   Stufe 1 "assets":  Node.js baut die Frontend-Dateien (Tailwind-CSS kompiliert und
+#                      auf die genutzten Klassen reduziert, FullCalendar + Schrift kopiert)
+#                      -> app/static/dist/. Node und node_modules bleiben in dieser Stufe.
+#   Stufe 2 "builder": lädt/baut alle Python-Pakete als Wheels.
+#   Stufe 3 "runtime": installiert nur die fertigen Wheels + den App-Code + dist/.
 #   -> Build-Werkzeuge und Caches landen NICHT im finalen Image (kleiner, sicherer).
 #
 # Zu gcc: Alle Abhängigkeiten gibt es als fertige Wheels (psycopg[binary] bringt
@@ -16,7 +19,22 @@
 # Gestartet wird das Image von docker-compose.yml (Service "web").
 # =============================================================================
 
-# ---------------------------------------------------------------- Stufe 1: builder
+# ---------------------------------------------------------------- Stufe 1: assets
+FROM node:22-bookworm-slim AS assets
+
+WORKDIR /build
+# Zuerst nur Paketdefinition + Lockfile: Diese Docker-Schicht (npm ci) wird nur neu
+# gebaut, wenn sich die Abhängigkeiten ändern – nicht bei jeder Template-Änderung.
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
+# Tailwind durchsucht Templates und JS nach genutzten Klassen -> beides wird benötigt.
+COPY frontend/ frontend/
+COPY app/templates/ app/templates/
+COPY app/static/js/ app/static/js/
+RUN npm run build
+
+
+# ---------------------------------------------------------------- Stufe 2: builder
 FROM python:3.12-slim AS builder
 
 ENV PIP_NO_CACHE_DIR=1 \
@@ -28,7 +46,7 @@ COPY requirements.txt .
 RUN pip wheel --wheel-dir /wheels -r requirements.txt
 
 
-# ---------------------------------------------------------------- Stufe 2: runtime
+# ---------------------------------------------------------------- Stufe 3: runtime
 FROM python:3.12-slim AS runtime
 
 # PYTHONDONTWRITEBYTECODE: keine .pyc-Dateien (Code-Verzeichnis ist read-only)
@@ -54,6 +72,8 @@ RUN pip install --no-index --find-links=/wheels /wheels/* && rm -rf /wheels
 
 # App-Code gehört root und ist für "app" nur lesbar (kein Überschreiben des eigenen Codes).
 COPY . .
+# Fertig gebaute Frontend-Dateien aus der Node-Stufe (CSS, FullCalendar, Schrift).
+COPY --from=assets /build/app/static/dist app/static/dist
 RUN chmod 0755 docker-entrypoint.sh
 
 USER app

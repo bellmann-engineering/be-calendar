@@ -1,17 +1,56 @@
+{#
+=====================================================================
+Datei: app/templates/email/base.html
+---------------------------------------------------------------------
+Zweck:
+  Grundlayout aller HTML-E-Mails (Einladung, Absage, Passwort-Reset,
+  Konto-Einladung). Kind-Templates füllen {% block content %}.
+
+Wichtig für E-Mail-Programme (Outlook, Gmail, Apple Mail ...):
+  - NUR Inline-CSS (style="..."), keine <style>-Blöcke oder externen
+    Dateien – viele Programme entfernen sie.
+  - Layout über Tabellen (role="presentation"), weil Outlook moderne
+    CSS-Layouts (Flexbox/Grid) nicht versteht.
+  - Farben passend zum Designsystem der Web-Oberfläche (Navy #1A365D,
+    Akzent #2B6CB0).
+
+Gerendert von: app/services/email_service.py (render_template).
+=====================================================================
+#}
 <!DOCTYPE html>
-<html>
-<body style="font-family: Arial, sans-serif; background-color: #f3f4f6; margin: 0; padding: 20px;">
-    <div style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);">
-        <div style="background-color: #1A365D; padding: 20px; text-align: center;">
-            <h2 style="color: #ffffff; margin: 0; font-size: 24px;">Bellmann Engineering</h2>
-        </div>
-        <div style="padding: 30px; color: #374151; line-height: 1.6;">
-            {% block content %}{% endblock %}
-        </div>
-        <div style="background-color: #f9fafb; padding: 15px; text-align: center; font-size: 12px; color: #6b7280; border-top: 1px solid #e5e7eb;">
-            &copy; 2026 Bellmann Engineering. Alle Rechte vorbehalten.<br>
-            Dies ist eine automatisch generierte E-Mail. Bitte antworte nicht direkt auf diese Nachricht.
-        </div>
-    </div>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>Bellmann Calendar</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f4f6fa; font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; -webkit-text-size-adjust: 100%;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f6fa;">
+        <tr>
+            <td align="center" style="padding: 32px 16px;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; background-color: #ffffff; border: 1px solid #e3e8ef; border-radius: 16px; overflow: hidden;">
+                    <tr>
+                        {# Kopfzeile: Navy mit Verlauf (Programme ohne Verlauf zeigen die Grundfarbe) #}
+                        <td style="background-color: #1a365d; background-image: linear-gradient(90deg, #0f2140, #1a365d 55%, #1f4a77); padding: 22px 32px;">
+                            <span style="color: #ffffff; font-size: 18px; font-weight: 600; letter-spacing: -0.01em;">Bellmann</span>
+                            <span style="color: #b6cfeb; font-size: 18px; font-weight: 400;"> Calendar</span>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 32px; color: #334155; font-size: 15px; line-height: 1.6;">
+                            {% block content %}{% endblock %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="background-color: #f8fafc; padding: 18px 32px; text-align: center; font-size: 12px; line-height: 1.5; color: #5d6b7e; border-top: 1px solid #e3e8ef;">
+                            &copy; 2026 Bellmann Engineering · Create. Enhance. Sustain.<br>
+                            Dies ist eine automatisch generierte E-Mail. Bitte antworte nicht direkt auf diese Nachricht.
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
 </body>
 </html>

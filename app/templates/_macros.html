@@ -1,0 +1,29 @@
+{#
+=====================================================================
+Datei: app/templates/_macros.html
+---------------------------------------------------------------------
+Zweck:
+  Wiederverwendbare Jinja-Makros für alle Seiten.
+    - icon(name, cls): Icon aus dem Sprite (_icons.html) einfügen
+    - skeleton_rows(rows, cols): Platzhalterzeilen, solange eine
+      Tabelle noch lädt (werden von den Seiten-Skripten ersetzt)
+
+Nutzung:  {% from "_macros.html" import icon, skeleton_rows %}
+=====================================================================
+#}
+
+{# aria-hidden: Icons sind Dekoration – die Bedeutung trägt immer ein Text oder aria-label. #}
+{% macro icon(name, cls="size-4") -%}
+<svg class="{{ cls }}" aria-hidden="true" focusable="false"><use href="#i-{{ name }}"></use></svg>
+{%- endmacro %}
+
+{# Ladezustand einer Tabelle: graue, pulsierende Balken statt "Lade Daten...". #}
+{% macro skeleton_rows(rows=5, cols=4) -%}
+{% for _ in range(rows) %}
+<tr aria-hidden="true">
+    {% for c in range(cols) %}
+    <td><div class="skeleton h-4 {{ 'w-3/4' if c == 0 else 'w-1/2' }}"></div></td>
+    {% endfor %}
+</tr>
+{% endfor %}
+{%- endmacro %}

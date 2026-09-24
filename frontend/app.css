@@ -1,0 +1,894 @@
+/*
+ * =====================================================================
+ * Datei: frontend/app.css
+ * ---------------------------------------------------------------------
+ * Zweck:
+ *   Quelle (und zugleich Konfiguration) des Designsystems von Bellmann
+ *   Calendar für Tailwind CSS v4. Die Tailwind-CLI liest diese Datei,
+ *   durchsucht die Templates und JS-Dateien nach genutzten Klassen und
+ *   schreibt NUR diese – minifiziert – nach app/static/dist/app.css.
+ *
+ *   Inhalt:
+ *     1. Quellen, die nach Klassen durchsucht werden (@source)
+ *     2. Schrift "Inter" (selbst gehostet, keine Google-Fonts-CDN)
+ *     3. Design-Tokens: Farben (hell + dunkel), Schrift, Schatten, Radien
+ *     4. Basisstile (Fokus, Auswahl, reduzierte Bewegung)
+ *     5. Komponenten (.btn, .card, .input, .badge, .dialog, .toast ...)
+ *     6. FullCalendar-Theme (bewusst OHNE @layer, siehe Kommentar dort)
+ *
+ * Wer baut diese Datei?
+ *   "npm run build:css" (package.json) – lokal und in der Node-Stufe des
+ *   Dockerfiles. Während der Entwicklung: "npm run watch:css".
+ *
+ * Wer nutzt das Ergebnis?
+ *   app/templates/base.html bindet app/static/dist/app.css ein
+ *   (mit Cache-Busting über asset_url(), siehe app/utils/assets.py).
+ *
+ * Hinweis zu Farben:
+ *   Komponenten verwenden ausschließlich semantische Tokens
+ *   (bg-surface, text-fg, border-line ...). Die konkreten Werte stehen
+ *   nur in :root bzw. im Dunkelmodus-Block – so bleibt der Dunkelmodus
+ *   automatisch konsistent.
+ * =====================================================================
+ */
+
+/* source(none): Tailwind soll NICHT automatisch das ganze Projekt durchsuchen,
+   sondern nur die unten ausdrücklich genannten Ordner (schneller, vorhersehbar). */
+@import "tailwindcss" source(none);
+
+@source "../app/templates";
+@source "../app/static/js";
+
+/* ------------------------------------------------------------------ */
+/* 2. Schrift: Inter (variabel, 100–900), nur lateinischer Zeichensatz  */
+/* ------------------------------------------------------------------ */
+/* Die Datei kopiert frontend/copy-vendor.mjs nach app/static/dist/fonts/.
+   "?v=5.3.0" = Version von @fontsource-variable/inter (Cache-Busting). Bei einem
+   Update des Pakets hier UND in base.html (Preload-Link) anpassen. */
+@font-face {
+    font-family: "Inter Variable";
+    font-style: normal;
+    font-display: swap; /* Text sofort mit Ersatzschrift zeigen, kein unsichtbarer Text */
+    font-weight: 100 900;
+    src: url("fonts/inter-latin-wght-normal.woff2?v=5.3.0") format("woff2");
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+        U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+        U+FEFF, U+FFFD;
+}
+
+/* ------------------------------------------------------------------ */
+/* 3. Design-Tokens                                                   */
+/* ------------------------------------------------------------------ */
+
+/* Feste Markenpalette rund um das Bellmann-Navy (#1A365D = 900) und den
+   Akzent (#2B6CB0 = 600). Wird z. B. für Verläufe und Avatare genutzt. */
+@theme {
+    --color-brand-50: #eef4fb;
+    --color-brand-100: #d9e6f5;
+    --color-brand-200: #b6cfeb;
+    --color-brand-300: #88b0dc;
+    --color-brand-400: #5b8fcb;
+    --color-brand-500: #3a78bd;
+    --color-brand-600: #2b6cb0;
+    --color-brand-700: #245a93;
+    --color-brand-800: #1f4a77;
+    --color-brand-900: #1a365d;
+    --color-brand-950: #0f2140;
+
+    --font-sans: "Inter Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+        "Helvetica Neue", Arial, sans-serif;
+
+    --shadow-xs: 0 1px 2px 0 rgb(15 27 45 / 0.05);
+    --shadow-card: 0 1px 2px 0 rgb(15 27 45 / 0.04), 0 1px 3px 0 rgb(15 27 45 / 0.06);
+    --shadow-pop: 0 12px 32px -8px rgb(15 27 45 / 0.22), 0 4px 10px -4px rgb(15 27 45 / 0.12);
+
+    --animate-fade-in: fade-in 160ms ease-out;
+    --animate-pop-in: pop-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
+    --animate-slide-in: slide-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
+
+    @keyframes fade-in {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+    @keyframes pop-in {
+        from { opacity: 0; transform: translateY(6px) scale(0.98); }
+        to { opacity: 1; transform: none; }
+    }
+    @keyframes slide-in {
+        from { opacity: 0; transform: translateY(12px); }
+        to { opacity: 1; transform: none; }
+    }
+}
+
+/* Semantische Farben: "inline" = Tailwind setzt var(--...) direkt in die Klassen,
+   dadurch wirken die Umschaltungen in :root (hell/dunkel) sofort. */
+@theme inline {
+    --color-canvas: var(--bc-canvas);
+    --color-surface: var(--bc-surface);
+    --color-surface-2: var(--bc-surface-2);
+    --color-surface-3: var(--bc-surface-3);
+    --color-line: var(--bc-line);
+    --color-line-strong: var(--bc-line-strong);
+    --color-fg: var(--bc-fg);
+    --color-fg-muted: var(--bc-fg-muted);
+    --color-fg-subtle: var(--bc-fg-subtle);
+    --color-primary: var(--bc-primary);
+    --color-primary-hover: var(--bc-primary-hover);
+    --color-on-primary: var(--bc-on-primary);
+    --color-accent: var(--bc-accent);
+    --color-accent-soft: var(--bc-accent-soft);
+    --color-danger: var(--bc-danger);
+    --color-danger-soft: var(--bc-danger-soft);
+    --color-success: var(--bc-success);
+    --color-success-soft: var(--bc-success-soft);
+    --color-warning: var(--bc-warning);
+    --color-warning-soft: var(--bc-warning-soft);
+    --color-violet: var(--bc-violet);
+    --color-violet-soft: var(--bc-violet-soft);
+}
+
+/* Helles Farbschema (Standard). Alle Text/Hintergrund-Paare erfüllen WCAG AA
+   (≥ 4,5:1 für normalen Text), geprüft u. a. fg-subtle auf canvas. */
+:root {
+    color-scheme: light;
+    --bc-canvas: #f4f6fa;
+    --bc-surface: #ffffff;
+    --bc-surface-2: #f8fafc;
+    --bc-surface-3: #eef2f7;
+    --bc-line: #e3e8ef;
+    --bc-line-strong: #cdd5e0;
+    --bc-fg: #0f1b2d;
+    --bc-fg-muted: #475569;
+    --bc-fg-subtle: #5d6b7e;
+    --bc-primary: #1a365d;
+    --bc-primary-hover: #234876;
+    --bc-on-primary: #ffffff;
+    --bc-accent: #2b6cb0;
+    --bc-accent-soft: #eaf2fb;
+    --bc-danger: #c02d2d;
+    --bc-danger-soft: #fdeeee;
+    --bc-success: #1c7a4b;
+    --bc-success-soft: #e8f6ee;
+    --bc-warning: #a34d06;
+    --bc-warning-soft: #fdf3e4;
+    --bc-violet: #6a3fb5;
+    --bc-violet-soft: #f2edfb;
+}
+
+/* Dunkles Farbschema – folgt der Systemeinstellung des Benutzers. */
+@media (prefers-color-scheme: dark) {
+    :root {
+        color-scheme: dark;
+        --bc-canvas: #0b1220;
+        --bc-surface: #111a2b;
+        --bc-surface-2: #152036;
+        --bc-surface-3: #1c2940;
+        --bc-line: #233049;
+        --bc-line-strong: #34435f;
+        --bc-fg: #e7edf6;
+        --bc-fg-muted: #b0bdd0;
+        --bc-fg-subtle: #94a3ba;
+        /* Im Dunkeln: helles Blau mit dunkler Schrift (Kontrast > 8:1). */
+        --bc-primary: #8fbcef;
+        --bc-primary-hover: #a9ccf3;
+        --bc-on-primary: #0b1628;
+        --bc-accent: #8fbcef;
+        --bc-accent-soft: #16294a;
+        --bc-danger: #ff8a8a;
+        --bc-danger-soft: #3a1720;
+        --bc-success: #6fd6a0;
+        --bc-success-soft: #0f2e22;
+        --bc-warning: #f7b267;
+        --bc-warning-soft: #33230f;
+        --bc-violet: #c3a8f5;
+        --bc-violet-soft: #26193f;
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* 4. Basisstile                                                      */
+/* ------------------------------------------------------------------ */
+@layer base {
+    html {
+        -webkit-text-size-adjust: 100%;
+        text-rendering: optimizeLegibility;
+        /* Tabellarische Ziffern: Uhrzeiten/Daten springen nicht in der Breite. */
+        font-feature-settings: "cv11", "ss01";
+    }
+
+    body {
+        @apply bg-canvas text-fg font-sans antialiased;
+    }
+
+    /* Sichtbarer, einheitlicher Tastatur-Fokus (WCAG 2.4.7 / 2.4.11). */
+    :focus-visible {
+        outline: 2px solid var(--bc-accent);
+        outline-offset: 2px;
+        border-radius: 6px;
+    }
+
+    ::selection {
+        background: color-mix(in srgb, var(--bc-accent) 25%, transparent);
+    }
+
+    /* Das HTML-Attribut hidden muss IMMER gewinnen, auch gegen display-Klassen. */
+    [hidden] {
+        display: none !important;
+    }
+
+    /* Tabellenzahlen/Uhrzeiten gleich breit. */
+    .tabular {
+        font-variant-numeric: tabular-nums;
+    }
+}
+
+/* Benutzer mit "Bewegung reduzieren": Animationen/Übergänge praktisch aus (WCAG 2.3.3). */
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+        scroll-behavior: auto !important;
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* 5. Komponenten                                                     */
+/* ------------------------------------------------------------------ */
+@layer components {
+    /* --- Layout --------------------------------------------------------- */
+    .container-app {
+        @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8;
+    }
+
+    .page-header {
+        @apply mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between;
+    }
+
+    .page-title {
+        @apply text-2xl font-semibold tracking-tight text-fg sm:text-[1.75rem];
+    }
+
+    .page-subtitle {
+        @apply mt-1 text-sm text-fg-muted;
+    }
+
+    .eyebrow {
+        @apply text-xs font-semibold uppercase tracking-[0.08em] text-accent;
+    }
+
+    /* --- Karten ------------------------------------------------------------ */
+    .card {
+        @apply rounded-2xl border border-line bg-surface shadow-card;
+    }
+
+    .card-header {
+        @apply flex items-center justify-between gap-3 border-b border-line px-5 py-4;
+    }
+
+    .card-title {
+        @apply text-base font-semibold text-fg;
+    }
+
+    /* --- Buttons ----------------------------------------------------------- */
+    .btn {
+        @apply inline-flex h-10 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-lg px-4 text-sm font-semibold whitespace-nowrap transition-colors duration-150 select-none disabled:cursor-not-allowed disabled:opacity-55;
+    }
+
+    .btn svg {
+        @apply size-4 shrink-0;
+    }
+
+    .btn-primary {
+        @apply bg-primary text-on-primary shadow-xs hover:bg-primary-hover;
+    }
+
+    .btn-secondary {
+        @apply border border-line-strong bg-surface text-fg shadow-xs hover:bg-surface-2;
+    }
+
+    .btn-ghost {
+        @apply text-fg-muted hover:bg-surface-3 hover:text-fg;
+    }
+
+    .btn-danger {
+        @apply bg-danger text-white shadow-xs hover:brightness-110 dark:text-[#2a0b0b];
+    }
+
+    .btn-success {
+        @apply bg-success text-white shadow-xs hover:brightness-110 dark:text-[#06210f];
+    }
+
+    .btn-soft-danger {
+        @apply bg-danger-soft text-danger hover:brightness-95 dark:hover:brightness-125;
+    }
+
+    .btn-sm {
+        @apply h-8 gap-1.5 rounded-md px-3 text-[0.8125rem];
+    }
+
+    .btn-block {
+        @apply w-full;
+    }
+
+    /* Quadratischer Icon-Button (immer mit aria-label!). */
+    .btn-icon {
+        @apply inline-flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-fg-muted transition-colors hover:bg-surface-3 hover:text-fg;
+    }
+
+    .btn-icon svg {
+        @apply size-[1.125rem];
+    }
+
+    .btn-icon-sm {
+        @apply size-8 rounded-md;
+    }
+
+    .btn-icon-danger {
+        @apply hover:bg-danger-soft hover:text-danger;
+    }
+
+    /* Ladeindikator im Button (wird von setBusy() in ui.js gesetzt). */
+    .btn[aria-busy="true"] {
+        @apply pointer-events-none opacity-80;
+    }
+
+    .spinner {
+        @apply inline-block size-4 animate-spin rounded-full border-2 border-current border-r-transparent;
+    }
+
+    /* --- Formulare --------------------------------------------------------- */
+    .label {
+        @apply mb-1.5 block text-sm font-medium text-fg;
+    }
+
+    .label-optional {
+        @apply font-normal text-fg-subtle;
+    }
+
+    .hint {
+        @apply mt-1.5 text-xs text-fg-subtle;
+    }
+
+    .input {
+        @apply block h-10 w-full rounded-lg border border-line-strong bg-surface px-3 text-sm text-fg shadow-xs transition outline-none placeholder:text-fg-subtle hover:border-fg-subtle/60 focus:border-accent focus:ring-4 focus:ring-accent/15 disabled:cursor-not-allowed disabled:bg-surface-3 aria-invalid:border-danger aria-invalid:ring-danger/15;
+    }
+
+    textarea.input {
+        @apply h-auto min-h-20 py-2 leading-relaxed;
+    }
+
+    select.input {
+        @apply cursor-pointer appearance-none bg-[length:1rem] bg-[right_0.75rem_center] bg-no-repeat pr-9;
+        /* Pfeil als SVG-Daten-URL (img-src 'self' data: ist in der CSP erlaubt). */
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    }
+
+    input[type="color"].input {
+        @apply cursor-pointer p-1;
+    }
+
+    input[type="file"].input {
+        @apply h-auto py-2 file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-accent-soft file:px-3 file:py-1.5 file:text-sm file:font-semibold file:text-accent;
+    }
+
+    .checkbox {
+        @apply size-4 cursor-pointer rounded border-line-strong accent-[var(--bc-accent)];
+    }
+
+    /* Eingabefeld mit Icon links (z. B. Suche). */
+    .input-group {
+        @apply relative;
+    }
+
+    .input-group > svg {
+        @apply pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-fg-subtle;
+    }
+
+    .input-group > .input {
+        @apply pl-9;
+    }
+
+    /* Meldungsboxen innerhalb von Formularen (Fehler/Erfolg/Info). */
+    .alert {
+        @apply flex items-start gap-2.5 rounded-lg px-3.5 py-3 text-sm leading-snug;
+    }
+
+    .alert svg {
+        @apply mt-px size-4 shrink-0;
+    }
+
+    .alert-error {
+        @apply bg-danger-soft text-danger;
+    }
+
+    .alert-success {
+        @apply bg-success-soft text-success;
+    }
+
+    .alert-info {
+        @apply bg-accent-soft text-accent;
+    }
+
+    .alert-warning {
+        @apply bg-warning-soft text-warning;
+    }
+
+    /* --- Badges ------------------------------------------------------------ */
+    .badge {
+        @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold whitespace-nowrap;
+    }
+
+    .badge-dot::before {
+        content: "";
+        @apply size-1.5 rounded-full bg-current;
+    }
+
+    .badge-gray {
+        @apply bg-surface-3 text-fg-muted;
+    }
+
+    .badge-blue {
+        @apply bg-accent-soft text-accent;
+    }
+
+    .badge-green {
+        @apply bg-success-soft text-success;
+    }
+
+    .badge-red {
+        @apply bg-danger-soft text-danger;
+    }
+
+    .badge-amber {
+        @apply bg-warning-soft text-warning;
+    }
+
+    .badge-violet {
+        @apply bg-violet-soft text-violet;
+    }
+
+    /* --- Avatar (Initialen) ------------------------------------------------ */
+    .avatar {
+        @apply inline-flex size-9 shrink-0 items-center justify-center rounded-full bg-brand-100 text-[0.8125rem] font-semibold text-brand-800 dark:bg-brand-800 dark:text-brand-100;
+    }
+
+    .avatar-sm {
+        @apply size-8 text-xs;
+    }
+
+    /* --- Tabellen ------------------------------------------------------------ */
+    /* Unter 768 px wird jede Zeile zur Karte (tr/td = block), darüber echte Tabelle. */
+    .table {
+        @apply w-full text-left text-sm;
+    }
+
+    .table thead {
+        @apply hidden md:table-header-group;
+    }
+
+    .table th {
+        @apply border-b border-line bg-surface-2 px-5 py-3 text-xs font-semibold tracking-wide text-fg-muted uppercase;
+    }
+
+    .table tbody tr {
+        @apply block border-b border-line px-4 py-3 last:border-b-0 md:table-row md:p-0 md:transition-colors md:hover:bg-surface-2;
+    }
+
+    .table td {
+        @apply block py-1 md:table-cell md:px-5 md:py-3.5 md:align-middle;
+    }
+
+    /* --- Skelette (Ladezustand) --------------------------------------------- */
+    .skeleton {
+        @apply animate-pulse rounded-md bg-surface-3;
+    }
+
+    /* --- Leere Zustände --------------------------------------------------- */
+    .empty-state {
+        @apply flex flex-col items-center justify-center gap-2 px-6 py-14 text-center;
+    }
+
+    .empty-state-icon {
+        @apply mb-2 flex size-12 items-center justify-center rounded-full bg-accent-soft text-accent;
+    }
+
+    .empty-state-icon svg {
+        @apply size-6;
+    }
+
+    /* --- Navigation (Kopfzeile) ------------------------------------------------ */
+    .nav-link {
+        @apply inline-flex h-9 items-center gap-2 rounded-lg px-3 text-sm font-medium text-white/75 transition-colors hover:bg-white/10 hover:text-white;
+    }
+
+    .nav-link svg {
+        @apply size-4 opacity-80;
+    }
+
+    .nav-link[aria-current="page"] {
+        @apply bg-white/15 text-white;
+    }
+
+    .nav-link-mobile {
+        @apply flex h-11 items-center gap-3 rounded-lg px-3 text-[0.9375rem] font-medium text-white/85 hover:bg-white/10;
+    }
+
+    .nav-link-mobile svg {
+        @apply size-5 opacity-80;
+    }
+
+    .nav-link-mobile[aria-current="page"] {
+        @apply bg-white/15 text-white;
+    }
+
+    .header-icon-btn {
+        @apply relative inline-flex size-10 cursor-pointer items-center justify-center rounded-lg text-white/80 transition-colors hover:bg-white/10 hover:text-white;
+    }
+
+    .header-icon-btn svg {
+        @apply size-5;
+    }
+
+    /* --- Dropdown/Popover (Benachrichtigungen, Benutzermenü) --------------------- */
+    .popover {
+        @apply absolute right-0 z-50 mt-2 origin-top-right animate-pop-in overflow-hidden rounded-xl border border-line bg-surface text-fg shadow-pop;
+    }
+
+    .menu-item {
+        @apply flex w-full cursor-pointer items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm text-fg hover:bg-surface-3 focus-visible:bg-surface-3;
+    }
+
+    .menu-item svg {
+        @apply size-4 text-fg-subtle;
+    }
+
+    /* --- Dialoge (natives <dialog>) ------------------------------------------ */
+    /* showModal() liefert Fokusfalle, Esc-Taste und "inert" für den Hintergrund
+       direkt vom Browser – robuster als ein selbstgebautes Modal. */
+    .dialog {
+        @apply m-auto max-h-[calc(100dvh-2rem)] w-[calc(100%-2rem)] max-w-lg overflow-hidden rounded-2xl border border-line bg-surface p-0 text-fg shadow-pop;
+    }
+
+    .dialog[open] {
+        @apply flex animate-pop-in flex-col;
+    }
+
+    .dialog::backdrop {
+        background: rgb(8 15 30 / 0.55);
+        backdrop-filter: blur(3px);
+        animation: fade-in 160ms ease-out;
+    }
+
+    .dialog-lg {
+        @apply max-w-2xl;
+    }
+
+    .dialog-header {
+        @apply flex items-start justify-between gap-4 border-b border-line px-6 py-4;
+    }
+
+    .dialog-title {
+        @apply text-lg font-semibold tracking-tight text-fg;
+    }
+
+    .dialog-body {
+        @apply overflow-y-auto px-6 py-5;
+    }
+
+    .dialog-footer {
+        @apply flex flex-col-reverse gap-2 border-t border-line bg-surface-2 px-6 py-4 sm:flex-row sm:justify-end;
+    }
+
+    /* --- Toasts ---------------------------------------------------------- */
+    .toast {
+        @apply pointer-events-auto flex w-full animate-slide-in items-start gap-3 rounded-xl border border-line bg-surface px-4 py-3 text-sm text-fg shadow-pop;
+    }
+
+    .toast svg {
+        @apply mt-0.5 size-5 shrink-0;
+    }
+
+    /* --- Kennzahlen-Kacheln (Dashboard) ------------------------------------- */
+    .stat {
+        @apply flex items-center gap-3 rounded-2xl border border-line bg-surface p-3.5 shadow-card sm:gap-4 sm:p-4;
+    }
+
+    .stat-icon {
+        @apply flex size-10 shrink-0 sm:size-11 items-center justify-center rounded-xl;
+    }
+
+    .stat-icon svg {
+        @apply size-5;
+    }
+
+    .stat-label {
+        @apply text-xs font-medium text-fg-muted;
+    }
+
+    .stat-value {
+        @apply text-xl font-semibold tracking-tight text-fg tabular-nums;
+    }
+
+    /* Farbauswahl-Kreise im Kunden-Dialog. */
+    .swatch {
+        @apply size-8 cursor-pointer rounded-full ring-2 ring-transparent ring-offset-2 ring-offset-surface transition hover:scale-110 aria-pressed:ring-fg;
+    }
+
+    /* Dekorativer Hintergrund der Anmeldeseite: feines Punktraster + Lichtschein. */
+    .auth-pattern {
+        background-image:
+            radial-gradient(circle at 20% 15%, rgb(91 143 203 / 0.35), transparent 45%),
+            radial-gradient(circle at 85% 90%, rgb(43 108 176 / 0.35), transparent 40%),
+            radial-gradient(rgb(255 255 255 / 0.09) 1px, transparent 1px);
+        background-size: auto, auto, 22px 22px;
+    }
+
+    /* Hilfsklasse: nur für Screenreader sichtbar. */
+    .skip-link {
+        @apply sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[100] focus:rounded-lg focus:bg-surface focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-fg focus:shadow-pop;
+    }
+}
+
+/* ------------------------------------------------------------------ */
+/* 6. FullCalendar-Theme                                              */
+/* ------------------------------------------------------------------ */
+/*
+ * WARUM ohne @layer? FullCalendar fügt seine Grundstile zur Laufzeit als
+ * normales (ungeschichtetes) CSS ein. Ungeschichtete Regeln schlagen laut
+ * CSS-Kaskade JEDE @layer-Regel – unsere Anpassungen müssen deshalb ebenfalls
+ * ungeschichtet sein. Die FullCalendar-Regeln stehen vor unserem <link> im
+ * <head>, bei gleicher Spezifität gewinnt also dieses Theme.
+ */
+.fc {
+    --fc-border-color: var(--bc-line);
+    --fc-page-bg-color: var(--bc-surface);
+    --fc-neutral-bg-color: var(--bc-surface-2);
+    --fc-neutral-text-color: var(--bc-fg-subtle);
+    --fc-today-bg-color: color-mix(in srgb, var(--bc-accent) 6%, transparent);
+    --fc-now-indicator-color: var(--bc-danger);
+    --fc-event-border-color: transparent;
+    --fc-highlight-color: color-mix(in srgb, var(--bc-accent) 12%, transparent);
+    --fc-list-event-hover-bg-color: var(--bc-surface-2);
+    --fc-small-font-size: 0.75rem;
+    font-size: 0.875rem;
+    color: var(--bc-fg);
+}
+
+/* Werkzeugleiste: Titel links groß, Buttons als ruhige "Segment-Controls". */
+.fc .fc-toolbar.fc-header-toolbar {
+    margin-bottom: 1rem;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.fc .fc-toolbar.fc-footer-toolbar {
+    margin-top: 1rem;
+}
+
+.fc .fc-toolbar-title {
+    font-size: 1.125rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    color: var(--bc-fg);
+}
+
+.fc .fc-button {
+    height: 2.25rem;
+    padding: 0 0.85rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    border-radius: 0.5rem;
+    box-shadow: 0 1px 2px 0 rgb(15 27 45 / 0.05);
+    transition: background-color 150ms, color 150ms;
+}
+
+.fc .fc-button .fc-icon {
+    font-size: 1.25em;
+}
+
+.fc .fc-button-primary {
+    background-color: var(--bc-surface);
+    border-color: var(--bc-line-strong);
+    color: var(--bc-fg);
+}
+
+.fc .fc-button-primary:hover {
+    background-color: var(--bc-surface-3);
+    border-color: var(--bc-line-strong);
+    color: var(--bc-fg);
+}
+
+.fc .fc-button-primary:disabled {
+    background-color: var(--bc-surface);
+    border-color: var(--bc-line);
+    color: var(--bc-fg-subtle);
+}
+
+.fc .fc-button-primary:not(:disabled).fc-button-active,
+.fc .fc-button-primary:not(:disabled):active {
+    background-color: var(--bc-primary);
+    border-color: var(--bc-primary);
+    color: var(--bc-on-primary);
+}
+
+.fc .fc-button:focus,
+.fc .fc-button-primary:focus,
+.fc .fc-button-primary:not(:disabled).fc-button-active:focus,
+.fc .fc-button-primary:not(:disabled):active:focus {
+    box-shadow: 0 1px 2px 0 rgb(15 27 45 / 0.05);
+}
+
+.fc .fc-button:focus-visible {
+    outline: 2px solid var(--bc-accent);
+    outline-offset: 2px;
+}
+
+/* Kopfzeile der Spalten: Wochentag klein, Datum darunter. */
+.fc .fc-col-header-cell {
+    background: var(--bc-surface-2);
+}
+
+.fc .fc-col-header-cell-cushion {
+    padding: 0.6rem 0.25rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--bc-fg-muted);
+    text-decoration: none;
+}
+
+.fc .fc-day-today .fc-col-header-cell-cushion {
+    color: var(--bc-accent);
+}
+
+.fc a.fc-col-header-cell-cushion:hover,
+.fc a.fc-daygrid-day-number:hover {
+    text-decoration: none;
+    color: var(--bc-accent);
+}
+
+/* overflow: clip (statt hidden) rundet die Ecken ab, OHNE einen eigenen
+   Scroll-Container zu erzeugen – sonst würden die "sticky" Spaltenköpfe nicht
+   mehr am Fenster, sondern an der Tabelle kleben. */
+.fc-theme-standard .fc-scrollgrid {
+    border-radius: 0.75rem;
+    overflow: clip;
+}
+
+/* Zeitraster: ruhiger, feinere Halbstunden-Linien. */
+.fc .fc-timegrid-slot {
+    height: 1.875rem;
+}
+
+/* Wochenende dezent absetzen. */
+.fc .fc-timegrid-col.fc-day-sat,
+.fc .fc-timegrid-col.fc-day-sun,
+.fc .fc-daygrid-day.fc-day-sat,
+.fc .fc-daygrid-day.fc-day-sun {
+    background: color-mix(in srgb, var(--bc-surface-3) 45%, transparent);
+}
+
+/* Die Spaltenköpfe bleiben beim Scrollen UNTER der fixierten App-Kopfzeile (4rem)
+   stehen, statt dahinter zu verschwinden. */
+.fc .fc-scrollgrid-section-header.fc-scrollgrid-section-sticky > * {
+    top: 4rem;
+}
+
+.fc .fc-timegrid-slot-minor {
+    border-top-style: dashed;
+    border-top-color: color-mix(in srgb, var(--bc-line) 70%, transparent);
+}
+
+.fc .fc-timegrid-slot-label-cushion,
+.fc .fc-timegrid-axis-cushion {
+    font-size: 0.6875rem;
+    font-weight: 500;
+    color: var(--bc-fg-subtle);
+    font-variant-numeric: tabular-nums;
+}
+
+.fc .fc-daygrid-day-number {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--bc-fg-muted);
+    padding: 0.4rem 0.5rem;
+}
+
+.fc .fc-day-today .fc-daygrid-day-number {
+    color: var(--bc-accent);
+    font-weight: 700;
+}
+
+/* Termine: abgerundet, klare Schrift, leichte Hebung beim Hover. */
+.fc .fc-event {
+    cursor: pointer;
+    border-radius: 0.5rem;
+    border: 0;
+    font-size: 0.75rem;
+    font-weight: 600;
+    box-shadow: 0 1px 2px rgb(15 27 45 / 0.12);
+    transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease;
+}
+
+.fc .fc-event:hover {
+    filter: brightness(1.06);
+    box-shadow: 0 4px 10px -2px rgb(15 27 45 / 0.25);
+}
+
+.fc .fc-event:focus-visible {
+    outline: 2px solid var(--bc-fg);
+    outline-offset: 2px;
+}
+
+.fc .fc-timegrid-event .fc-event-main {
+    padding: 0.3rem 0.45rem;
+}
+
+.fc .fc-timegrid-event .fc-event-time {
+    font-weight: 500;
+    opacity: 0.9;
+    font-variant-numeric: tabular-nums;
+}
+
+.fc .fc-daygrid-event {
+    padding: 0.05rem 0.3rem;
+}
+
+/* Termin, der neu zugewiesen werden muss: gestreift, damit er auch ohne Farbe
+   (Farbsehschwäche) erkennbar ist. */
+.fc .fc-event.bc-needs-reassign {
+    background-image: repeating-linear-gradient(
+        135deg,
+        rgb(255 255 255 / 0.16) 0 6px,
+        transparent 6px 12px
+    );
+}
+
+.fc .fc-timegrid-now-indicator-line {
+    border-width: 2px 0 0;
+}
+
+/* Listenansicht (Standard auf dem Smartphone). */
+.fc .fc-list {
+    border-radius: 0.75rem;
+    overflow: hidden;
+}
+
+.fc .fc-list-day-cushion {
+    background: var(--bc-surface-2);
+    font-size: 0.8125rem;
+    padding: 0.55rem 1rem;
+}
+
+.fc .fc-list-event td {
+    padding: 0.7rem 1rem;
+}
+
+.fc .fc-list-event-dot {
+    border-width: 5px;
+    border-radius: 999px;
+}
+
+.fc .fc-list-empty {
+    background: var(--bc-surface);
+    color: var(--bc-fg-subtle);
+}
+
+.fc .fc-popover {
+    border-radius: 0.75rem;
+    overflow: hidden;
+    box-shadow: 0 12px 32px -8px rgb(15 27 45 / 0.22);
+}
+
+/* Mobil: kompaktere Werkzeugleiste. */
+@media (max-width: 640px) {
+    .fc .fc-toolbar-title {
+        font-size: 1rem;
+    }
+    .fc .fc-button {
+        padding: 0 0.6rem;
+    }
+}

@@ -7,338 +7,118 @@ Zweck:
   für CEO und ADMIN – mit Echtzeit-Filtern im Browser (Freitext,
   Datum, Mitarbeiter, Rolle, Aktion, Kategorie, Sortierung).
 
-Mit welchem Backend-Endpunkt spricht diese Seite?
-  GET /api/v1/events/audit
+Logik: js/pages/logs.js
+  Endpunkt: GET /api/v1/events/audit
     → [{timestamp, user_name, role, action, details}]
-      `details` ist ein JSON-Objekt (oder null). Es stammt aus der
-      Spalte audit_logs.details_json.
 
-Abhängigkeiten: app.js (apiFetch, escapeHtml, readJson).
+Abhängigkeiten: base.html, _macros.html (icon, skeleton_rows).
 
 Sicherheit:
   Die Details enthalten Benutzertexte (Termintitel, Ablehnungsgründe,
-  E-Mails ...). JEDER Wert – auch Schlüsselnamen – wird vor dem
-  Einfügen in HTML durch escapeHtml() geschickt.
+  E-Mails ...). logs.js baut die Darstellung ausschließlich mit
+  ui.js::h() (Textknoten) – kein innerHTML.
 =====================================================================
 #}
 {% extends "base.html" %}
-{% block content %}
-<div class="mb-4">
-    <h1 class="text-2xl font-bold text-[#1A365D]">System Audit Logs</h1>
-    <p class="text-sm text-gray-600">Überwachung und Historie aller Systemaktionen (Filter in Echtzeit).</p>
-</div>
-
-{# ---------- Filter (alle IDs beginnen mit "f-", siehe Seitenstart) ---------- #}
-<div class="bg-white p-5 border rounded-lg shadow-sm mb-6">
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div>
-            <label class="block text-xs font-bold text-gray-700 mb-1" for="f-search">🔍 Freitextsuche</label>
-            <input type="text" id="f-search" placeholder="z.B. Krank, Storno, ID..." class="w-full border-gray-300 rounded p-2 text-sm border focus:ring-[#2B6CB0]">
-        </div>
-        <div class="grid grid-cols-2 gap-2">
-            <div>
-                <label class="block text-xs font-bold text-gray-700 mb-1" for="f-date-from">Von Datum</label>
-                <input type="date" id="f-date-from" class="w-full border-gray-300 rounded p-2 text-sm border focus:ring-[#2B6CB0]">
-            </div>
-            <div>
-                <label class="block text-xs font-bold text-gray-700 mb-1" for="f-date-to">Bis Datum</label>
-                <input type="date" id="f-date-to" class="w-full border-gray-300 rounded p-2 text-sm border focus:ring-[#2B6CB0]">
-            </div>
-        </div>
-        <div>
-            <label class="block text-xs font-bold text-gray-700 mb-1" for="f-user">👤 Mitarbeiter</label>
-            <select id="f-user" class="w-full border-gray-300 rounded p-2 text-sm border focus:ring-[#2B6CB0]"><option value="">Alle Mitarbeiter</option></select>
-        </div>
-        <div>
-            <label class="block text-xs font-bold text-gray-700 mb-1" for="f-role">🛡️ System-Rolle</label>
-            <select id="f-role" class="w-full border-gray-300 rounded p-2 text-sm border focus:ring-[#2B6CB0]"><option value="">Alle Rollen</option></select>
-        </div>
-        <div>
-            <label class="block text-xs font-bold text-gray-700 mb-1" for="f-action">⚡ Aktion (Event)</label>
-            <select id="f-action" class="w-full border-gray-300 rounded p-2 text-sm border focus:ring-[#2B6CB0]"><option value="">Alle Aktionen</option></select>
-        </div>
-        <div>
-            <label class="block text-xs font-bold text-gray-700 mb-1" for="f-category">📂 Kategorie</label>
-            <select id="f-category" class="w-full border-gray-300 rounded p-2 text-sm border focus:ring-[#2B6CB0]">
-                <option value="">Alle Kategorien</option>
-                <option value="EVENT">Termine & Kalender</option>
-                <option value="RSVP">Rückmeldungen (RSVP)</option>
-                <option value="USER_TEAM">Benutzer & Teams</option>
-                <option value="CEO">CEO & Overrides</option>
-            </select>
-        </div>
-        <div>
-            <label class="block text-xs font-bold text-gray-700 mb-1" for="f-sort">⏱️ Sortierung</label>
-            <select id="f-sort" class="w-full border-gray-300 rounded p-2 text-sm border focus:ring-[#2B6CB0]">
-                <option value="desc">Neueste zuerst</option>
-                <option value="asc">Älteste zuerst</option>
-            </select>
-        </div>
-    </div>
-    <div class="mt-4 flex justify-between items-center border-t pt-3">
-        <span class="text-xs text-gray-500 font-medium" id="results-count">Lade...</span>
-        <button id="btn-reset-filters" class="text-sm bg-gray-200 text-gray-700 px-3 py-1 rounded hover:bg-gray-300 font-medium transition">Filter zurücksetzen ↺</button>
-    </div>
-</div>
-
-{# ---------- Ergebnistabelle ---------- #}
-<div class="bg-white border rounded shadow-sm overflow-hidden">
-    <div class="max-h-[700px] overflow-y-auto">
-        <table class="w-full text-left text-sm text-gray-700">
-            <thead class="bg-gray-50 text-gray-900 border-b sticky top-0 shadow-sm z-10">
-                <tr>
-                    <th class="p-3 font-bold w-40">Datum & Zeit</th>
-                    <th class="p-3 font-bold w-48">Ausführender</th>
-                    <th class="p-3 font-bold w-56">Aktionstyp</th>
-                    <th class="p-3 font-bold">Details</th>
-                </tr>
-            </thead>
-            <tbody id="logs-table-body" class="divide-y">
-                <tr><td colspan='4' class='p-4 text-center text-gray-500 animate-pulse'>Lade Audit Logs aus der Datenbank...</td></tr>
-            </tbody>
-        </table>
-    </div>
-</div>
-{% endblock %}
+{% from "_macros.html" import icon, skeleton_rows %}
+{% block title %}Audit-Log{% endblock %}
 
 {% block scripts %}
-<script>
-/** Alle vom Server geladenen Log-Einträge (Filter arbeiten auf dieser Kopie). */
-let globalLogs = [];
+<script src="{{ asset_url('js/pages/logs.js') }}" defer></script>
+{% endblock %}
 
-/**
- * Seitenstart: Logs laden, Dropdowns befüllen, Filter verdrahten.
- * Spricht mit: GET /api/v1/events/audit
- */
-document.addEventListener("DOMContentLoaded", async () => {
-    const tbody = document.getElementById("logs-table-body");
-    try {
-        const res = await apiFetch("/api/v1/events/audit");
-        if (res.ok) {
-            const data = await readJson(res);
-            globalLogs = Array.isArray(data) ? data : [];
-            populateDropdowns(globalLogs);
-            applyFilters();
-        } else {
-            tbody.innerHTML = "<tr><td colspan='4' class='p-4 text-center text-red-500'>Fehler beim Laden (keine Berechtigung).</td></tr>";
-        }
-    } catch (err) {
-        tbody.innerHTML = "<tr><td colspan='4' class='p-4 text-center text-red-500'>Netzwerkfehler.</td></tr>";
-    }
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Sicherheit &amp; Nachvollziehbarkeit</p>
+        <h1 class="page-title mt-1">Audit-Log</h1>
+        <p class="page-subtitle">Lückenlose Historie aller Systemaktionen – die Filter wirken sofort.</p>
+    </div>
+</div>
 
-    // Jede Änderung an einem Filterfeld (ID beginnt mit "f-") filtert sofort neu.
-    document.querySelectorAll('[id^="f-"]').forEach(el => el.addEventListener("input", applyFilters));
-    document.getElementById("btn-reset-filters").addEventListener("click", () => {
-        document.querySelectorAll('[id^="f-"]').forEach(el => { el.value = el.id === "f-sort" ? "desc" : ""; });
-        applyFilters();
-    });
-});
+{# ---------- Filter (alle IDs beginnen mit "f-", siehe logs.js) ---------- #}
+{# Einklappbar. Startzustand rein per CSS (mobil zu, Desktop offen) – so springt beim
+   Laden nichts (kein Layout-Shift). logs.js setzt beim Klick data-open="true|false". #}
+<section class="card mb-6" aria-label="Filter">
+    <button type="button" id="filter-toggle" class="flex w-full cursor-pointer items-center gap-3 rounded-2xl px-5 py-4 text-left select-none" aria-controls="filter-body" aria-expanded="false">
+        <span class="flex size-8 items-center justify-center rounded-lg bg-accent-soft text-accent">{{ icon('filter') }}</span>
+        <span class="text-sm font-semibold">Filter</span>
+        <span id="active-filter-count" class="badge badge-blue" hidden></span>
+        <span id="filter-chevron" class="ml-auto inline-flex text-fg-subtle transition-transform">{{ icon('chevron-down') }}</span>
+    </button>
+    <div id="filter-body" class="border-t border-line px-5 pt-4 pb-5 max-md:hidden max-md:data-[open=true]:block md:data-[open=false]:hidden">
+        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <div class="sm:col-span-2">
+                <label class="label" for="f-search">Freitextsuche</label>
+                <div class="input-group">
+                    {{ icon('search') }}
+                    <input type="search" id="f-search" placeholder="z. B. krank, Storno, Titel, ID …" class="input" autocomplete="off">
+                </div>
+            </div>
+            <div>
+                <label class="label" for="f-date-from">Von</label>
+                <input type="date" id="f-date-from" class="input tabular">
+            </div>
+            <div>
+                <label class="label" for="f-date-to">Bis</label>
+                <input type="date" id="f-date-to" class="input tabular">
+            </div>
+            <div>
+                <label class="label" for="f-user">Mitarbeiter</label>
+                <select id="f-user" class="input"><option value="">Alle Mitarbeiter</option></select>
+            </div>
+            <div>
+                <label class="label" for="f-role">Rolle</label>
+                <select id="f-role" class="input"><option value="">Alle Rollen</option></select>
+            </div>
+            <div>
+                <label class="label" for="f-action">Aktion</label>
+                <select id="f-action" class="input"><option value="">Alle Aktionen</option></select>
+            </div>
+            <div>
+                <label class="label" for="f-category">Kategorie</label>
+                <select id="f-category" class="input">
+                    <option value="">Alle Kategorien</option>
+                    <option value="EVENT">Termine &amp; Kalender</option>
+                    <option value="RSVP">Rückmeldungen (RSVP)</option>
+                    <option value="USER_TEAM">Benutzer &amp; Teams</option>
+                    <option value="CEO">CEO &amp; Overrides</option>
+                </select>
+            </div>
+            <div>
+                <label class="label" for="f-sort">Sortierung</label>
+                <select id="f-sort" class="input">
+                    <option value="desc">Neueste zuerst</option>
+                    <option value="asc">Älteste zuerst</option>
+                </select>
+            </div>
+        </div>
+        <div class="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
+            <p class="text-sm text-fg-muted" id="results-count" aria-live="polite">Lade …</p>
+            <button type="button" id="btn-reset-filters" class="btn btn-ghost btn-sm">{{ icon('rotate') }}Filter zurücksetzen</button>
+        </div>
+    </div>
+</section>
 
-/**
- * Befüllt die Auswahlfelder Mitarbeiter/Rolle/Aktion mit den Werten,
- * die in den geladenen Logs tatsächlich vorkommen.
- * `new Option(text, value)` setzt Text sicher (kein HTML).
- *
- * @param {object[]} logs
- */
-function populateDropdowns(logs) {
-    const users = new Set(), roles = new Set(), actions = new Set();
-    logs.forEach(l => {
-        if (l.user_name) users.add(l.user_name);
-        if (l.role) roles.add(l.role);
-        if (l.action) actions.add(l.action);
-    });
-    const userSel = document.getElementById("f-user");
-    const roleSel = document.getElementById("f-role");
-    const actionSel = document.getElementById("f-action");
-    Array.from(users).sort().forEach(u => userSel.add(new Option(u, u)));
-    Array.from(roles).sort().forEach(r => roleSel.add(new Option(r, r)));
-    Array.from(actions).sort().forEach(a => actionSel.add(new Option(a, a)));
-}
-
-/**
- * Wendet alle Filter auf globalLogs an und rendert das Ergebnis.
- * Der Server liefert die Einträge bereits "neueste zuerst".
- */
-function applyFilters() {
-    const search = document.getElementById("f-search").value.toLowerCase();
-    const dateFrom = document.getElementById("f-date-from").value;
-    const dateTo = document.getElementById("f-date-to").value;
-    const user = document.getElementById("f-user").value;
-    const role = document.getElementById("f-role").value;
-    const action = document.getElementById("f-action").value;
-    const category = document.getElementById("f-category").value;
-    const sort = document.getElementById("f-sort").value;
-
-    let filtered = globalLogs.filter(l => {
-        const act = l.action || "";
-        if (search) {
-            const rowText = `${l.user_name} ${l.role} ${act} ${JSON.stringify(l.details)}`.toLowerCase();
-            if (!rowText.includes(search)) return false;
-        }
-        const logDate = new Date(l.timestamp);
-        // "YYYY-MM-DDT00:00" ohne Offset = lokale Mitternacht (nicht UTC!)
-        if (dateFrom && logDate < new Date(`${dateFrom}T00:00:00`)) return false;
-        if (dateTo && logDate > new Date(`${dateTo}T23:59:59`)) return false;
-        if (user && l.user_name !== user) return false;
-        if (role && l.role !== role) return false;
-        if (action && act !== action) return false;
-        if (category) {
-            if (category === "EVENT" && !act.includes("EVENT")) return false;
-            if (category === "RSVP" && !act.includes("RSVP")) return false;
-            if (category === "CEO" && !act.includes("CEO")) return false;
-            if (category === "USER_TEAM" && !["USER", "TEAM", "ASSIGN", "ROLE"].some(kw => act.includes(kw))) return false;
-        }
-        return true;
-    });
-
-    // slice() vor reverse(), damit globalLogs selbst nicht umgedreht wird.
-    if (sort === "asc") filtered = filtered.slice().reverse();
-    renderTable(filtered);
-}
-
-/** Deutsche Bezeichnungen für bekannte Detail-Schlüssel. */
-const DETAIL_LABELS = {
-    title: "Termin-Titel", start_time: "Startzeit", end_time: "Endzeit",
-    assigned_to_id: "Zugewiesener Mitarbeiter (ID)", buffer_before_mins: "Puffer Vorher (Min)",
-    buffer_after_mins: "Puffer Nachher (Min)", reallocation_required: "Muss neu zugewiesen werden?",
-    description: "Beschreibung", conflict_overridden: "Konflikt ignoriert?",
-    conflicting_event_id: "ID des kollidierenden Termins",
-};
-
-/**
- * Liefert eine lesbare, bereits ESCAPTE Bezeichnung für einen Schlüssel.
- * @param {string} key
- * @returns {string} HTML-sicherer Text.
- */
-function translateKey(key) {
-    const label = DETAIL_LABELS[key] || String(key).replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
-    return escapeHtml(label);
-}
-
-/**
- * Formatiert einen Detailwert lesbar und gibt ihn ESCAPED zurück.
- * ISO-Zeitstempel werden in deutsche Lokalzeit umgerechnet.
- *
- * @param {*} v
- * @returns {string} HTML-sicherer Text.
- */
-function formatValue(v) {
-    if (v === null || v === undefined || v === "") return "Leer / Nicht zugewiesen";
-    if (v === true) return "Ja";
-    if (v === false) return "Nein";
-    if (Array.isArray(v)) return v.length > 0 ? escapeHtml(v.join(", ")) : "Keine";
-    if (typeof v === "object") return escapeHtml(JSON.stringify(v));
-    if (typeof v === "string" && /^\d{4}-\d{2}-\d{2}T/.test(v)) {
-        const d = new Date(v);
-        if (!isNaN(d.getTime())) {
-            return d.toLocaleString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) + " Uhr";
-        }
-    }
-    return escapeHtml(v);
-}
-
-/**
- * Baut die HTML-Darstellung der Details eines Log-Eintrags.
- * Drei Fälle:
- *   1. Update  → {previous, new}: nur geänderte Felder als "alt ➔ neu"
- *   2. RSVP    → {previous_status, new_status, rejection_reason}
- *   3. Sonst   → alle Schlüssel/Werte als Liste
- *
- * @param {object|string|null} details
- * @returns {string} HTML-String, in dem jeder dynamische Wert escaped ist.
- */
-function formatAuditDetails(details) {
-    if (!details) return '<span class="text-gray-400 italic">Keine Details</span>';
-
-    // Fallback für ältere Einträge, bei denen die Details nur als Text vorliegen.
-    if (typeof details === "string") {
-        try { details = JSON.parse(details); }
-        catch (e) { return `<span class="text-gray-500 font-mono text-[10px] break-all">${escapeHtml(details)}</span>`; }
-    }
-    if (typeof details !== "object") return escapeHtml(details);
-
-    let html = '<div class="space-y-1.5 text-[13px] leading-tight text-gray-700">';
-
-    // FALL 1: Feldänderungen (Update)
-    if (details.previous && details.new) {
-        let changed = false;
-        for (const key of Object.keys(details.new)) {
-            const oldVal = details.previous[key];
-            const newVal = details.new[key];
-            if (JSON.stringify(oldVal) !== JSON.stringify(newVal)) {
-                changed = true;
-                html += `<div class="flex flex-col sm:flex-row sm:items-center gap-2">
-                    <span class="text-[#1A365D] font-bold w-56 shrink-0">📌 ${translateKey(key)}:</span>
-                    <div class="flex items-center gap-2 flex-wrap text-xs">
-                        <span class="line-through text-red-500 bg-red-50 px-1.5 py-0.5 rounded">${formatValue(oldVal)}</span>
-                        <span class="text-gray-400">➔</span>
-                        <span class="text-emerald-700 font-bold bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200">${formatValue(newVal)}</span>
-                    </div>
-                </div>`;
-            }
-        }
-        if (!changed) html += '<span class="text-gray-500 italic">Es wurden keine Felder verändert.</span>';
-        if (details.conflict_overridden) {
-            html += '<div class="mt-2 text-orange-700 font-bold bg-orange-50 px-2 py-1.5 rounded border border-orange-200 flex items-center gap-1">⚠️ Warnung: Ein Termin-Konflikt wurde vom CEO überschrieben!</div>';
-        }
-    }
-    // FALL 2: Antworten (RSVP)
-    else if (details.new_status || details.previous_status) {
-        const declined = details.new_status === "DECLINED";
-        html += `<div class="flex items-center gap-2 text-[13px]">
-            <span class="text-[#1A365D] font-bold">Status:</span>
-            <span class="text-gray-500 bg-gray-100 px-1.5 py-0.5 rounded">${escapeHtml(details.previous_status || "NEU")}</span>
-            <span class="text-gray-400">➔</span>
-            <span class="font-bold px-1.5 py-0.5 rounded ${declined ? "bg-red-100 text-red-700" : "bg-emerald-100 text-emerald-700"}">${escapeHtml(details.new_status)}</span>
-        </div>`;
-        if (details.rejection_reason) {
-            html += `<div class="mt-2 p-2.5 bg-red-50 border-l-4 border-red-500 text-red-900 rounded text-sm italic">" ${escapeHtml(details.rejection_reason)} "</div>`;
-        }
-    }
-    // FALL 3: Erstellung / allgemeine Informationen
-    else {
-        for (const [key, value] of Object.entries(details)) {
-            if (value === null || value === "") continue;
-            html += `<div class="flex flex-col sm:flex-row sm:items-start gap-1 sm:gap-2 border-b border-gray-100 pb-1">
-                <span class="text-[#1A365D] font-bold w-56 shrink-0">🔹 ${translateKey(key)}:</span>
-                <span class="text-gray-800">${formatValue(value)}</span>
-            </div>`;
-        }
-    }
-
-    html += "</div>";
-    return html;
-}
-
-/**
- * Rendert die gefilterten Log-Einträge in die Tabelle.
- * @param {object[]} logsToRender
- */
-function renderTable(logsToRender) {
-    const tbody = document.getElementById("logs-table-body");
-    document.getElementById("results-count").textContent =
-        `Zeige ${logsToRender.length} von ${globalLogs.length} Einträgen`;
-    if (logsToRender.length === 0) {
-        tbody.innerHTML = "<tr><td colspan='4' class='p-8 text-center text-gray-500'>Keine Logs entsprechen den gewählten Filtern.</td></tr>";
-        return;
-    }
-
-    tbody.innerHTML = logsToRender.map(l => `
-        <tr class="hover:bg-blue-50 transition border-b group">
-            <td class="p-3 whitespace-nowrap text-xs text-gray-500">${escapeHtml(new Date(l.timestamp).toLocaleString("de-DE"))}</td>
-            <td class="p-3 font-medium text-sm text-[#1A365D] border-l border-transparent group-hover:border-[#2B6CB0]">
-                ${escapeHtml(l.user_name)} <br>
-                <span class="text-[10px] text-gray-400 font-normal uppercase tracking-wider">${escapeHtml(l.role)}</span>
-            </td>
-            <td class="p-3">
-                <span class="bg-gray-100 text-gray-800 px-2 py-1.5 rounded text-[10px] font-bold border border-gray-200 shadow-sm uppercase tracking-wide">${escapeHtml(l.action)}</span>
-            </td>
-            <td class="p-4 bg-gray-50/30 group-hover:bg-white transition">
-                ${formatAuditDetails(l.details)}
-            </td>
-        </tr>
-    `).join("");
-}
-</script>
+{# ---------- Ergebnistabelle ---------- #}
+<section class="card overflow-hidden" aria-labelledby="logs-heading">
+    <h2 id="logs-heading" class="sr-only">Protokolleinträge</h2>
+    <table class="table">
+        <thead>
+            <tr>
+                <th scope="col" class="w-44">Zeitpunkt</th>
+                <th scope="col" class="w-52">Ausgeführt von</th>
+                <th scope="col" class="w-56">Aktion</th>
+                <th scope="col">Details</th>
+            </tr>
+        </thead>
+        <tbody id="logs-table-body" aria-busy="true">
+            {{ skeleton_rows(6, 4) }}
+        </tbody>
+    </table>
+    {# "Weitere laden": rendert die Tabelle in Etappen (schnell auch bei tausenden Einträgen) #}
+    <div class="border-t border-line p-4 text-center" id="logs-more-wrap" hidden>
+        <button type="button" id="logs-more" class="btn btn-secondary btn-sm">Weitere Einträge anzeigen</button>
+    </div>
+</section>
 {% endblock %}

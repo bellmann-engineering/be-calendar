@@ -119,6 +119,11 @@ def create_app(config_class: type[BaseConfig] | None = None) -> Flask:
     app.register_blueprint(calendar_bp)  # HTML-Seiten: /, /login, /dashboard, ...
     app.register_blueprint(customer_bp)  # /api/v1/customers/...
 
+    # asset_url() für die Templates (Cache-Busting) + Cache-Header für /static/...
+    from app.utils.assets import register_asset_helpers
+
+    register_asset_helpers(app)
+
     @app.route("/health", methods=["GET"])
     @limiter.exempt
     def health_check():

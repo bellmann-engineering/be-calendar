@@ -6,102 +6,190 @@ Zweck:
   Grundgerüst (Layout) für ALLE HTML-Seiten des Bellmann Calendar.
   Jede Seite erweitert diese Vorlage per {% extends "base.html" %}
   und füllt die Blöcke:
+    - {% block title %}    → Seitentitel im Browser-Tab
     - {% block content %}  → sichtbarer Seiteninhalt
-    - {% block scripts %}  → seitenspezifisches JavaScript
+    - {% block scripts %}  → <script src="..."> der Seite (KEIN Inline-JS!)
+    - {% block head %}     → optionale Zusätze im <head> (z. B. Preload)
+  Öffentliche Seiten (Login, Passwort-Reset) setzen oben
+  {% set public_page = true %} → ohne App-Kopfzeile.
 
 Wer rendert diese Datei?
-  Flask (Jinja2) über die Routen in app/routes/calendar_routes.py
-  (/dashboard, /compare, /logs, /members, /customers, /login,
-  /reset-password).
+  Flask (Jinja2) über die Routen in app/routes/calendar_routes.py.
 
 Abhängigkeiten:
-  - Tailwind CSS (Play-CDN)  → Styling über Utility-Klassen.
-      TODO (bekannt): Das Play-CDN ist laut Tailwind nicht für die
-      Produktion gedacht. Es erzeugt die Styles zur Laufzeit im Browser
-      und zwingt die Content-Security-Policy zu 'unsafe-inline'.
-      Ziel: CSS beim Docker-Build mit der Tailwind-CLI kompilieren und
-      als statische Datei ausliefern.
-  - FullCalendar 6 (jsDelivr-CDN, feste Version) → Kalender-Widget.
-  - static/js/app.js → globale Helfer (apiFetch, escapeHtml, ...),
-      Navigation, Login/Logout, Dashboard-Logik.
+  - dist/app.css            → kompiliertes Tailwind-Designsystem
+                              (Quelle: frontend/app.css, Build: npm run build)
+  - js/ui.js                → DOM-Helfer, Icons, Toasts, Dialoge
+  - js/app.js               → API-Zugriff (apiFetch), Sitzung, Kopfzeile
+  - js/pages/*.js           → Logik der jeweiligen Seite
+  - asset_url()             → hängt den Inhalts-Hash an (app/utils/assets.py)
+  - _icons.html/_macros.html→ Icon-Sprite und Makros
 
-Reihenfolge der Skripte (wichtig!):
-  app.js wird VOR {% block scripts %} geladen. So stehen die Helfer
-  (apiFetch, escapeHtml, getCurrentUser ...) bereits zur Verfügung,
-  wenn die Seiten-Skripte ausgeführt werden.
+Sicherheit (Content-Security-Policy, siehe nginx/nginx.conf):
+  Diese Vorlage enthält bewusst KEIN Inline-JavaScript, keine
+  onclick-Attribute und keine style-Attribute. Deshalb kann die CSP
+  script-src 'self' ohne 'unsafe-inline' verwenden.
+  Die rollenabhängigen Menüpunkte sind anfangs versteckt (hidden) und
+  werden von app.js je nach Rolle eingeblendet – reine Optik, die echte
+  Rechteprüfung passiert im Backend.
 
-Sicherheit:
-  Die Navigations-Tabs sind standardmäßig versteckt (class "hidden")
-  und werden von app.js je nach Rolle eingeblendet. Das ist reine
-  Optik – die echte Rechteprüfung passiert im Backend.
+Performance:
+  Alle Skripte mit "defer": Sie blockieren das Rendern nicht und laufen
+  trotzdem in der angegebenen Reihenfolge (ui.js → app.js → Seite).
 =====================================================================
 #}
+{% from "_macros.html" import icon %}
+{# Muss mit der Angabe in frontend/app.css (@font-face) übereinstimmen. #}
+{% set font_url = url_for('static', filename='dist/fonts/inter-latin-wght-normal.woff2') ~ '?v=5.3.0' %}
+{# Hauptnavigation: (Pfad, ID, Text, Icon, erlaubte Rollen – leer = alle) #}
+{% set nav_items = [
+    ('/dashboard', 'nav-dashboard', 'Kalender', 'calendar', ''),
+    ('/compare', 'nav-compare', 'Vergleich', 'columns', 'CEO ADMIN TEAM_LEADER'),
+    ('/members', 'nav-members', 'Mitarbeiter', 'users', 'CEO ADMIN'),
+    ('/customers', 'nav-customers', 'Kunden', 'building', 'CEO ADMIN'),
+    ('/logs', 'nav-logs', 'Audit-Log', 'logs', 'CEO ADMIN'),
+] %}
 <!DOCTYPE html>
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bellmann Calendar</title>
-    {# Tailwind Play-CDN – siehe TODO im Kopfkommentar #}
-    <script src="https://cdn.tailwindcss.com"></script>
-    {# FullCalendar mit fest gepinnter Version, damit ein Update nicht ungewollt das UI ändert #}
-    <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.11/index.global.min.js"></script>
-    <style>
-        /* Termine im Kalender sollen als klickbar erkennbar sein. */
-        .fc-event { cursor: pointer !important; }
-    </style>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Bellmann Calendar{% endblock %} · Bellmann Calendar</title>
+    <meta name="description" content="Kalender- und Einsatzplanung von Bellmann Engineering">
+    {# Farbe der Browser-Leiste (mobil) passend zur Kopfzeile #}
+    <meta name="theme-color" content="#1a365d">
+    <meta name="color-scheme" content="light dark">
+    <link rel="icon" href="{{ asset_url('favicon.svg') }}" type="image/svg+xml">
+    {# Schrift früh anfordern, damit der Text nicht sichtbar "springt" #}
+    <link rel="preload" href="{{ font_url }}" as="font" type="font/woff2" crossorigin>
+    <link rel="stylesheet" href="{{ asset_url('dist/app.css') }}">
+    {% block head %}{% endblock %}
+    <script src="{{ asset_url('js/ui.js') }}" defer></script>
+    <script src="{{ asset_url('js/app.js') }}" defer></script>
+    {% block scripts %}{% endblock %}
 </head>
-<body class="bg-gray-50 text-gray-800 font-sans antialiased">
-    {# ---------- Obere Navigationsleiste ---------- #}
-    <nav class="bg-[#1A365D] text-white shadow-md">
-        <div class="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
+<body class="min-h-dvh">
+    <a href="#main" class="skip-link">Zum Inhalt springen</a>
+    {% include "_icons.html" %}
 
-            <div class="flex items-center">
-                <div class="text-xl font-bold mr-8">Bellmann Engineering</div>
-                <div class="hidden md:flex space-x-4 h-full items-center">
-                    {# request.path markiert den aktiven Tab mit einer grünen Unterstreichung #}
-                    <a href="/dashboard" id="nav-dashboard" class="text-sm hover:text-gray-300 pb-1 border-b-2 {% if request.path == '/dashboard' %}border-emerald-400{% else %}border-transparent{% endif %}">
-                        Dashboard
-                    </a>
-                    <a href="/compare" id="nav-compare" class="hidden text-sm hover:text-gray-300 pb-1 border-b-2 {% if request.path == '/compare' %}border-emerald-400{% else %}border-transparent{% endif %}">
-                        Vergleichen
-                    </a>
-                    <a href="/logs" id="nav-logs" class="hidden text-sm hover:text-gray-300 pb-1 border-b-2 {% if request.path == '/logs' %}border-emerald-400{% else %}border-transparent{% endif %}">
-                        Logs
-                    </a>
-                    <a href="/members" id="nav-members" class="hidden text-sm hover:text-gray-300 pb-1 border-b-2 {% if request.path == '/members' %}border-emerald-400{% else %}border-transparent{% endif %}">Mitarbeiter</a>
-                    <a href="/customers" id="nav-customers" class="hidden text-sm hover:text-gray-300 pb-1 border-b-2 {% if request.path == '/customers' %}border-emerald-400{% else %}border-transparent{% endif %}">Kunden</a>
-                </div>
-            </div>
+    {% if not public_page %}
+    {# ================= Kopfzeile (nur für angemeldete Seiten) ================= #}
+    <header class="sticky top-0 z-40 bg-linear-to-r from-brand-950 via-brand-900 to-brand-800 text-white shadow-[0_1px_0_rgb(255_255_255/0.06),0_6px_20px_-12px_rgb(0_0_0/0.5)]">
+        <div class="container-app flex h-16 items-center gap-2">
+            {# Mobil: Menü-Button öffnet die Navigation unter der Kopfzeile #}
+            <button type="button" id="mobile-menu-btn" class="header-icon-btn -ml-2 md:hidden"
+                    aria-label="Menü öffnen" aria-expanded="false" aria-controls="mobile-nav">
+                {{ icon('menu') }}
+            </button>
 
-            {# Benutzerbereich: wird von app.js nach erfolgreichem /api/v1/auth/me eingeblendet #}
-            <div id="user-info" class="hidden flex items-center space-x-5">
-                <div class="relative cursor-pointer" id="notification-bell">
-                    <svg class="w-6 h-6 text-gray-300 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"></path>
-                    </svg>
-                    {# Zähler ungelesener Benachrichtigungen #}
-                    <span id="notif-badge" class="absolute -top-1 -right-2 inline-flex items-center justify-center px-1.5 py-0.5 text-xs font-bold leading-none text-white bg-red-600 rounded-full hidden">0</span>
+            <a href="/dashboard" class="mr-4 flex items-center gap-2.5 rounded-lg" aria-label="Bellmann Calendar – zur Startseite">
+                <img src="{{ asset_url('favicon.svg') }}" alt="" width="32" height="32" class="size-8 rounded-lg ring-1 ring-white/15">
+                <span class="text-[0.9375rem] font-semibold tracking-tight">Bellmann <span class="font-normal text-white/65">Calendar</span></span>
+            </a>
 
-                    {# Dropdown-Liste; Einträge erzeugt app.js::loadNotifications() #}
-                    <div id="notif-dropdown" class="absolute right-0 mt-3 w-80 bg-white rounded-md shadow-xl overflow-hidden z-[100] hidden border">
-                        <div class="py-1 max-h-96 overflow-y-auto" id="notif-list"></div>
+            <nav aria-label="Hauptnavigation" class="hidden md:block">
+                <ul class="flex items-center gap-1">
+                    {% for path, nav_id, label, icon_name, roles in nav_items %}
+                    <li>
+                        <a href="{{ path }}" id="{{ nav_id }}" class="nav-link"
+                           {% if roles %}data-roles="{{ roles }}" hidden{% endif %}
+                           {% if request.path == path %}aria-current="page"{% endif %}>
+                            {{ icon(icon_name) }}{{ label }}
+                        </a>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </nav>
+
+            {# Benutzerbereich: app.js blendet ihn nach erfolgreichem /api/v1/auth/me ein #}
+            <div id="user-info" class="ml-auto flex items-center gap-1" hidden>
+                {# --- Benachrichtigungen --- #}
+                <div class="relative" id="notification-wrapper">
+                    <button type="button" id="notification-bell" class="header-icon-btn"
+                            aria-label="Benachrichtigungen" aria-haspopup="true" aria-expanded="false" aria-controls="notif-dropdown">
+                        {{ icon('bell') }}
+                        {# Zähler ungelesener Einträge (Text setzt app.js) #}
+                        <span id="notif-badge" class="absolute top-1.5 right-1.5 min-w-4 rounded-full bg-[#e5484d] px-1 text-center text-[0.625rem] leading-4 font-bold text-white ring-2 ring-brand-900" hidden>0</span>
+                    </button>
+                    <div id="notif-dropdown" class="popover w-[min(24rem,calc(100vw-1.5rem))] -mr-2 sm:mr-0" hidden>
+                        <div class="flex items-center justify-between gap-2 border-b border-line px-4 py-3">
+                            <h2 class="text-sm font-semibold">Benachrichtigungen</h2>
+                            <button type="button" id="notif-mark-all" class="btn btn-ghost btn-sm -mr-2" hidden>{{ icon('check') }}Alle gelesen</button>
+                        </div>
+                        {# Einträge erzeugt app.js::loadNotifications() per createElement/textContent #}
+                        <div id="notif-list" class="max-h-[26rem] overflow-y-auto"></div>
                     </div>
                 </div>
 
-                <span id="user-name" class="text-sm font-medium"></span>
-                <button id="logout-btn" class="text-sm bg-red-600 px-3 py-1 rounded hover:bg-red-700 transition">Logout</button>
+                {# --- Benutzermenü --- #}
+                <div class="relative">
+                    <button type="button" id="user-menu-btn" class="flex cursor-pointer items-center gap-2.5 rounded-lg py-1.5 pr-2 pl-1.5 text-left transition-colors hover:bg-white/10"
+                            aria-haspopup="true" aria-expanded="false" aria-controls="user-menu">
+                        <span id="user-avatar" class="avatar avatar-sm bg-white/15 text-white ring-1 ring-white/20 dark:bg-white/15 dark:text-white" aria-hidden="true"></span>
+                        <span class="hidden flex-col leading-tight sm:flex">
+                            <span id="user-name" class="text-sm font-medium"></span>
+                            <span id="user-role" class="text-xs text-white/65"></span>
+                        </span>
+                        <span class="sr-only">Benutzermenü</span>
+                        {{ icon('chevron-down', 'size-4 text-white/60 hidden sm:block') }}
+                    </button>
+                    <div id="user-menu" class="popover w-64 p-1.5" hidden>
+                        <div class="px-3 pt-2 pb-3">
+                            <p id="user-menu-name" class="truncate text-sm font-semibold"></p>
+                            <p id="user-menu-email" class="truncate text-xs text-fg-muted"></p>
+                            <span id="user-menu-role" class="badge badge-blue mt-2"></span>
+                        </div>
+                        <div class="my-1 border-t border-line"></div>
+                        <button type="button" id="logout-btn" class="menu-item text-danger">
+                            {{ icon('logout', 'size-4 text-danger') }}Abmelden
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
-    </nav>
 
-    {# ---------- Seiteninhalt ---------- #}
-    <main class="max-w-7xl mx-auto px-4 py-6">
+        {# Mobile Navigation (unter 768 px) #}
+        <nav id="mobile-nav" aria-label="Hauptnavigation (mobil)" class="border-t border-white/10 md:hidden" hidden>
+            <ul class="container-app space-y-1 py-3">
+                {% for path, nav_id, label, icon_name, roles in nav_items %}
+                <li>
+                    <a href="{{ path }}" class="nav-link-mobile"
+                       {% if roles %}data-roles="{{ roles }}" hidden{% endif %}
+                       {% if request.path == path %}aria-current="page"{% endif %}>
+                        {{ icon(icon_name) }}{{ label }}
+                    </a>
+                </li>
+                {% endfor %}
+            </ul>
+        </nav>
+    </header>
+    {% endif %}
+
+    {# ================= Seiteninhalt ================= #}
+    <main id="main" tabindex="-1" class="{% if public_page %}min-h-dvh{% else %}container-app py-6 sm:py-8{% endif %} outline-none">
         {% block content %}{% endblock %}
     </main>
 
-    {# Globale Helfer zuerst, danach die Seiten-Skripte #}
-    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
-    {% block scripts %}{% endblock %}
+    {# ================= Globale Bausteine ================= #}
+    {# Toasts (kurze Rückmeldungen). aria-live: Screenreader lesen neue Meldungen vor. #}
+    <div id="toast-region" aria-live="polite" aria-relevant="additions"
+         class="pointer-events-none fixed inset-x-3 bottom-3 z-[60] flex flex-col items-end gap-2 sm:inset-x-auto sm:right-5 sm:bottom-5 sm:w-96"></div>
+
+    {# Bestätigungsdialog (ersetzt window.confirm) – gesteuert von ui.js::confirmDialog() #}
+    <dialog id="confirm-dialog" class="dialog max-w-md" aria-labelledby="confirm-title" aria-describedby="confirm-message">
+        <div class="dialog-body flex gap-4 pt-6">
+            <div id="confirm-icon" class="flex size-10 shrink-0 items-center justify-center rounded-full bg-danger-soft text-danger">
+                {{ icon('alert', 'size-5') }}
+            </div>
+            <div class="min-w-0">
+                <h2 id="confirm-title" class="dialog-title"></h2>
+                <p id="confirm-message" class="mt-1.5 text-sm text-fg-muted"></p>
+            </div>
+        </div>
+        <form method="dialog" class="dialog-footer border-t-0 bg-surface pt-0">
+            <button type="submit" value="cancel" class="btn btn-secondary" id="confirm-cancel">Abbrechen</button>
+            <button type="submit" value="ok" class="btn btn-danger" id="confirm-ok">Bestätigen</button>
+        </form>
+    </dialog>
 </body>
 </html>

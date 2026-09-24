@@ -6,67 +6,79 @@ Zweck:
   Anmeldeseite des Systems (öffentlich, ohne Login erreichbar).
 
 Wie funktioniert der Login?
-  Das Formular "login-form" wird von app.js::setupAuth() verarbeitet:
+  js/pages/login.js verarbeitet das Formular "login-form":
   POST /api/v1/auth/login → der Server setzt HttpOnly-Cookies mit dem
-  JWT. Danach leitet app.js auf /dashboard weiter.
+  JWT. Danach geht es weiter auf /dashboard.
 
 "Passwort vergessen?":
-  Das Skript unten sendet nur die E-Mail an
+  Öffnet den Dialog "forgot-dialog". Gesendet wird nur die E-Mail an
   POST /api/v1/auth/forgot-password. Der Server antwortet IMMER mit
-  derselben neutralen Meldung (egal ob die E-Mail existiert), damit
-  niemand herausfinden kann, welche Konten es gibt
-  (Schutz vor "User Enumeration"). Existiert das Konto, erhält der
-  Benutzer eine E-Mail mit einem zeitlich begrenzten Link auf
-  /reset-password?token=...
+  derselben neutralen Meldung (Schutz vor "User Enumeration").
 
-Abhängigkeiten: base.html, app.js (apiFetch, readJson).
+Abhängigkeiten: auth_base.html → base.html, js/pages/login.js
 =====================================================================
 #}
-{% extends "base.html" %}
-{% block content %}
-<div class="max-w-md mx-auto bg-white p-8 border rounded shadow-sm mt-10">
-    <h2 class="text-2xl font-bold text-[#1A365D] mb-6 text-center">System-Login</h2>
-    <form id="login-form" class="space-y-4">
-        <div>
-            <label class="block text-sm font-medium text-gray-700" for="email">E-Mail</label>
-            <input type="email" id="email" required autocomplete="username" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm p-2 border focus:border-[#2B6CB0] focus:ring focus:ring-[#2B6CB0] focus:ring-opacity-50">
+{% extends "auth_base.html" %}
+{% from "_macros.html" import icon %}
+{% block title %}Anmelden{% endblock %}
+
+{% block auth_form %}
+<h1 class="text-2xl font-semibold tracking-tight">Anmelden</h1>
+<p class="mt-2 text-sm text-fg-muted">Willkommen zurück! Bitte melde dich mit deinem Firmenkonto an.</p>
+
+<form id="login-form" class="mt-8 space-y-5" novalidate>
+    <div>
+        <label class="label" for="email">E-Mail-Adresse</label>
+        <input type="email" id="email" name="email" required autocomplete="username" inputmode="email"
+               class="input h-11" placeholder="vorname.nachname@firma.de">
+    </div>
+    <div>
+        <div class="mb-1.5 flex items-center justify-between">
+            <label class="label mb-0" for="password">Passwort</label>
+            <button type="button" id="forgot-password-link" class="cursor-pointer rounded text-sm font-medium text-accent hover:underline">Passwort vergessen?</button>
         </div>
-        <div>
-            <label class="block text-sm font-medium text-gray-700" for="password">Passwort</label>
-            <input type="password" id="password" required autocomplete="current-password" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm p-2 border focus:border-[#2B6CB0] focus:ring focus:ring-[#2B6CB0] focus:ring-opacity-50">
+        <div class="relative">
+            <input type="password" id="password" name="password" required autocomplete="current-password" class="input h-11 pr-11">
+            {# Passwort sichtbar machen – hilft bei langen Passwörtern (WCAG 3.3.8) #}
+            <button type="button" id="toggle-password" class="btn-icon btn-icon-sm absolute top-1/2 right-1.5 -translate-y-1/2"
+                    aria-label="Passwort anzeigen" aria-pressed="false" aria-controls="password">
+                {{ icon('eye') }}
+            </button>
         </div>
-        {# Fehlermeldungen setzt app.js per textContent #}
-        <div id="login-error" class="text-red-600 text-sm hidden"></div>
-        <button type="submit" class="w-full bg-[#1A365D] text-white py-2 px-4 rounded hover:bg-[#2B6CB0] transition">Anmelden</button>
-        <div class="text-center mt-4">
-            <a href="#" id="forgot-password-link" class="text-sm text-[#2B6CB0] hover:underline">Passwort vergessen?</a>
+    </div>
+    {# Fehlermeldungen setzt login.js per textContent; role="alert" = sofortige Ansage #}
+    <div id="login-error" class="alert alert-error" role="alert" hidden></div>
+    <button type="submit" id="login-submit" class="btn btn-primary btn-block h-11">Anmelden {{ icon('arrow-right') }}</button>
+</form>
+
+<p class="mt-10 text-center text-xs text-fg-subtle">Probleme bei der Anmeldung? Wende dich an deine Administration.</p>
+
+{# ================= Dialog: Passwort vergessen ================= #}
+<dialog id="forgot-dialog" class="dialog max-w-md" aria-labelledby="forgot-title">
+    <form id="forgot-form" novalidate>
+        <div class="dialog-header">
+            <div>
+                <h2 id="forgot-title" class="dialog-title">Passwort zurücksetzen</h2>
+                <p class="mt-1 text-sm text-fg-muted">Wir senden dir einen Link, mit dem du ein neues Passwort festlegen kannst.</p>
+            </div>
+            <button type="button" class="btn-icon -mt-1 -mr-2" data-close-dialog aria-label="Dialog schließen">{{ icon('x') }}</button>
+        </div>
+        <div class="dialog-body space-y-4">
+            <div>
+                <label class="label" for="forgot-email">E-Mail-Adresse</label>
+                <input type="email" id="forgot-email" required autocomplete="username" class="input">
+            </div>
+            <div id="forgot-error" class="alert alert-error" role="alert" hidden></div>
+            <div id="forgot-success" class="alert alert-success" role="status" hidden></div>
+        </div>
+        <div class="dialog-footer">
+            <button type="button" class="btn btn-secondary" data-close-dialog>Schließen</button>
+            <button type="submit" id="forgot-submit" class="btn btn-primary">{{ icon('mail') }}Link anfordern</button>
         </div>
     </form>
-</div>
+</dialog>
 {% endblock %}
 
 {% block scripts %}
-<script>
-/**
- * Startet den "Passwort vergessen"-Ablauf.
- * Spricht mit: POST /api/v1/auth/forgot-password {email}
- * Zeigt die (bewusst neutrale) Server-Meldung an.
- */
-document.getElementById("forgot-password-link")?.addEventListener("click", async (e) => {
-    e.preventDefault();
-    const email = prompt("Bitte gib deine E-Mail-Adresse ein, um das Passwort zurückzusetzen:");
-    if (!email) return;
-    try {
-        const res = await apiFetch("/api/v1/auth/forgot-password", {
-            method: "POST",
-            body: { email: email.trim() },
-        });
-        const data = await readJson(res);
-        // alert() zeigt reinen Text an – kein HTML, daher kein XSS-Risiko.
-        alert(data.message || data.error || "Anfrage gesendet.");
-    } catch (err) {
-        alert("Fehler beim Senden der Anfrage.");
-    }
-});
-</script>
+<script src="{{ asset_url('js/pages/login.js') }}" defer></script>
 {% endblock %}

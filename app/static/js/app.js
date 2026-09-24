@@ -3,40 +3,35 @@
  * Datei: app/static/js/app.js
  * ---------------------------------------------------------------------
  * Zweck:
- *   Zentrales Frontend-Skript des Bellmann Calendar. Es wird von
- *   base.html auf JEDER Seite geladen (vor den seitenspezifischen
- *   Skripten im Block {% block scripts %}).
+ *   Kern-Skript des Bellmann Calendar, von base.html auf JEDER Seite
+ *   geladen (nach ui.js, vor dem Seiten-Skript aus js/pages/).
  *
  * Was diese Datei bereitstellt:
- *   1. Globale Hilfsfunktionen, die auch die Seiten-Skripte nutzen:
- *        - escapeHtml()      → Schutz vor XSS beim Einfügen in innerHTML
+ *   1. Globale Hilfsfunktionen für alle Seiten-Skripte:
+ *        - escapeHtml()      → Text HTML-sicher machen (falls doch einmal
+ *                              HTML-Strings nötig sind; bevorzugt: ui.js::h())
  *        - getCookie()       → liest die CSRF-Cookies des Servers
- *        - apiFetch()        → zentraler Wrapper um fetch() inkl. Cookies,
- *                              CSRF-Header, JSON und automatischem
- *                              Token-Refresh bei 401
- *        - getCurrentUser()  → lädt den eingeloggten Benutzer genau einmal
+ *        - apiFetch()        → zentraler fetch-Wrapper: Cookies, CSRF-Header,
+ *                              JSON, automatischer Token-Refresh bei 401
+ *        - readJson()        → JSON-Antwort fehlertolerant lesen
+ *        - getCurrentUser()  → eingeloggten Benutzer genau einmal laden
  *                              (window.currentUserPromise)
- *        - isSafeHttpUrl(), isValidHexColor(), toDatetimeLocal(), toUtcIso()
- *   2. Die Logik des Dashboards (FullCalendar, Termin-Modal, RSVP,
- *      Neu-Zuweisung, Benachrichtigungen).
- *   3. Login- und Logout-Verhalten.
+ *        - isSafeHttpUrl(), isValidHexColor(), toDatetimeLocal(),
+ *          toDateLocal(), toUtcIso(), roleLabel(), roleBadgeClass()
+ *   2. Die App-Kopfzeile: rollenabhängige Navigation, mobiles Menü,
+ *      Benutzermenü mit Abmelden, Benachrichtigungs-Glocke.
+ *   3. Sitzungsschutz: Auf geschützten Seiten ohne Login → /login.
  *
  * Mit welchen Backend-Endpunkten spricht diese Datei?
- *   POST /api/v1/auth/login         → Anmeldung (Server setzt Cookies)
  *   POST /api/v1/auth/refresh       → neues Access-Token per Refresh-Cookie
  *   POST /api/v1/auth/logout        → Cookies löschen
  *   GET  /api/v1/auth/me            → Daten des eingeloggten Benutzers
- *   GET  /api/v1/auth/trainers      → Mitarbeiterliste für Zuweisungen
- *   GET  /api/v1/customers          → Kundenliste (Farben im Kalender)
  *   GET  /api/v1/notifications      → In-App-Benachrichtigungen
  *   PUT  /api/v1/notifications/<id>/read
- *   GET/POST/PUT/DELETE /api/v1/events[/<id>]
- *   PUT  /api/v1/events/<id>/rsvp   → Zusage/Absage eines Trainers
  *
  * Wovon hängt diese Datei ab?
- *   - FullCalendar (global "FullCalendar", per CDN in base.html geladen)
- *   - Die HTML-Elemente aus base.html und dashboard.html (IDs wie
- *     "calendar-container", "event-modal", "notif-list" ...)
+ *   - ui.js (h, icon, toast, setupPopover, initials, formatRelativeTime)
+ *   - HTML-Elemente aus base.html (#user-info, #notif-list, #logout-btn ...)
  *   - Cookies, die das Flask-Backend (flask-jwt-extended) setzt:
  *       access_token_cookie  (HttpOnly → für JS unsichtbar, gut so!)
  *       refresh_token_cookie (HttpOnly)
@@ -44,26 +39,15 @@
  *       csrf_refresh_token   (für JS lesbar → beim Refresh)
  *
  * Sicherheitsprinzip:
- *   Das JWT liegt NICHT mehr im localStorage, sondern in einem
- *   HttpOnly-Cookie. Selbst wenn ein Angreifer JavaScript einschleusen
- *   könnte, kann er das Token nicht auslesen. Zusätzlich wird jeder
- *   Datenwert aus der API vor dem Einfügen in HTML escaped.
+ *   Das JWT liegt in einem HttpOnly-Cookie – selbst eingeschleustes
+ *   JavaScript könnte es nicht auslesen. Alle Daten aus der API werden
+ *   per textContent/h() eingefügt, niemals als HTML.
  * =====================================================================
  */
 
 /* ------------------------------------------------------------------ */
-/* Globale Zustände                                                   */
+/* Konstanten                                                         */
 /* ------------------------------------------------------------------ */
-
-/** Referenz auf die FullCalendar-Instanz des Dashboards (für refetchEvents). */
-let globalCalendar = null;
-
-/**
- * Rolle des eingeloggten Benutzers (CEO, ADMIN, TEAM_LEADER, TRAINER).
- * Bleibt aus Kompatibilitätsgründen global erhalten; zuverlässiger ist
- * aber `await getCurrentUser()`, weil die Rolle asynchron geladen wird.
- */
-let currentUserRole = null;
 
 /** Seiten, die OHNE Login erreichbar sein müssen (kein Redirect auf /login). */
 const PUBLIC_PATHS = ["/login", "/reset-password"];
@@ -87,11 +71,23 @@ const NO_REFRESH_ENDPOINTS = [
 /** Erlaubtes Farbformat für Kundenfarben (identisch zur Server-Validierung). */
 const HEX_COLOR_RE = /^#[0-9A-Fa-f]{6}$/;
 
-/** Standardfarbe für Termine ohne (gültige) Kundenfarbe. */
+/** Standardfarbe für Termine ohne (gültige) Kundenfarbe (= Bellmann-Akzent). */
 const DEFAULT_EVENT_COLOR = "#2B6CB0";
 
+/** Rollen, die Termine planen dürfen (Anlegen, Bearbeiten, Neu-Zuweisen). */
+const PLANNER_ROLES = ["CEO", "ADMIN", "TEAM_LEADER"];
+
+/** Lesbare Rollenbezeichnungen für die Oberfläche. */
+const ROLE_LABELS = { CEO: "CEO", ADMIN: "Administrator", TEAM_LEADER: "Teamleitung", TRAINER: "Trainer" };
+
+/** Badge-Farbe je Rolle (Klassen aus frontend/app.css). */
+const ROLE_BADGES = { CEO: "badge-violet", ADMIN: "badge-blue", TEAM_LEADER: "badge-amber", TRAINER: "badge-gray" };
+
+/** Wie oft die Glocke im Hintergrund neue Benachrichtigungen holt (ms). */
+const NOTIFICATION_POLL_MS = 60000;
+
 /* ------------------------------------------------------------------ */
-/* Allgemeine Hilfsfunktionen (werden auch von den Seiten genutzt)    */
+/* Allgemeine Hilfsfunktionen                                         */
 /* ------------------------------------------------------------------ */
 
 /**
@@ -99,7 +95,8 @@ const DEFAULT_EVENT_COLOR = "#2B6CB0";
  *
  * WARUM: Werte aus der API (z. B. eine Ablehnungsbegründung eines
  * Trainers) könnten HTML/JavaScript enthalten. Ohne Escaping würde
- * `innerHTML` diesen Code ausführen (Stored XSS).
+ * `innerHTML` diesen Code ausführen (Stored XSS). Die Seiten bauen ihr
+ * DOM inzwischen mit ui.js::h() – escapeHtml bleibt für Sonderfälle.
  *
  * @param {*} value - Beliebiger Wert (String, Zahl, null, undefined ...)
  * @returns {string} Escapeter Text, null/undefined werden zu "".
@@ -169,14 +166,32 @@ function isSafeHttpUrl(url) {
 
 /**
  * Prüft eine Farbe auf das Format #RRGGBB.
- * WARUM: Farben landen in style-Attributen; ein manipulierter Wert
- * könnte sonst CSS/HTML einschleusen.
+ * WARUM: Farben landen im CSSOM (element.style); ein manipulierter Wert
+ * soll gar nicht erst verwendet werden.
  *
  * @param {string} color
  * @returns {boolean}
  */
 function isValidHexColor(color) {
     return typeof color === "string" && HEX_COLOR_RE.test(color);
+}
+
+/**
+ * Lesbare Rollenbezeichnung ("TEAM_LEADER" → "Teamleitung").
+ * @param {string} role
+ * @returns {string}
+ */
+function roleLabel(role) {
+    return ROLE_LABELS[role] || String(role || "");
+}
+
+/**
+ * CSS-Klasse für das Rollen-Badge.
+ * @param {string} role
+ * @returns {string}
+ */
+function roleBadgeClass(role) {
+    return ROLE_BADGES[role] || "badge-gray";
 }
 
 /* ------------------------------------------------------------------ */
@@ -296,10 +311,6 @@ let currentUserCache = null;
  * Lädt die Daten des eingeloggten Benutzers genau einmal pro Seitenaufruf.
  * Spricht mit: GET /api/v1/auth/me
  *
- * Seiten-Skripte (z. B. members.html) nutzen `await getCurrentUser()`,
- * statt sich auf die globale Variable currentUserRole zu verlassen,
- * die zum Zeitpunkt ihres Aufrufs eventuell noch leer ist.
- *
  * @returns {Promise<object|null>} Benutzerobjekt {id, email, first_name,
  *          last_name, role, team_id} oder null, wenn nicht eingeloggt.
  */
@@ -307,17 +318,13 @@ function getCurrentUser() {
     if (!currentUserCache) {
         currentUserCache = apiFetch("/api/v1/auth/me")
             .then(async res => (res.ok ? readJson(res) : null))
-            .then(user => {
-                if (user) currentUserRole = user.role; // Kompatibilität für ältere Stellen
-                return user;
-            })
             .catch(() => null);
     }
     return currentUserCache;
 }
 
 // Auf geschützten Seiten sofort starten, damit das Promise schon existiert,
-// wenn die Seiten-Skripte (die NACH dieser Datei geladen werden) es brauchen.
+// wenn die Seiten-Skripte (die NACH dieser Datei laufen) es brauchen.
 window.currentUserPromise = isPublicPage() ? Promise.resolve(null) : getCurrentUser();
 
 /* ------------------------------------------------------------------ */
@@ -384,204 +391,141 @@ function toUtcIso(value, isEnd) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Seitenstart                                                        */
+/* Kopfzeile: Navigation, Benutzermenü, mobiles Menü                  */
 /* ------------------------------------------------------------------ */
 
 /**
- * Einstiegspunkt nach dem Laden des DOM.
- * - Öffentliche Seiten: nur Login-/Logout-Handler.
- * - Geschützte Seiten: Benutzer laden, Navigation nach Rolle filtern,
- *   Dashboard-Komponenten initialisieren.
- */
-document.addEventListener("DOMContentLoaded", async () => {
-    setupAuth();
-
-    if (window.location.pathname === "/login") {
-        // Bereits eingeloggt? Dann direkt ins Dashboard (normales fetch,
-        // damit ein 401 hier keinen Redirect/Refresh auslöst).
-        try {
-            const res = await fetch("/api/v1/auth/me", { credentials: "same-origin" });
-            if (res.ok) window.location.href = "/dashboard";
-        } catch (e) { /* offline → einfach auf der Login-Seite bleiben */ }
-        return;
-    }
-    if (isPublicPage()) return;
-
-    const user = await window.currentUserPromise;
-    if (!user) { redirectToLogin(); return; }
-
-    document.getElementById("user-info")?.classList.remove("hidden");
-    document.getElementById("dashboard-content")?.classList.remove("hidden");
-
-    applyRoleNavigation(user);
-
-    const userNameEl = document.getElementById("user-name");
-    if (userNameEl) userNameEl.textContent = `${user.first_name} ${user.last_name} (${user.role})`;
-
-    if (["CEO", "ADMIN", "TEAM_LEADER"].includes(user.role)) {
-        document.getElementById("open-modal-btn")?.classList.remove("hidden");
-        loadTrainers();
-        loadCustomers();
-        loadNotifications();
-        document.getElementById("notification-bell")?.addEventListener("click", (e) => {
-            // Klicks auf einen Eintrag in der Liste sollen das Dropdown nicht schließen.
-            if (e.target.closest("#notif-list")) return;
-            document.getElementById("notif-dropdown")?.classList.toggle("hidden");
-        });
-    } else {
-        document.getElementById("notification-bell")?.classList.add("hidden");
-    }
-
-    const calendarContainer = document.getElementById("calendar-container");
-    if (calendarContainer) renderCalendar(calendarContainer);
-
-    setupEventCreation();
-    setupRSVPModals();
-    setupAllDayToggle();
-});
-
-/**
- * Blendet die Navigations-Tabs abhängig von der Rolle ein/aus.
+ * Blendet die Navigationspunkte (Desktop + mobil) je nach Rolle ein.
+ * Jeder rollenabhängige Link trägt data-roles="CEO ADMIN ..." (base.html).
  * HINWEIS: Das ist nur Komfort für die Oberfläche – die echte
  * Zugriffskontrolle macht das Backend bei jedem API-Aufruf.
  *
  * @param {object} user - Benutzer aus /api/v1/auth/me.
  */
 function applyRoleNavigation(user) {
-    const allowedTabs = {
-        "nav-compare": ["CEO", "ADMIN", "TEAM_LEADER"],
-        "nav-logs": ["CEO", "ADMIN"],
-        "nav-members": ["CEO", "ADMIN"],
-        "nav-customers": ["CEO", "ADMIN"],
-    };
-    for (const [tabId, roles] of Object.entries(allowedTabs)) {
-        const el = document.getElementById(tabId);
-        if (el) el.classList.toggle("hidden", !roles.includes(user.role));
+    document.querySelectorAll("[data-roles]").forEach(el => {
+        el.hidden = !el.dataset.roles.split(" ").includes(user.role);
+    });
+}
+
+/**
+ * Füllt Benutzermenü und Avatar mit den Daten des eingeloggten Benutzers.
+ * Alle Werte per textContent → auch ein präparierter Name bleibt reiner Text.
+ *
+ * @param {object} user
+ */
+function renderUserMenu(user) {
+    const fullName = `${user.first_name || ""} ${user.last_name || ""}`.trim();
+    const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+    set("user-name", fullName);
+    set("user-role", roleLabel(user.role));
+    set("user-avatar", initials(user.first_name, user.last_name));
+    set("user-menu-name", fullName);
+    set("user-menu-email", user.email || "");
+    const badge = document.getElementById("user-menu-role");
+    if (badge) {
+        badge.textContent = roleLabel(user.role);
+        badge.className = `badge ${roleBadgeClass(user.role)} mt-2`;
     }
 }
 
 /**
- * Schaltet die Datumsfelder des Termin-Formulars zwischen
- * "datetime-local" und "date" um, wenn "Ganztägig" angehakt wird.
+ * Mobiles Menü (Hamburger-Button) auf- und zuklappen.
  */
-function setupAllDayToggle() {
-    const cb = document.getElementById("event-is-all-day");
-    if (!cb) return;
-    cb.addEventListener("change", (e) => setAllDayInputs(e.target.checked));
+function setupMobileMenu() {
+    const btn = document.getElementById("mobile-menu-btn");
+    const nav = document.getElementById("mobile-nav");
+    if (!btn || !nav) return;
+    btn.addEventListener("click", () => {
+        const open = nav.hidden;
+        nav.hidden = !open;
+        btn.setAttribute("aria-expanded", String(open));
+        btn.setAttribute("aria-label", open ? "Menü schließen" : "Menü öffnen");
+    });
 }
 
 /**
- * Setzt den Typ der Start/Ende-Felder.
- * @param {boolean} isAllDay
+ * Abmelden. Spricht mit: POST /api/v1/auth/logout → Server löscht die Cookies.
  */
-function setAllDayInputs(isAllDay) {
-    const type = isAllDay ? "date" : "datetime-local";
-    const start = document.getElementById("event-start");
-    const end = document.getElementById("event-end");
-    if (start) start.type = type;
-    if (end) end.type = type;
-}
-
-/* ------------------------------------------------------------------ */
-/* Dropdown-Daten (Mitarbeiter, Kunden)                               */
-/* ------------------------------------------------------------------ */
-
-/**
- * Füllt die Mitarbeiter-Auswahlfelder (Termin anlegen + Neu-Zuweisung).
- * Spricht mit: GET /api/v1/auth/trainers → [{id, name}]
- * createElement + textContent statt innerHTML → kein XSS möglich.
- */
-async function loadTrainers() {
-    try {
-        const res = await apiFetch("/api/v1/auth/trainers");
-        if (!res.ok) return;
-        const data = await readJson(res);
-        const selects = [document.getElementById("event-assignee"), document.getElementById("reassign-select")];
-        (Array.isArray(data) ? data : []).forEach(t => {
-            selects.forEach(select => {
-                if (!select) return;
-                const opt = document.createElement("option");
-                opt.value = t.id;
-                opt.textContent = t.name;
-                select.appendChild(opt);
-            });
-        });
-    } catch (err) { console.error(err); }
-}
-
-/**
- * Füllt die Kunden-Auswahl im Termin-Formular.
- * Spricht mit: GET /api/v1/customers → [{id, name, email, color_hex}]
- */
-async function loadCustomers() {
-    try {
-        const res = await apiFetch("/api/v1/customers");
-        if (!res.ok) return;
-        const data = await readJson(res);
-        const select = document.getElementById("event-customer");
-        if (!select) return;
-        (Array.isArray(data) ? data : []).forEach(c => {
-            const opt = document.createElement("option");
-            opt.value = c.id;
-            opt.textContent = c.name;
-            select.appendChild(opt);
-        });
-    } catch (err) { console.error(err); }
+function setupLogout() {
+    document.getElementById("logout-btn")?.addEventListener("click", async () => {
+        try {
+            await apiFetch("/api/v1/auth/logout", { method: "POST" });
+        } finally {
+            // Auch wenn der Server nicht antwortet: zurück zum Login.
+            window.location.href = "/login";
+        }
+    });
 }
 
 /* ------------------------------------------------------------------ */
 /* Benachrichtigungen                                                 */
 /* ------------------------------------------------------------------ */
 
+/** Zuletzt geladene Benachrichtigungen (für "Alle gelesen"). */
+let currentNotifications = [];
+
 /**
  * Lädt die Benachrichtigungen und rendert sie ins Glocken-Dropdown.
  * Spricht mit: GET /api/v1/notifications
  *
  * SICHERHEIT: Titel und Nachricht enthalten Benutzertext (z. B. die
- * Ablehnungsbegründung eines Trainers). Deshalb werden sie per
- * textContent gesetzt – niemals per innerHTML.
+ * Ablehnungsbegründung eines Trainers). h() setzt sie als Textknoten –
+ * niemals als HTML.
  */
 async function loadNotifications() {
     try {
         const res = await apiFetch("/api/v1/notifications");
         if (!res.ok) return;
         const data = await readJson(res);
-        const notifications = Array.isArray(data.notifications) ? data.notifications : [];
-        const unread = notifications.filter(n => !n.is_read);
-        const badge = document.getElementById("notif-badge");
-        const list = document.getElementById("notif-list");
-        if (!badge || !list) return;
-
-        badge.textContent = String(unread.length);
-        badge.classList.toggle("hidden", unread.length === 0);
-
-        list.replaceChildren(); // alte Einträge entfernen
-        if (notifications.length === 0) {
-            const empty = document.createElement("div");
-            empty.className = "px-4 py-3 text-sm text-gray-500";
-            empty.textContent = "Keine Benachrichtigungen.";
-            list.appendChild(empty);
-            return;
-        }
-
-        notifications.forEach(n => {
-            const item = document.createElement("div");
-            item.className = `px-4 py-3 border-b hover:bg-gray-50 ${n.is_read ? "opacity-50" : "bg-blue-50"} cursor-pointer`;
-
-            const title = document.createElement("p");
-            title.className = "text-sm font-bold text-[#1A365D]";
-            title.textContent = n.title;
-
-            const message = document.createElement("p");
-            message.className = "text-xs text-gray-700 mt-1";
-            message.textContent = n.message;
-
-            item.append(title, message);
-            // Handler direkt am Element – kein Inline-onclick, kein Token im DOM.
-            item.addEventListener("click", () => markRead(n.id));
-            list.appendChild(item);
-        });
+        currentNotifications = Array.isArray(data.notifications) ? data.notifications : [];
+        renderNotifications();
     } catch (err) { console.error(err); }
+}
+
+/**
+ * Zeichnet Zähler und Liste der Benachrichtigungen neu.
+ */
+function renderNotifications() {
+    const badge = document.getElementById("notif-badge");
+    const list = document.getElementById("notif-list");
+    const markAll = document.getElementById("notif-mark-all");
+    const bell = document.getElementById("notification-bell");
+    if (!badge || !list) return;
+
+    const unread = currentNotifications.filter(n => !n.is_read).length;
+    badge.textContent = unread > 99 ? "99+" : String(unread);
+    badge.hidden = unread === 0;
+    if (markAll) markAll.hidden = unread === 0;
+    // Screenreader erfahren die Anzahl über das Label des Buttons.
+    bell?.setAttribute("aria-label", unread ? `Benachrichtigungen, ${unread} ungelesen` : "Benachrichtigungen");
+
+    if (currentNotifications.length === 0) {
+        list.replaceChildren(h("div", { class: "empty-state py-10" },
+            h("div", { class: "empty-state-icon" }, icon("inbox")),
+            h("p", { class: "text-sm font-medium", text: "Alles erledigt" }),
+            h("p", { class: "text-xs text-fg-muted", text: "Keine Benachrichtigungen vorhanden." }),
+        ));
+        return;
+    }
+
+    list.replaceChildren(...currentNotifications.map(n => h("button", {
+        type: "button",
+        class: `flex w-full cursor-pointer gap-3 border-b border-line px-4 py-3 text-left last:border-b-0 transition-colors hover:bg-surface-2 ${n.is_read ? "" : "bg-accent-soft/40"}`,
+        // Handler direkt am Element – kein Inline-onclick, keine Daten im DOM-Attribut.
+        on: { click: () => markRead(n.id) },
+    },
+        h("span", {
+            class: `mt-1.5 size-2 shrink-0 rounded-full ${n.is_read ? "bg-transparent" : "bg-accent"}`,
+            "aria-hidden": "true",
+        }),
+        h("span", { class: "min-w-0 flex-1" },
+            h("span", { class: `block text-sm ${n.is_read ? "font-medium text-fg-muted" : "font-semibold text-fg"}`, text: n.title }),
+            h("span", { class: "mt-0.5 block text-xs leading-relaxed break-words text-fg-muted", text: n.message }),
+            h("span", { class: "mt-1 block text-[0.6875rem] text-fg-subtle", text: formatRelativeTime(n.created_at) }),
+        ),
+        n.is_read ? null : h("span", { class: "sr-only", text: "(ungelesen)" }),
+    )));
 }
 
 /**
@@ -594,395 +538,64 @@ async function markRead(id) {
     await apiFetch(`/api/v1/notifications/${encodeURIComponent(id)}/read`, { method: "PUT" });
     loadNotifications();
 }
-window.markRead = markRead;
-
-/* ------------------------------------------------------------------ */
-/* Kalender (FullCalendar)                                            */
-/* ------------------------------------------------------------------ */
 
 /**
- * Erstellt den Wochenkalender im Dashboard.
- * Abhängigkeit: FullCalendar (global, CDN aus base.html).
- * Spricht mit: GET /api/v1/events?start=...&end=...
- *
- * FullCalendar ruft `events` bei jedem Ansichtswechsel mit dem sichtbaren
- * Zeitraum auf. Wir geben ihn an den Server weiter, damit nur die
- * benötigten Termine geladen werden. Die Zeiten kommen als ISO-String
- * MIT Offset (+00:00) – FullCalendar rechnet sie in Lokalzeit um.
- *
- * @param {HTMLElement} container - Element, in das der Kalender gezeichnet wird.
+ * Markiert alle ungelesenen Benachrichtigungen als gelesen.
+ * Die API kennt nur Einzel-Aufrufe → parallel für jede ungelesene ID.
  */
-function renderCalendar(container) {
-    container.replaceChildren();
-    globalCalendar = new FullCalendar.Calendar(container, {
-        initialView: "timeGridWeek",
-        headerToolbar: { left: "prev,next today", center: "title", right: "dayGridMonth,timeGridWeek,timeGridDay" },
-        locale: "de",
-        allDaySlot: false,
-        slotMinTime: "06:00:00",
-        slotMaxTime: "22:00:00",
-        events: async function (fetchInfo, successCallback, failureCallback) {
-            try {
-                // encodeURIComponent ist nötig, weil startStr ein "+" enthält
-                // (z. B. +02:00), das in einer URL sonst als Leerzeichen gilt.
-                const url = `/api/v1/events?start=${encodeURIComponent(fetchInfo.startStr)}&end=${encodeURIComponent(fetchInfo.endStr)}`;
-                const response = await apiFetch(url);
-                if (!response.ok) throw new Error("Fehler beim Laden");
-                const data = await readJson(response);
-                successCallback((Array.isArray(data) ? data : []).map(e => ({
-                    id: e.id,
-                    title: e.title, // FullCalendar setzt Titel als Text → sicher
-                    start: e.start_time,
-                    end: e.end_time,
-                    backgroundColor: e.reallocation_required
-                        ? "#E53E3E"
-                        : (isValidHexColor(e.color) ? e.color : DEFAULT_EVENT_COLOR),
-                    extendedProps: {
-                        reallocation_required: e.reallocation_required,
-                        assigned_to_id: e.assigned_to_id,
-                        meeting_link: e.meeting_link,
-                        customer_id: e.customer_id,
-                        is_all_day: e.is_all_day,
-                        is_mandatory: e.is_mandatory,
-                        rejection_reason: e.rejection_reason,
-                    },
-                })));
-            } catch (error) { failureCallback(error); }
-        },
-        eventClick: info => openEventDetails(info.event),
-    });
-    globalCalendar.render();
+async function markAllRead() {
+    const unread = currentNotifications.filter(n => !n.is_read);
+    await Promise.all(unread.map(n =>
+        apiFetch(`/api/v1/notifications/${encodeURIComponent(n.id)}/read`, { method: "PUT" })));
+    loadNotifications();
 }
 
 /**
- * Öffnet das Detail-Modal eines Termins und zeigt – je nach Rolle –
- * RSVP-Buttons (Trainer), Neu-Zuweisung und Verwaltung (CEO/ADMIN/TL).
- *
- * @param {object} event - FullCalendar-EventApi-Objekt.
+ * Glocke verdrahten: Dropdown, "Alle gelesen" und Aktualisierung im
+ * Hintergrund (nur solange der Tab sichtbar ist – spart Anfragen).
  */
-function openEventDetails(event) {
-    const eventId = event.id;
-    const props = event.extendedProps;
-
-    // Alle Texte per textContent → auch bösartige Titel werden nur angezeigt.
-    document.getElementById("detail-title").textContent = event.title;
-    document.getElementById("detail-time").textContent =
-        `${event.start.toLocaleString("de-DE")} - ${event.end ? event.end.toLocaleString("de-DE") : ""}`;
-
-    // Meeting-Link nur anzeigen, wenn es wirklich eine http(s)-URL ist.
-    const link = document.getElementById("detail-link");
-    if (link) {
-        if (isSafeHttpUrl(props.meeting_link)) {
-            link.href = props.meeting_link;
-            link.rel = "noopener noreferrer"; // verhindert Zugriff der Zielseite auf window.opener
-            link.classList.remove("hidden");
-        } else {
-            link.removeAttribute("href");
-            link.classList.add("hidden");
-        }
-    }
-
-    const rsvpSection = document.getElementById("rsvp-section");
-    const reassignSection = document.getElementById("reassign-section");
-    const adminActions = document.getElementById("admin-actions");
-    rsvpSection?.classList.add("hidden");
-    reassignSection?.classList.add("hidden");
-    adminActions?.classList.add("hidden");
-    document.getElementById("rsvp-error")?.classList.add("hidden");
-    document.getElementById("decline-container")?.classList.add("hidden");
-    const declineReason = document.getElementById("decline-reason");
-    if (declineReason) declineReason.value = "";
-
-    if (currentUserRole === "TRAINER") {
-        // Pflichttermine können nicht abgelehnt werden → keine RSVP-Buttons.
-        if (!props.is_mandatory && rsvpSection) {
-            rsvpSection.classList.remove("hidden");
-            // .onclick statt addEventListener: überschreibt den Handler des
-            // zuvor geöffneten Termins, statt Handler zu stapeln.
-            document.getElementById("btn-accept").onclick = () => submitRsvp(eventId, "ACCEPTED", null);
-            document.getElementById("btn-submit-decline").onclick = () => {
-                const reason = document.getElementById("decline-reason").value.trim();
-                if (!reason) { showRsvpError("Bitte gib eine Begründung an."); return; }
-                submitRsvp(eventId, "DECLINED", reason);
-            };
-        }
-    } else if (["CEO", "ADMIN", "TEAM_LEADER"].includes(currentUserRole)) {
-        if (props.reallocation_required && reassignSection) {
-            reassignSection.classList.remove("hidden");
-            const reasonEl = document.getElementById("detail-rejection-reason");
-            if (reasonEl) {
-                if (props.rejection_reason) {
-                    reasonEl.textContent = "Ablehnungsgrund: " + props.rejection_reason;
-                    reasonEl.classList.remove("hidden");
-                } else {
-                    reasonEl.classList.add("hidden");
-                }
-            }
-            document.getElementById("btn-reassign").onclick = () => {
-                const newAssignee = document.getElementById("reassign-select").value;
-                if (newAssignee) reassignEvent(eventId, newAssignee);
-            };
-        }
-        if (adminActions) {
-            adminActions.classList.remove("hidden");
-            document.getElementById("btn-delete").onclick = () => deleteEvent(eventId);
-            document.getElementById("btn-edit").onclick = () => openEditForm(event);
-        }
-    }
-    document.getElementById("event-details-modal").classList.remove("hidden");
-}
-
-/**
- * Zeigt eine Fehlermeldung im RSVP-Bereich an.
- * @param {string} message
- */
-function showRsvpError(message) {
-    const el = document.getElementById("rsvp-error");
-    if (!el) return;
-    el.textContent = message;
-    el.classList.remove("hidden");
-}
-
-/**
- * Schließt das Detail-Modal und lädt die Kalendertermine neu.
- */
-function closeDetailsAndRefresh() {
-    document.getElementById("event-details-modal").classList.add("hidden");
-    if (globalCalendar) globalCalendar.refetchEvents();
-}
-
-/**
- * Löscht einen Termin nach Rückfrage (Soft-Delete im Backend).
- * Spricht mit: DELETE /api/v1/events/<id>
- *
- * @param {string|number} eventId
- */
-async function deleteEvent(eventId) {
-    if (!confirm("Bist du sicher, dass du diesen Termin löschen möchtest?")) return;
-    const res = await apiFetch(`/api/v1/events/${encodeURIComponent(eventId)}`, { method: "DELETE" });
-    if (res.ok) {
-        closeDetailsAndRefresh();
-    } else {
-        const data = await readJson(res);
-        alert(data.error || "Termin konnte nicht gelöscht werden.");
-    }
-}
-
-/**
- * Öffnet das Termin-Formular im Bearbeitungsmodus und befüllt es mit
- * den aktuellen Werten des Termins.
- *
- * WARUM auch Kunde, Link und Ganztägig befüllt werden: Das Formular
- * sendet diese Felder beim Speichern immer mit. Wären sie leer,
- * würde ein Bearbeiten sie versehentlich löschen.
- *
- * @param {object} event - FullCalendar-EventApi-Objekt.
- */
-function openEditForm(event) {
-    const props = event.extendedProps;
-    document.getElementById("event-details-modal").classList.add("hidden");
-    document.getElementById("event-modal-title").textContent = "Termin bearbeiten";
-    document.getElementById("editing-event-id").value = event.id;
-    document.getElementById("event-title").value = event.title;
-
-    const allDay = Boolean(props.is_all_day);
-    const allDayCb = document.getElementById("event-is-all-day");
-    if (allDayCb) allDayCb.checked = allDay;
-    setAllDayInputs(allDay);
-    const format = allDay ? toDateLocal : toDatetimeLocal;
-    document.getElementById("event-start").value = format(event.start);
-    document.getElementById("event-end").value = format(event.end);
-
-    document.getElementById("event-assignee").value = props.assigned_to_id || "";
-    const customer = document.getElementById("event-customer");
-    if (customer) customer.value = props.customer_id || "";
-    const meetingLink = document.getElementById("event-meeting-link");
-    if (meetingLink) meetingLink.value = props.meeting_link || "";
-
-    document.getElementById("event-error")?.classList.add("hidden");
-    document.getElementById("event-modal").classList.remove("hidden");
-}
-
-/**
- * Sendet die Zusage/Absage eines Trainers.
- * Spricht mit: PUT /api/v1/events/<id>/rsvp {status, rejection_reason}
- * Bei DECLINED markiert das Backend den Termin zur Neu-Zuweisung.
- *
- * @param {string|number} eventId
- * @param {"ACCEPTED"|"DECLINED"|"TENTATIVE"} status
- * @param {string|null} reason - Pflicht bei DECLINED.
- */
-async function submitRsvp(eventId, status, reason) {
-    try {
-        const response = await apiFetch(`/api/v1/events/${encodeURIComponent(eventId)}/rsvp`, {
-            method: "PUT",
-            body: { status, rejection_reason: reason },
-        });
-        if (response.ok) {
-            closeDetailsAndRefresh();
-        } else {
-            const data = await readJson(response);
-            showRsvpError(data.error || "Fehler.");
-        }
-    } catch (err) { console.error(err); }
-}
-
-/**
- * Weist einen (abgelehnten) Termin einem neuen Mitarbeiter zu.
- * Spricht mit: PUT /api/v1/events/<id> {assigned_to_id}
- *
- * @param {string|number} eventId
- * @param {string} assigneeId - ID aus dem Auswahlfeld.
- */
-async function reassignEvent(eventId, assigneeId) {
-    try {
-        const response = await apiFetch(`/api/v1/events/${encodeURIComponent(eventId)}`, {
-            method: "PUT",
-            body: { assigned_to_id: parseInt(assigneeId, 10) },
-        });
-        if (response.ok) {
-            closeDetailsAndRefresh();
-            loadNotifications();
-        } else {
-            const data = await readJson(response);
-            alert(data.message || data.error || "Fehler bei der Zuweisung.");
-        }
-    } catch (err) { console.error(err); }
+function setupNotifications() {
+    setupPopover(document.getElementById("notification-bell"), document.getElementById("notif-dropdown"));
+    document.getElementById("notif-mark-all")?.addEventListener("click", markAllRead);
+    loadNotifications();
+    setInterval(() => {
+        if (document.visibilityState === "visible") loadNotifications();
+    }, NOTIFICATION_POLL_MS);
 }
 
 /* ------------------------------------------------------------------ */
-/* Termin anlegen / bearbeiten                                        */
+/* Seitenstart                                                        */
 /* ------------------------------------------------------------------ */
 
 /**
- * Verdrahtet das Termin-Modal (Öffnen, Schließen, Absenden).
- * Spricht mit: POST /api/v1/events (neu) bzw. PUT /api/v1/events/<id>
- *
- * Die Zeiten werden vor dem Senden von Lokalzeit in UTC umgerechnet
- * (siehe toUtcIso), weil das Backend ausschließlich UTC speichert.
+ * Einstiegspunkt nach dem Laden des DOM.
+ * - Login-Seite: Ist man schon angemeldet → direkt zum Kalender.
+ * - Geschützte Seiten: Benutzer laden, Kopfzeile befüllen, Navigation
+ *   nach Rolle filtern. Die eigentliche Seitenlogik steckt in js/pages/.
  */
-function setupEventCreation() {
-    const modal = document.getElementById("event-modal");
-    const form = document.getElementById("event-form");
-    if (!modal || !form) return;
-
-    /** Setzt Formular und Feldtypen auf den Ausgangszustand zurück. */
-    const resetForm = () => {
-        form.reset();
-        setAllDayInputs(false);
-        document.getElementById("event-error")?.classList.add("hidden");
-    };
-
-    document.getElementById("open-modal-btn")?.addEventListener("click", () => {
-        document.getElementById("event-modal-title").textContent = "Neuen Termin anlegen";
-        resetForm();
-        document.getElementById("editing-event-id").value = ""; // nach reset(), da hidden-Felder sonst bleiben könnten
-        modal.classList.remove("hidden");
-    });
-    document.getElementById("close-modal-btn")?.addEventListener("click", () => {
-        modal.classList.add("hidden");
-        resetForm();
-    });
-
-    form.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const errorDiv = document.getElementById("event-error");
-        const showError = (msg) => { errorDiv.textContent = msg; errorDiv.classList.remove("hidden"); };
-
-        const editingId = document.getElementById("editing-event-id").value;
-        const title = document.getElementById("event-title").value;
-        const startTime = toUtcIso(document.getElementById("event-start").value, false);
-        const endTime = toUtcIso(document.getElementById("event-end").value, true);
-        if (!startTime || !endTime) { showError("Bitte gültige Start- und Endzeiten angeben."); return; }
-
-        const assigneeId = document.getElementById("event-assignee").value;
-        const meetingLink = document.getElementById("event-meeting-link")?.value.trim();
-        const customerId = document.getElementById("event-customer")?.value;
-
-        const payload = {
-            title,
-            start_time: startTime,
-            end_time: endTime,
-            is_all_day: document.getElementById("event-is-all-day")?.checked || false,
-            // null = "kein Kunde" (explizit, damit ein Entfernen beim Bearbeiten ankommt)
-            customer_id: customerId ? parseInt(customerId, 10) : null,
-            meeting_link: meetingLink || null,
-        };
-        // Beim Bearbeiten "Unzugewiesen" explizit als null senden; beim Anlegen weglassen.
-        if (assigneeId) payload.assigned_to_id = parseInt(assigneeId, 10);
-        else if (editingId) payload.assigned_to_id = null;
-
+document.addEventListener("DOMContentLoaded", async () => {
+    if (window.location.pathname === "/login") {
+        // Ohne lesbares CSRF-Cookie gibt es sicher keine Sitzung → gar nicht erst
+        // fragen (spart eine Anfrage und einen roten 401-Eintrag in der Konsole).
+        if (!getCookie("csrf_access_token") && !getCookie("csrf_refresh_token")) return;
+        // Normales fetch (nicht apiFetch), damit ein 401 hier keinen Refresh/Redirect auslöst.
         try {
-            const response = await apiFetch(
-                editingId ? `/api/v1/events/${encodeURIComponent(editingId)}` : "/api/v1/events",
-                { method: editingId ? "PUT" : "POST", body: payload },
-            );
-            const data = await readJson(response);
-            if (response.ok) {
-                modal.classList.add("hidden");
-                resetForm();
-                if (globalCalendar) globalCalendar.refetchEvents();
-            } else {
-                showError(data.message || data.error || "Fehler beim Speichern.");
-            }
-        } catch (err) {
-            showError("Netzwerkfehler oder Server nicht erreichbar.");
-        }
-    });
-}
+            const res = await fetch("/api/v1/auth/me", { credentials: "same-origin" });
+            if (res.ok) window.location.href = "/dashboard";
+        } catch (e) { /* offline → einfach auf der Login-Seite bleiben */ }
+        return;
+    }
+    if (isPublicPage()) return;
 
-/**
- * Verdrahtet die statischen Buttons des Detail-Modals
- * (Ablehnen-Bereich aufklappen, Modal schließen).
- */
-function setupRSVPModals() {
-    document.getElementById("btn-decline")?.addEventListener("click", () => {
-        document.getElementById("decline-container").classList.remove("hidden");
-    });
-    document.getElementById("close-details-btn")?.addEventListener("click", () => {
-        document.getElementById("event-details-modal").classList.add("hidden");
-    });
-}
+    setupMobileMenu();
+    setupLogout();
+    setupPopover(document.getElementById("user-menu-btn"), document.getElementById("user-menu"));
 
-/* ------------------------------------------------------------------ */
-/* Login / Logout                                                     */
-/* ------------------------------------------------------------------ */
+    const user = await window.currentUserPromise;
+    if (!user) { redirectToLogin(); return; }
 
-/**
- * Verdrahtet Login-Formular (login.html) und Logout-Button (base.html).
- *
- * Login:  POST /api/v1/auth/login → Server setzt die HttpOnly-Cookies,
- *         das Frontend muss sich nichts merken.
- * Logout: POST /api/v1/auth/logout → Server löscht die Cookies.
- */
-function setupAuth() {
-    document.getElementById("login-form")?.addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const email = document.getElementById("email").value;
-        const password = document.getElementById("password").value;
-        const errDiv = document.getElementById("login-error");
-        try {
-            const res = await apiFetch("/api/v1/auth/login", { method: "POST", body: { email, password } });
-            const data = await readJson(res);
-            if (res.ok) {
-                window.location.href = "/dashboard";
-            } else {
-                // 401 = falsche Daten, 429 = Rate-Limit (zu viele Versuche)
-                errDiv.textContent = data.error || "Anmeldung fehlgeschlagen.";
-                errDiv.classList.remove("hidden");
-            }
-        } catch (err) {
-            errDiv.textContent = "Fehler.";
-            errDiv.classList.remove("hidden");
-        }
-    });
-
-    document.getElementById("logout-btn")?.addEventListener("click", async () => {
-        try {
-            await apiFetch("/api/v1/auth/logout", { method: "POST" });
-        } finally {
-            // Auch wenn der Server nicht antwortet: zurück zum Login.
-            window.location.href = "/login";
-        }
-    });
-}
+    renderUserMenu(user);
+    applyRoleNavigation(user);
+    document.getElementById("user-info").hidden = false;
+    setupNotifications();
+});

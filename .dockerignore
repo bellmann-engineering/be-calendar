@@ -33,6 +33,11 @@ requirements-dev.txt
 docker-compose*.yml
 setup.sh
 
+# Frontend-Build: node_modules wird in der Node-Stufe frisch per "npm ci" installiert,
+# app/static/dist/ dort frisch gebaut (keine lokalen, evtl. veralteten Build-Reste).
+node_modules/
+app/static/dist/
+
 # Persönliche Hilfsdateien
 projekt_status*.txt
 export_code.sh

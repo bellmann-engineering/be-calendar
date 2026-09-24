@@ -30,5 +30,9 @@ postgres_data/
 # Persönliche Lern- und Diagnosewerkzeuge (nicht Teil des Firmenprojekts)
 devtools/
 
+# Frontend: Abhängigkeiten und Build-Ergebnis (npm ci && npm run build erzeugt beides neu)
+node_modules/
+app/static/dist/
+
 # Temporär generierte Dateien
 projekt_status*.txt

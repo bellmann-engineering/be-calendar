@@ -7,168 +7,99 @@ Zweck:
   (zwei FullCalendar-Tagesansichten). Sichtbar für CEO, ADMIN und
   TEAM_LEADER.
 
-Mit welchen Backend-Endpunkten spricht diese Seite?
-  GET /api/v1/auth                       → Mitarbeiterliste (nur aktive
-                                           werden angeboten; TL sieht nur
-                                           sein eigenes Team)
-  GET /api/v1/events?start=...&end=...   → Termine im sichtbaren Zeitraum
+Logik: js/pages/compare.js
+  GET /api/v1/auth                       → Mitarbeiterliste (nur aktive)
+  GET /api/v1/events?start=...&end=...   → Termine des gewählten Tages
 
 WARUM wird die Mitarbeiterliste per JavaScript geladen?
   Früher hat der Server die Liste direkt ins HTML gerendert – ohne
-  Login-Prüfung. Jeder konnte so alle Mitarbeiternamen sehen. Jetzt
-  kommen die Daten nur noch über die geschützte API.
+  Login-Prüfung. Jetzt kommen die Daten nur noch über die geschützte API.
 
-Abhängigkeiten: app.js (apiFetch, readJson, getCurrentUser),
-                FullCalendar (global, aus base.html).
+Abhängigkeiten: base.html, _macros.html, FullCalendar (selbst gehostet,
+                nur auf dieser Seite und dem Dashboard geladen).
 =====================================================================
 #}
 {% extends "base.html" %}
-{% block content %}
-<div class="mb-6">
-    <h1 class="text-2xl font-bold text-[#1A365D]">Mitarbeiter Vergleichen</h1>
-    <p class="text-sm text-gray-600">Wähle ein Datum und zwei Mitarbeiter aus, um ihre Verfügbarkeit Seite an Seite zu vergleichen.</p>
-</div>
-
-{# ---------- Steuerungen ---------- #}
-<div class="bg-white p-4 border rounded shadow-sm mb-6 flex flex-wrap items-end gap-4">
-    <div>
-        <label class="block text-xs font-bold text-gray-700 mb-1" for="compare-date">Datum (Tag)</label>
-        <input type="date" id="compare-date" class="border-gray-300 rounded p-2 border text-sm">
-    </div>
-    <div class="flex-1 min-w-[200px]">
-        <label class="block text-xs font-bold text-gray-700 mb-1" for="trainer-a">Mitarbeiter:</label>
-        {# Optionen befüllt loadEmployees() #}
-        <select id="trainer-a" class="w-full border-gray-300 rounded p-2 border text-sm">
-            <option value="">-- Bitte wählen --</option>
-        </select>
-    </div>
-    <div class="flex-1 min-w-[200px]">
-        <label class="block text-xs font-bold text-gray-700 mb-1" for="trainer-b">Mitarbeiter:</label>
-        <select id="trainer-b" class="w-full border-gray-300 rounded p-2 border text-sm">
-            <option value="">-- Bitte wählen --</option>
-        </select>
-    </div>
-    <button id="btn-compare" class="bg-[#1A365D] text-white px-6 py-2 rounded text-sm font-bold hover:bg-[#2B6CB0] transition">
-        Suchen & Vergleichen
-    </button>
-</div>
-
-{# ---------- Seite-an-Seite-Layout ---------- #}
-<div id="comparison-results" class="grid grid-cols-1 md:grid-cols-2 gap-6 hidden">
-    <div class="bg-white border rounded shadow-sm overflow-hidden">
-        <div class="bg-[#2B6CB0] text-white text-center py-2 font-bold" id="title-a">Mitarbeiter</div>
-        <div id="calendar-a" class="p-2 min-h-[500px]"></div>
-    </div>
-    <div class="bg-white border rounded shadow-sm overflow-hidden">
-        <div class="bg-emerald-600 text-white text-center py-2 font-bold" id="title-b">Mitarbeiter</div>
-        <div id="calendar-b" class="p-2 min-h-[500px]"></div>
-    </div>
-</div>
-{% endblock %}
+{% from "_macros.html" import icon %}
+{% block title %}Vergleich{% endblock %}
 
 {% block scripts %}
-<script>
-/**
- * Lädt die aktiven Mitarbeiter und füllt beide Auswahlfelder.
- * Spricht mit: GET /api/v1/auth
- * Option-Texte werden über `new Option(text, value)` gesetzt → kein HTML.
- */
-async function loadEmployees() {
-    const res = await apiFetch("/api/v1/auth");
-    if (!res.ok) return;
-    const users = await readJson(res);
-    const active = (Array.isArray(users) ? users : []).filter(u => u.is_active);
-    ["trainer-a", "trainer-b"].forEach(selectId => {
-        const select = document.getElementById(selectId);
-        active.forEach(u => select.add(new Option(`${u.first_name} ${u.last_name}`, u.id)));
-    });
-}
+<script src="{{ asset_url('dist/vendor/fullcalendar.min.js') }}" defer></script>
+<script src="{{ asset_url('js/pages/compare.js') }}" defer></script>
+{% endblock %}
 
-/**
- * Erzeugt die `events`-Funktion für einen der beiden Kalender.
- * Lädt alle sichtbaren Termine des Zeitraums und filtert im Browser
- * auf den im jeweiligen Auswahlfeld gewählten Mitarbeiter.
- * Spricht mit: GET /api/v1/events?start=...&end=...
- *
- * @param {string} selectId - ID des Auswahlfelds ("trainer-a"/"trainer-b").
- * @param {string} color - Hintergrundfarbe der Termine.
- * @returns {Function} FullCalendar-kompatible Event-Quelle.
- */
-function makeEventSource(selectId, color) {
-    return async function (fetchInfo, successCallback, failureCallback) {
-        const employeeId = document.getElementById(selectId).value;
-        if (!employeeId) { successCallback([]); return; } // noch niemand gewählt → kein Request
-        try {
-            // encodeURIComponent: startStr enthält z. B. "+02:00"
-            const url = `/api/v1/events?start=${encodeURIComponent(fetchInfo.startStr)}&end=${encodeURIComponent(fetchInfo.endStr)}`;
-            const res = await apiFetch(url);
-            if (!res.ok) throw new Error("Fehler beim Laden");
-            const data = await readJson(res);
-            successCallback((Array.isArray(data) ? data : [])
-                .filter(e => String(e.assigned_to_id) === String(employeeId))
-                .map(e => ({ id: e.id, title: e.title, start: e.start_time, end: e.end_time, backgroundColor: color })));
-        } catch (err) {
-            failureCallback(err);
-        }
-    };
-}
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Planung</p>
+        <h1 class="page-title mt-1">Mitarbeiter vergleichen</h1>
+        <p class="page-subtitle">Zwei Tagespläne nebeneinander – ideal, um freie Zeitfenster zu finden.</p>
+    </div>
+</div>
 
-/**
- * Seitenstart: Mitarbeiter laden, beide Kalender erstellen und den
- * Vergleichs-Button verdrahten.
- */
-document.addEventListener("DOMContentLoaded", async () => {
-    const me = await getCurrentUser();
-    if (!me) return; // Umleitung erledigt apiFetch
+{# ---------- Auswahl ---------- #}
+<form id="compare-form" class="card mb-6 grid gap-4 p-5 sm:grid-cols-2 lg:grid-cols-[12rem_1fr_1fr_auto] lg:items-end" novalidate>
+    <div>
+        <label class="label" for="compare-date">Tag</label>
+        <input type="date" id="compare-date" required class="input tabular">
+    </div>
+    <div>
+        <label class="label" for="trainer-a"><span class="mr-1.5 inline-block size-2.5 rounded-full bg-brand-600" aria-hidden="true"></span>Mitarbeiter A</label>
+        {# Optionen befüllt compare.js::loadEmployees() #}
+        <select id="trainer-a" required class="input">
+            <option value="">Bitte wählen …</option>
+        </select>
+    </div>
+    <div>
+        <label class="label" for="trainer-b"><span class="mr-1.5 inline-block size-2.5 rounded-full bg-[#0f766e]" aria-hidden="true"></span>Mitarbeiter B</label>
+        <select id="trainer-b" required class="input">
+            <option value="">Bitte wählen …</option>
+        </select>
+    </div>
+    <button type="submit" id="btn-compare" class="btn btn-primary sm:col-span-2 lg:col-span-1">{{ icon('columns') }}Vergleichen</button>
+    <div id="compare-error" class="alert alert-error sm:col-span-2 lg:col-span-4" role="alert" hidden></div>
+</form>
 
-    loadEmployees();
+{# ---------- Leerer Zustand vor dem ersten Vergleich ---------- #}
+<div id="compare-empty" class="card">
+    <div class="empty-state py-16">
+        <div class="empty-state-icon">{{ icon('columns') }}</div>
+        <p class="text-sm font-semibold">Noch kein Vergleich</p>
+        <p class="max-w-sm text-sm text-fg-muted">Wähle oben einen Tag und zwei Mitarbeiter aus, um ihre Termine nebeneinander zu sehen.</p>
+    </div>
+</div>
 
-    // Gemeinsame Einstellungen beider Tagesansichten.
-    const commonConfig = {
-        initialView: "timeGridDay",
-        headerToolbar: false,
-        locale: "de",
-        slotMinTime: "06:00:00",
-        slotMaxTime: "20:00:00",
-        allDaySlot: false,
-        height: "auto",
-    };
-
-    const calendarA = new FullCalendar.Calendar(document.getElementById("calendar-a"), {
-        ...commonConfig,
-        events: makeEventSource("trainer-a", "#2B6CB0"),
-    });
-    const calendarB = new FullCalendar.Calendar(document.getElementById("calendar-b"), {
-        ...commonConfig,
-        events: makeEventSource("trainer-b", "#10B981"),
-    });
-    calendarA.render();
-    calendarB.render();
-
-    document.getElementById("btn-compare").addEventListener("click", () => {
-        const selectedDate = document.getElementById("compare-date").value;
-        const trainerA = document.getElementById("trainer-a");
-        const trainerB = document.getElementById("trainer-b");
-
-        if (!selectedDate || !trainerA.value || !trainerB.value) {
-            alert("Bitte wähle ein Datum und beide Mitarbeiter aus.");
-            return;
-        }
-
-        document.getElementById("comparison-results").classList.remove("hidden");
-        // textContent → Namen werden nur als Text angezeigt.
-        document.getElementById("title-a").textContent = trainerA.options[trainerA.selectedIndex].text;
-        document.getElementById("title-b").textContent = trainerB.options[trainerB.selectedIndex].text;
-
-        calendarA.gotoDate(selectedDate);
-        calendarB.gotoDate(selectedDate);
-        // Nach dem Einblenden neu zeichnen, da FullCalendar in einem
-        // versteckten Container keine Größe berechnen konnte.
-        calendarA.updateSize();
-        calendarB.updateSize();
-        calendarA.refetchEvents();
-        calendarB.refetchEvents();
-    });
-});
-</script>
+{# ---------- Ergebnis: Tagesnavigation + zwei Kalender ---------- #}
+<section id="comparison-results" aria-label="Vergleichsergebnis" hidden>
+    <div class="mb-4 flex items-center justify-between gap-3">
+        <h2 id="compare-day-label" class="text-lg font-semibold tracking-tight" aria-live="polite"></h2>
+        <div class="flex items-center gap-1">
+            <button type="button" id="day-prev" class="btn-icon" aria-label="Vorheriger Tag">{{ icon('arrow-right', 'size-[1.125rem] rotate-180') }}</button>
+            <button type="button" id="day-today" class="btn btn-secondary btn-sm">Heute</button>
+            <button type="button" id="day-next" class="btn-icon" aria-label="Nächster Tag">{{ icon('arrow-right') }}</button>
+        </div>
+    </div>
+    <div class="grid gap-6 md:grid-cols-2">
+        <div class="card overflow-hidden">
+            <div class="flex items-center gap-3 border-b border-line px-5 py-3.5">
+                <span class="avatar bg-brand-600 text-white dark:bg-brand-600 dark:text-white" id="avatar-a" aria-hidden="true"></span>
+                <div class="min-w-0">
+                    <p class="truncate font-semibold" id="title-a">Mitarbeiter</p>
+                    <p class="text-xs text-fg-muted" id="count-a"></p>
+                </div>
+            </div>
+            <div id="calendar-a" class="p-3"></div>
+        </div>
+        <div class="card overflow-hidden">
+            <div class="flex items-center gap-3 border-b border-line px-5 py-3.5">
+                <span class="avatar bg-[#0f766e] text-white dark:bg-[#0f766e] dark:text-white" id="avatar-b" aria-hidden="true"></span>
+                <div class="min-w-0">
+                    <p class="truncate font-semibold" id="title-b">Mitarbeiter</p>
+                    <p class="text-xs text-fg-muted" id="count-b"></p>
+                </div>
+            </div>
+            <div id="calendar-b" class="p-3"></div>
+        </div>
+    </div>
+</section>
 {% endblock %}

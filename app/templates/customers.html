@@ -4,184 +4,97 @@ Datei: app/templates/customers.html
 ---------------------------------------------------------------------
 Zweck:
   Verwaltung externer Kunden/Projekte (nur CEO und ADMIN). Jeder Kunde
-  hat eine Farbe; Termine mit diesem Kunden erscheinen im Dashboard-
-  Kalender in dieser Farbe.
+  hat eine Farbe; Termine mit diesem Kunden erscheinen im Kalender in
+  dieser Farbe.
 
-Mit welchen Backend-Endpunkten spricht diese Seite?
-  GET    /api/v1/customers        → Liste [{id, name, email, color_hex}]
-  POST   /api/v1/customers        → neuen Kunden anlegen
-  PUT    /api/v1/customers/<id>   → Kunden bearbeiten
-  DELETE /api/v1/customers/<id>   → Kunden löschen
-
-Abhängigkeiten: app.js (apiFetch, escapeHtml, readJson, isValidHexColor).
+Logik: js/pages/customers.js (Endpunkte siehe dort).
+Abhängigkeiten: base.html, _macros.html (icon, skeleton_rows).
 
 Sicherheit:
-  Name/E-Mail werden escaped. Die Farbe wird nur verwendet, wenn sie
-  exakt dem Muster #RRGGBB entspricht – sonst könnte ein manipulierter
-  Wert aus dem style-Attribut ausbrechen. Buttons tragen nur die ID;
-  die Klicks werden per Event-Delegation verarbeitet.
+  Zeilen erzeugt customers.js mit ui.js::h() (Textknoten). Die Farbe
+  wird nur verwendet, wenn sie exakt #RRGGBB entspricht, und über
+  element.style gesetzt (CSSOM) – kein style-Attribut im HTML, dadurch
+  bleibt die strenge CSP (style-src ohne 'unsafe-inline') gültig.
 =====================================================================
 #}
 {% extends "base.html" %}
-{% block content %}
-<div class="flex justify-between items-center mb-6">
-    <div><h1 class="text-2xl font-bold text-[#1A365D]">Kunden & Projekte</h1><p class="text-sm text-gray-600">Verwalte externe Kunden und weise ihnen Farben für den Kalender zu.</p></div>
-    <button id="open-customer-btn" class="bg-[#1A365D] text-white px-4 py-2 rounded text-sm font-bold hover:bg-[#2B6CB0] transition shadow">+ Neuer Kunde</button>
-</div>
-<div class="bg-white border rounded shadow-sm overflow-hidden">
-    <table class="w-full text-left text-sm text-gray-700">
-        <thead class="bg-gray-50 text-gray-900 border-b"><tr><th class="p-3 font-bold">Farbe</th><th class="p-3 font-bold">Kunde / Projekt</th><th class="p-3 font-bold">E-Mail</th><th class="p-3 font-bold text-right">Aktion</th></tr></thead>
-        {# Zeilen erzeugt loadCustomersTable() #}
-        <tbody id="c-tbody" class="divide-y"></tbody>
-    </table>
-</div>
-
-{# ---------- Modal: Kunde anlegen / bearbeiten ---------- #}
-<div id="c-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
-    <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-md">
-        <h2 id="c-modal-title" class="text-xl font-bold text-[#1A365D] mb-4">Neuen Kunden anlegen</h2>
-        <form id="c-form" class="space-y-3">
-            <input type="hidden" id="c-id">
-            <div><label class="block text-xs font-bold mb-1" for="c-name">Name / Firma</label><input type="text" id="c-name" required maxlength="150" class="w-full border-gray-300 rounded p-2 border text-sm"></div>
-            <div><label class="block text-xs font-bold mb-1" for="c-email">E-Mail (Optional)</label><input type="email" id="c-email" maxlength="150" class="w-full border-gray-300 rounded p-2 border text-sm"></div>
-            {# <input type="color"> liefert immer #rrggbb – passt zur Server-Validierung #}
-            <div><label class="block text-xs font-bold mb-1" for="c-color">Kalender-Farbe</label><input type="color" id="c-color" value="#2B6CB0" class="w-full h-10 p-1 border border-gray-300 rounded cursor-pointer"></div>
-            <div id="c-err" class="text-red-600 text-xs hidden"></div>
-            <div class="flex justify-end space-x-3 mt-6">
-                <button type="button" id="c-cancel-btn" class="px-4 py-2 text-gray-600 text-sm">Abbrechen</button>
-                <button type="submit" class="bg-[#1A365D] text-white px-4 py-2 rounded text-sm font-bold">Speichern</button>
-            </div>
-        </form>
-    </div>
-</div>
-{% endblock %}
+{% from "_macros.html" import icon, skeleton_rows %}
+{% block title %}Kunden{% endblock %}
 
 {% block scripts %}
-<script>
-/**
- * Zwischenspeicher der geladenen Kunden (ID → Kunde), damit
- * "Bearbeiten" die Daten ohne unsichere onclick-Strings erhält.
- * @type {Map<number, object>}
- */
-const customersById = new Map();
+<script src="{{ asset_url('js/pages/customers.js') }}" defer></script>
+{% endblock %}
 
-/**
- * Öffnet das Kunden-Modal – leer (neu) oder befüllt (bearbeiten).
- * @param {object|null} customer
- */
-function openCustomerModal(customer = null) {
-    document.getElementById("c-id").value = customer ? customer.id : "";
-    document.getElementById("c-name").value = customer ? customer.name : "";
-    document.getElementById("c-email").value = customer ? (customer.email || "") : "";
-    document.getElementById("c-color").value =
-        customer && isValidHexColor(customer.color_hex) ? customer.color_hex : DEFAULT_EVENT_COLOR;
-    document.getElementById("c-modal-title").textContent = customer ? "Kunden bearbeiten" : "Neuen Kunden anlegen";
-    document.getElementById("c-err").classList.add("hidden");
-    document.getElementById("c-modal").classList.remove("hidden");
-}
+{% block content %}
+<div class="page-header">
+    <div>
+        <p class="eyebrow">Verwaltung</p>
+        <h1 class="page-title mt-1">Kunden &amp; Projekte</h1>
+        <p class="page-subtitle">Externe Kunden verwalten und ihnen eine Farbe für den Kalender zuweisen.</p>
+    </div>
+    <button type="button" id="open-customer-btn" class="btn btn-primary">{{ icon('plus') }}Kunde anlegen</button>
+</div>
 
-/**
- * Lädt alle Kunden und rendert die Tabelle.
- * Spricht mit: GET /api/v1/customers
- */
-async function loadCustomersTable() {
-    const res = await apiFetch("/api/v1/customers");
-    const tbody = document.getElementById("c-tbody");
-    if (!res.ok) {
-        tbody.innerHTML = "<tr><td colspan='4' class='p-4 text-center text-red-500'>Keine Berechtigung.</td></tr>";
-        return;
-    }
-    const data = await readJson(res);
-    customersById.clear();
-    (Array.isArray(data) ? data : []).forEach(c => customersById.set(Number(c.id), c));
+<section class="card overflow-hidden" aria-labelledby="customers-heading">
+    <div class="flex flex-col gap-3 border-b border-line p-4 sm:flex-row sm:items-center">
+        <h2 id="customers-heading" class="sr-only">Kundenliste</h2>
+        <div class="input-group sm:max-w-xs sm:flex-1">
+            {{ icon('search') }}
+            <label for="customer-search" class="sr-only">Kunden suchen</label>
+            <input type="search" id="customer-search" class="input" placeholder="Kunde oder E-Mail suchen …" autocomplete="off">
+        </div>
+        <p id="customer-count" class="text-sm text-fg-muted sm:ml-auto" aria-live="polite"></p>
+    </div>
+    <table class="table">
+        <thead>
+            <tr>
+                <th scope="col">Kunde / Projekt</th>
+                <th scope="col">E-Mail</th>
+                <th scope="col">Kalenderfarbe</th>
+                <th scope="col" class="text-right"><span class="sr-only">Aktionen</span></th>
+            </tr>
+        </thead>
+        {# Zeilen erzeugt customers.js::renderCustomers() #}
+        <tbody id="c-tbody" aria-busy="true">
+            {{ skeleton_rows(4, 4) }}
+        </tbody>
+    </table>
+</section>
 
-    tbody.innerHTML = Array.from(customersById.values()).map(c => {
-        // Ungültige Farben fallen auf die Standardfarbe zurück (Schutz des style-Attributs).
-        const color = isValidHexColor(c.color_hex) ? c.color_hex : DEFAULT_EVENT_COLOR;
-        const id = escapeHtml(c.id);
-        return `<tr class="hover:bg-gray-50">
-            <td class="p-3"><div class="w-6 h-6 rounded border shadow-sm" style="background-color:${color}"></div></td>
-            <td class="p-3 font-bold text-[#1A365D]">${escapeHtml(c.name)}</td>
-            <td class="p-3">${escapeHtml(c.email || "-")}</td>
-            <td class="p-3 text-right">
-                <button data-action="edit" data-id="${id}" class="text-xs text-blue-600 font-bold hover:bg-blue-50 px-2 py-1 rounded border border-blue-200 mr-2">Bearbeiten</button>
-                <button data-action="delete" data-id="${id}" class="text-xs text-red-600 font-bold hover:bg-red-50 px-2 py-1 rounded border border-red-200">Löschen</button>
-            </td>
-        </tr>`;
-    }).join("");
-}
-
-/**
- * Löscht einen Kunden nach Rückfrage.
- * Spricht mit: DELETE /api/v1/customers/<id>
- * @param {number} id
- */
-async function deleteCustomer(id) {
-    if (!confirm("Löschen?")) return;
-    const res = await apiFetch(`/api/v1/customers/${encodeURIComponent(id)}`, { method: "DELETE" });
-    if (!res.ok) {
-        const data = await readJson(res);
-        alert(data.error || "Kunde konnte nicht gelöscht werden.");
-    }
-    loadCustomersTable();
-}
-
-/**
- * Seitenstart: Tabelle laden, Buttons und Formular verdrahten.
- */
-document.addEventListener("DOMContentLoaded", async () => {
-    const me = await getCurrentUser();
-    if (!me) return; // Umleitung auf /login erledigt apiFetch
-
-    loadCustomersTable();
-
-    document.getElementById("open-customer-btn").addEventListener("click", () => openCustomerModal());
-    document.getElementById("c-cancel-btn").addEventListener("click", () => {
-        document.getElementById("c-modal").classList.add("hidden");
-    });
-
-    // Event-Delegation für Bearbeiten/Löschen in der Tabelle.
-    document.getElementById("c-tbody").addEventListener("click", (e) => {
-        const btn = e.target.closest("button[data-action]");
-        if (!btn) return;
-        const id = Number(btn.dataset.id);
-        if (btn.dataset.action === "edit") openCustomerModal(customersById.get(id));
-        if (btn.dataset.action === "delete") deleteCustomer(id);
-    });
-
-    /**
-     * Speichern. Spricht mit: POST /api/v1/customers bzw. PUT /api/v1/customers/<id>
-     */
-    document.getElementById("c-form").addEventListener("submit", async (e) => {
-        e.preventDefault();
-        const errDiv = document.getElementById("c-err");
-        errDiv.classList.add("hidden");
-        const id = document.getElementById("c-id").value;
-        const payload = {
-            name: document.getElementById("c-name").value,
-            email: document.getElementById("c-email").value,
-            color_hex: document.getElementById("c-color").value,
-        };
-
-        try {
-            const res = await apiFetch(id ? `/api/v1/customers/${encodeURIComponent(id)}` : "/api/v1/customers", {
-                method: id ? "PUT" : "POST",
-                body: payload,
-            });
-            if (res.ok) {
-                document.getElementById("c-modal").classList.add("hidden");
-                document.getElementById("c-form").reset();
-                loadCustomersTable();
-            } else {
-                const data = await readJson(res);
-                errDiv.textContent = data.error || "Fehler.";
-                errDiv.classList.remove("hidden");
-            }
-        } catch (err) {
-            errDiv.textContent = "Netzwerkfehler.";
-            errDiv.classList.remove("hidden");
-        }
-    });
-});
-</script>
+{# ================= Dialog: Kunde anlegen / bearbeiten ================= #}
+<dialog id="c-modal" class="dialog" aria-labelledby="c-modal-title">
+    <form id="c-form" novalidate class="flex min-h-0 flex-col">
+        <div class="dialog-header">
+            <h2 id="c-modal-title" class="dialog-title">Kunde anlegen</h2>
+            <button type="button" class="btn-icon -mt-1 -mr-2" data-close-dialog aria-label="Dialog schließen">{{ icon('x') }}</button>
+        </div>
+        <div class="dialog-body space-y-4">
+            <input type="hidden" id="c-id">
+            <div>
+                <label class="label" for="c-name">Name / Firma</label>
+                <input type="text" id="c-name" required maxlength="150" autocomplete="organization" class="input">
+            </div>
+            <div>
+                <label class="label" for="c-email">E-Mail <span class="label-optional">(optional)</span></label>
+                <input type="email" id="c-email" maxlength="150" autocomplete="email" class="input">
+            </div>
+            <fieldset>
+                <legend class="label">Kalenderfarbe</legend>
+                {# Farbvorschläge: customers.js erzeugt die Kreise (Farbe per CSSOM) #}
+                <div id="c-swatches" class="flex flex-wrap items-center gap-2.5 py-1"></div>
+                <div class="mt-3 flex items-center gap-3">
+                    {# <input type="color"> liefert immer #rrggbb – passt zur Server-Validierung #}
+                    <input type="color" id="c-color" value="#2b6cb0" class="input h-10 w-16">
+                    <label for="c-color" class="text-sm text-fg-muted">Eigene Farbe wählen</label>
+                    <span id="c-preview" class="badge ml-auto">Vorschau</span>
+                </div>
+            </fieldset>
+            <div id="c-err" class="alert alert-error" role="alert" hidden></div>
+        </div>
+        <div class="dialog-footer">
+            <button type="button" id="c-cancel-btn" class="btn btn-secondary" data-close-dialog>Abbrechen</button>
+            <button type="submit" id="c-submit" class="btn btn-primary">{{ icon('check') }}Speichern</button>
+        </div>
+    </form>
+</dialog>
 {% endblock %}

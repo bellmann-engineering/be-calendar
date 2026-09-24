@@ -14,6 +14,10 @@ Kalender- und Einsatzplanung für **Bellmann Engineering**: Termine anlegen und 
 
 ---
 
+> 📘 **Wissensdatenbank:** Ausführliche Erklärungen zu Architektur, Datenbank, Sicherheit, Betrieb und Qualität – mit Diagrammen, Wissensfragen und Quellen – findest du in [`docs/kb/index.html`](docs/kb/index.html). Datei einfach im Browser öffnen (funktioniert offline; unter WSL: `explorer.exe docs/kb/index.html`).
+
+---
+
 ## Inhalt
 
 1. [Architektur](#architektur)
@@ -24,6 +28,7 @@ Kalender- und Einsatzplanung für **Bellmann Engineering**: Termine anlegen und 
 6. [HTTPS und Zertifikate](#https-und-zertifikate)
 7. [Datensicherung und Wiederherstellung](#datensicherung-und-wiederherstellung)
 8. [Lokale Entwicklung](#lokale-entwicklung)
+   - [Frontend: Designsystem und Build (CSS/JS)](#frontend-designsystem-und-build-cssjs)
 9. [Tests und Code-Qualität](#tests-und-code-qualität)
 10. [Datenbank-Migrationen](#datenbank-migrationen)
 11. [Rollen und Berechtigungen](#rollen-und-berechtigungen)
@@ -48,9 +53,9 @@ Alle drei Dienste laufen als Docker-Container (`docker-compose.yml`). Von außen
 | Routen | `app/routes/` | HTTP rein/raus, JSON, `@jwt_required`, `@role_required` |
 | Services | `app/services/` | Geschäftsregeln, Validierung, Transaktionen |
 | Models | `app/models/` | Tabellen (SQLAlchemy), Beziehungen, Indizes |
-| Frontend | `app/templates/`, `app/static/js/app.js` | Jinja2-Seiten + FullCalendar, spricht nur mit `/api/v1/...` |
+| Frontend | `app/templates/`, `app/static/js/`, `frontend/` | Jinja2-Seiten, Seiten-Skripte, Tailwind-Designsystem, FullCalendar – spricht nur mit `/api/v1/...` |
 | Migrationen | `migrations/` | Alembic – **einzige** Quelle für Schemaänderungen |
-| Infrastruktur | `Dockerfile`, `gunicorn.conf.py`, `nginx/`, `scripts/` | Image, WSGI-Server, Reverse Proxy, Betriebsskripte |
+| Infrastruktur | `Dockerfile`, `gunicorn.conf.py`, `nginx/`, `scripts/`, `package.json` | Image (inkl. Frontend-Build), WSGI-Server, Reverse Proxy, Betriebsskripte |
 
 **Sitzung:** JWT in HttpOnly-Cookies (Access 30 min, Refresh 8 h) mit CSRF-Double-Submit. JavaScript kann das Token nicht lesen.
 
@@ -87,6 +92,7 @@ Optional Google Calendar: Service-Account-Datei als `secrets/google_credentials.
 git pull
 ./scripts/backup_db.sh vor-update      # Sicherung der Datenbank (siehe unten)
 docker compose up -d --build           # neues Image bauen, Container neu starten
+docker compose restart nginx           # übernimmt Änderungen an nginx/nginx.conf (CSP, TLS …)
 docker compose ps                      # "web" muss nach kurzer Zeit "healthy" sein
 ```
 
@@ -162,10 +168,13 @@ docker exec -i bellmann_db sh -c 'pg_restore --clean --if-exists -U "$POSTGRES_U
 python3.12 -m venv venv && source venv/bin/activate
 pip install -r requirements-dev.txt
 pre-commit install                    # ruff + black vor jedem Commit
+npm ci && npm run build               # Frontend-Assets bauen (Node.js ≥ 20), siehe unten
 cp .env.example .env                  # Werte anpassen, für run.py ohne TLS: COOKIE_SECURE=0
 flask db upgrade && python seed.py && python seed_dev.py
 python run.py                         # http://127.0.0.1:5000
 ```
+
+> Ohne `npm run build` fehlt `app/static/dist/` – die Seiten laden dann ohne Design und ohne Kalender.
 
 Für den Zugriff auf die Docker-Datenbank vom eigenen Rechner (z. B. mit DBeaver) eine Datei `docker-compose.override.yml` anlegen (wird von Git ignoriert):
 ```yaml
@@ -173,6 +182,41 @@ services:
   db:
     ports: ["127.0.0.1:5432:5432"]
 ```
+
+### Frontend: Designsystem und Build (CSS/JS)
+
+Die Oberfläche nutzt **Tailwind CSS v4**, das **beim Build** kompiliert wird (kein Play-CDN mehr). Dabei landen nur die Klassen im CSS, die in Templates und JS-Dateien tatsächlich vorkommen (~50 KB, gzip ~10 KB).
+
+| Datei / Ordner | Inhalt |
+|---|---|
+| `frontend/app.css` | Quelle **und** Konfiguration des Designsystems: Farb-Tokens (hell + dunkel), Schrift, Komponenten (`.btn`, `.card`, `.input`, `.badge`, `.dialog`, `.toast` …), FullCalendar-Theme |
+| `frontend/copy-vendor.mjs` | kopiert FullCalendar (fest gepinnt) und die Schrift „Inter“ aus `node_modules/` nach `app/static/dist/` |
+| `package.json`, `package-lock.json` | exakt gepinnte Versionen (Tailwind, FullCalendar, Inter) – **beide committen** |
+| `app/static/js/ui.js` | DOM-Baukasten `h()` (sicher statt `innerHTML`), Icons, Toasts, Bestätigungsdialog, Dropdowns |
+| `app/static/js/app.js` | `apiFetch` (Cookies + CSRF + Refresh), Sitzung, Kopfzeile, Benachrichtigungen |
+| `app/static/js/pages/*.js` | Logik je Seite (Login, Kalender, Mitarbeiter, Kunden, Audit-Log, Vergleich, Passwort-Reset) |
+| `app/templates/_icons.html`, `_macros.html` | SVG-Icon-Sprite und Jinja-Makros |
+| `app/static/dist/` | **Build-Ergebnis** – nicht in Git (`.gitignore`), wird lokal bzw. im Docker-Build erzeugt |
+
+**Befehle** (im Projektordner, Node.js ≥ 20):
+```bash
+npm ci                 # Abhängigkeiten exakt laut package-lock.json installieren
+npm run build          # alles bauen: Vendor-Dateien kopieren + CSS kompilieren
+npm run build:css      # nur das CSS neu bauen (nach Änderungen an Templates/Klassen)
+npm run watch:css      # CSS bei jeder Änderung automatisch neu bauen (Entwicklung)
+```
+
+**Im Docker-Image** passiert das automatisch: Die erste Stufe des `Dockerfile` (Node) führt `npm ci && npm run build` aus und kopiert nur `app/static/dist/` ins Laufzeit-Image. Node.js und `node_modules` landen **nicht** im fertigen Image.
+
+**Cache-Busting:** Templates binden statische Dateien über `asset_url('…')` ein (`app/utils/assets.py`). Die URL enthält einen Hash des Dateiinhalts (`app.css?v=3fa2c1d0`), deshalb darf der Browser die Datei ein Jahr lang cachen (`Cache-Control: immutable`) – nach einem Update gibt es automatisch eine neue URL. Nginx komprimiert CSS/JS/JSON per gzip.
+
+**Regeln für neuen Frontend-Code:**
+- **Kein Inline-JavaScript** (`<script>…</script>`, `onclick="…"`) und keine `style="…"`-Attribute – die CSP verbietet beides. Neues Skript = neue Datei unter `app/static/js/pages/`, eingebunden per `<script src="{{ asset_url('js/pages/…') }}" defer>`. Ein Test (`tests/test_platform.py`) prüft das für alle Seiten.
+- Daten aus der API **nie** per `innerHTML` einfügen, sondern mit `h()` bzw. `textContent`. Farben vorher mit `isValidHexColor()` prüfen und über `element.style` setzen.
+- Farben nur über die semantischen Tokens (`bg-surface`, `text-fg`, `text-fg-muted`, `border-line`, `bg-primary` …) – dann funktioniert der Dunkelmodus automatisch.
+- Alle Texte und Kommentare auf Deutsch; Dialoge als natives `<dialog>` (`openDialog()`), Rückmeldungen per `toast()`, Rückfragen per `confirmDialog()`.
+
+**Browser:** aktuelle Versionen von Chrome/Edge (≥ 111), Firefox (≥ 128) und Safari (≥ 16.4). Der Dunkelmodus folgt der Systemeinstellung.
 
 ---
 
@@ -221,12 +265,13 @@ Die Regeln stehen zentral in `app/services/authorization_service.py`. Rechteänd
 ## Sicherheit
 
 - Tokens nur in HttpOnly/Secure/SameSite=Strict-Cookies, CSRF-Schutz für alle schreibenden Anfragen.
-- Alle Benutzereingaben werden im Frontend escaped (`escapeHtml` / `textContent`), zusätzlich Content-Security-Policy in Nginx.
+- Alle Benutzereingaben werden im Frontend als Text eingefügt (`h()` / `textContent`, nie `innerHTML`).
+- Strikte Content-Security-Policy in Nginx: `script-src 'self'` (kein Inline-JS, keine CDNs). `style-src` erlaubt zusätzlich nur den Hash des **leeren** Strings – FullCalendar legt ein leeres `<style>` an und befüllt es über die CSSOM-API; `'unsafe-inline'` wird nicht benötigt.
 - Brute-Force-Schutz für Login und Passwort-Reset (Nginx `limit_req` + Flask-Limiter).
 - Passwort-Reset nur über signierte Einmal-Links; es werden nie Passwörter per E-Mail verschickt.
 - Keine Fehlerdetails (SQL, Stacktraces) an den Client; vollständige Fehler stehen im JSON-Log.
 - Container laufen ohne Root-Rechte; die Datenbank ist von außen nicht erreichbar.
-- Bekannte offene Verbesserung: Tailwind wird noch über das Play-CDN geladen, daher benötigt die CSP `'unsafe-inline'` (siehe Kommentar in `app/templates/base.html`).
+- Alle Frontend-Bibliotheken und die Schrift werden selbst gehostet (keine Anfragen an Drittanbieter).
 
 ---
 
@@ -249,14 +294,17 @@ Die Regeln stehen zentral in `app/services/authorization_service.py`. Rechteänd
 | Container `web` wird nicht „healthy“ | `docker compose logs --tail 50 web` – meist fehlende/kurze Secrets in der `.env` oder eine Migration. |
 | `Can't locate revision ...` beim Start | siehe [Datenbank-Migrationen](#datenbank-migrationen) (`flask db stamp`). |
 | Keine E-Mails | SMTP in der `.env` konfigurieren, siehe [E-Mail-Versand](#e-mail-versand-smtp). |
-| Seite zeigt alten Stand | Nach einem Update im Browser `Strg+F5` drücken. |
+| Seite ohne Design / Kalender fehlt (lokal) | `npm ci && npm run build` ausführen (erzeugt `app/static/dist/`). |
+| Eigene CSS-Klasse wirkt nicht | `npm run build:css` – Tailwind erzeugt nur Klassen, die in `app/templates/` oder `app/static/js/` vorkommen. |
+| Seite zeigt alten Stand | Dank Cache-Busting normalerweise nicht nötig; sonst `Strg+F5`. |
 
 **Betrieb auf einen Blick**
 
 | Thema | Ort |
 |---|---|
 | Worker/Threads, Timeouts | `gunicorn.conf.py` |
-| Security-Header, CSP, Rate-Limit, TLS | `nginx/nginx.conf` |
+| Security-Header, CSP, gzip, Rate-Limit, TLS | `nginx/nginx.conf` |
+| Designsystem, Frontend-Build | `frontend/app.css`, `package.json` |
 | Alle Einstellungen | `app/config.py`, Vorlage `.env.example` |
 | Logs (JSON) | `docker compose logs -f web` |
 | Health-Check | `GET /health` (prüft auch die Datenbank) |

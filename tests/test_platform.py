@@ -60,3 +60,43 @@ def test_kundenfarbe_wird_validiert(client, make_user, login, csrf, color, expec
         "/api/v1/customers", json={"name": "Kunde", "color_hex": color}, headers=csrf()
     )
     assert response.status_code == expected
+
+
+# --- Frontend-Auslieferung (app/utils/assets.py, Templates) ------------------------------
+SEITEN = ["/login", "/reset-password", "/dashboard", "/members", "/customers", "/logs", "/compare"]
+
+
+@pytest.mark.parametrize("pfad", SEITEN)
+def test_seiten_ohne_inline_javascript(client, pfad):
+    """Die strenge CSP (script-src 'self') verlangt: kein Inline-JS, keine on*-Attribute."""
+    import re
+
+    response = client.get(pfad)
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert not re.search(r"<script(?![^>]*\bsrc=)[^>]*>", html), "Inline-<script> gefunden"
+    assert not re.search(r"\son[a-z]+\s*=", html), "Inline-Event-Handler gefunden"
+    assert "cdn.tailwindcss.com" not in html and "cdn.jsdelivr.net" not in html
+
+
+def test_asset_url_mit_inhalts_hash_und_langem_cache(client):
+    """Statische Dateien bekommen ?v=<hash> und dürfen dann 1 Jahr gecacht werden."""
+    import re
+
+    html = client.get("/login").get_data(as_text=True)
+    treffer = re.search(r'src="(/static/js/app\.js\?v=[0-9a-f]{8})"', html)
+    assert treffer, "app.js ohne Versions-Hash eingebunden"
+
+    versioniert = client.get(treffer.group(1))
+    assert versioniert.status_code == 200
+    assert "immutable" in versioniert.headers["Cache-Control"]
+
+    ohne_version = client.get("/static/js/app.js")
+    assert ohne_version.headers["Cache-Control"] == "no-cache"
+
+
+def test_asset_url_fehlende_datei_ohne_version(app):
+    """Fehlt eine Datei (z. B. dist/ ohne Frontend-Build), gibt es trotzdem eine URL."""
+    with app.test_request_context():
+        url = app.jinja_env.globals["asset_url"]("gibt/es/nicht.css")
+    assert url == "/static/gibt/es/nicht.css"

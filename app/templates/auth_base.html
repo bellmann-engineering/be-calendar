@@ -1,0 +1,65 @@
+{#
+=====================================================================
+Datei: app/templates/auth_base.html
+---------------------------------------------------------------------
+Zweck:
+  Gemeinsames Layout der öffentlichen Seiten (login.html,
+  reset_password.html): links ein Marken-Panel (ab 1024 px Breite),
+  rechts das Formular. Ohne App-Kopfzeile (public_page = true).
+
+  Kind-Templates füllen:
+    - {% block auth_form %}  → Formular/Inhalt der rechten Seite
+    - {% block title %} und {% block scripts %} wie in base.html
+
+Abhängigkeiten: base.html, _macros.html (icon), favicon.svg (Signet).
+Hinweis: Das Signet ist ein eigenes Kalender-Symbol, kein Firmenlogo.
+=====================================================================
+#}
+{% extends "base.html" %}
+{% from "_macros.html" import icon %}
+{% set public_page = true %}
+
+{% block content %}
+<div class="grid min-h-dvh lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
+    {# ---------- Marken-Panel (nur große Bildschirme) ---------- #}
+    <aside class="auth-pattern relative hidden flex-col justify-between overflow-hidden bg-linear-to-br from-brand-950 via-brand-900 to-brand-700 p-12 text-white lg:flex" aria-label="Über Bellmann Calendar">
+        <div class="flex items-center gap-3">
+            <img src="{{ asset_url('favicon.svg') }}" alt="" width="40" height="40" class="size-10 rounded-xl ring-1 ring-white/20">
+            <span class="text-lg font-semibold tracking-tight">Bellmann <span class="font-normal text-white/65">Calendar</span></span>
+        </div>
+
+        <div class="max-w-lg">
+            <p class="text-sm font-semibold tracking-[0.12em] text-brand-200 uppercase">Einsatzplanung</p>
+            <h2 class="mt-4 text-4xl leading-tight font-semibold tracking-tight text-balance">Termine planen, Teams koordinieren – ohne Überschneidungen.</h2>
+            <ul class="mt-10 space-y-5 text-[0.9375rem] text-white/85">
+                <li class="flex gap-4">
+                    <span class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/10 ring-1 ring-white/15">{{ icon('clock', 'size-5') }}</span>
+                    <span><strong class="block font-semibold text-white">Automatische Kollisionsprüfung</strong>inklusive Pufferzeiten und privatem Kalender.</span>
+                </li>
+                <li class="flex gap-4">
+                    <span class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/10 ring-1 ring-white/15">{{ icon('check-circle', 'size-5') }}</span>
+                    <span><strong class="block font-semibold text-white">Klare Rückmeldungen</strong>Zusagen und begründete Absagen direkt im Termin.</span>
+                </li>
+                <li class="flex gap-4">
+                    <span class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/10 ring-1 ring-white/15">{{ icon('shield', 'size-5') }}</span>
+                    <span><strong class="block font-semibold text-white">Lückenloses Audit-Log</strong>Jede Änderung nachvollziehbar – mit Rollen und Teamrechten.</span>
+                </li>
+            </ul>
+        </div>
+
+        <p class="text-sm text-white/60">Bellmann Engineering · Create. Enhance. Sustain.</p>
+    </aside>
+
+    {# ---------- Formularbereich ---------- #}
+    <div class="flex items-center justify-center px-5 py-12 sm:px-8">
+        <div class="w-full max-w-sm">
+            {# Signet auch auf kleinen Bildschirmen zeigen #}
+            <div class="mb-10 flex items-center gap-2.5 lg:hidden">
+                <img src="{{ asset_url('favicon.svg') }}" alt="" width="36" height="36" class="size-9 rounded-xl">
+                <span class="text-base font-semibold tracking-tight">Bellmann <span class="font-normal text-fg-muted">Calendar</span></span>
+            </div>
+            {% block auth_form %}{% endblock %}
+        </div>
+    </div>
+</div>
+{% endblock %}

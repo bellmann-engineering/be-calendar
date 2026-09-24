@@ -3,150 +3,248 @@
 Datei: app/templates/dashboard.html
 ---------------------------------------------------------------------
 Zweck:
-  Hauptseite nach dem Login: Wochenkalender mit allen Terminen, die
-  der eingeloggte Benutzer sehen darf, plus zwei Modals:
+  Hauptseite nach dem Login: Begrüßung, Kennzahlen (heute, nächste
+  14 Tage, nächster Termin), Hinweis auf abgelehnte Termine und der
+  Kalender (FullCalendar) mit allen Terminen, die der eingeloggte
+  Benutzer sehen darf. Dazu zwei Dialoge:
     1. "event-modal"         → Termin anlegen / bearbeiten
     2. "event-details-modal" → Details, RSVP (Trainer),
                                Neu-Zuweisung und Verwaltung (CEO/ADMIN/TL)
 
 Wer steuert diese Seite?
-  Ausschließlich app.js (renderCalendar, setupEventCreation,
-  openEventDetails ...). Diese Vorlage enthält bewusst KEIN eigenes
-  JavaScript – nur die HTML-Struktur mit festen IDs, auf die app.js
-  zugreift. Werden IDs umbenannt, muss app.js angepasst werden.
+  js/pages/dashboard.js – diese Vorlage enthält nur die HTML-Struktur
+  mit festen IDs. Werden IDs umbenannt, muss dashboard.js angepasst werden.
 
-Welche Backend-Endpunkte werden (über app.js) genutzt?
+Welche Backend-Endpunkte werden (über dashboard.js) genutzt?
   GET/POST/PUT/DELETE /api/v1/events, PUT /api/v1/events/<id>/rsvp,
   GET /api/v1/auth/trainers, GET /api/v1/customers
 
+Abhängigkeiten:
+  FullCalendar 6 (selbst gehostet: dist/vendor/fullcalendar.min.js,
+  wird NUR auf den Kalenderseiten geladen), base.html, _macros.html.
+
 Sichtbarkeit:
-  "dashboard-content" und "open-modal-btn" sind anfangs versteckt und
-  werden von app.js erst nach erfolgreichem Login (bzw. je nach Rolle)
-  eingeblendet.
+  "dashboard-content" ist anfangs versteckt und wird erst nach dem
+  Laden des Benutzers eingeblendet; "open-modal-btn" nur für
+  CEO/ADMIN/TEAM_LEADER.
 =====================================================================
 #}
 {% extends "base.html" %}
+{% from "_macros.html" import icon %}
+{% block title %}Kalender{% endblock %}
+
+{% block scripts %}
+<script src="{{ asset_url('dist/vendor/fullcalendar.min.js') }}" defer></script>
+<script src="{{ asset_url('js/pages/dashboard.js') }}" defer></script>
+{% endblock %}
+
 {% block content %}
-<div id="dashboard-content" class="hidden">
-    <div class="flex justify-between items-center mb-6">
-        <h1 class="text-2xl font-bold text-[#1A365D]">Dashboard</h1>
-        {# Nur für CEO/ADMIN/TEAM_LEADER sichtbar (app.js entfernt "hidden") #}
-        <button id="open-modal-btn" class="bg-[#2B6CB0] text-white px-4 py-2 rounded text-sm font-medium hover:bg-[#1A365D] transition shadow hidden">
-            + Neuer Termin
+<div id="dashboard-content" hidden>
+    {# ---------- Kopfbereich ---------- #}
+    <div class="page-header">
+        <div>
+            <p id="dash-date" class="eyebrow"></p>
+            <h1 id="dash-greeting" class="page-title mt-1">Kalender</h1>
+            <p class="page-subtitle">Deine Termine und Einsätze auf einen Blick.</p>
+        </div>
+        {# Nur für CEO/ADMIN/TEAM_LEADER sichtbar (dashboard.js entfernt hidden) #}
+        <button type="button" id="open-modal-btn" class="btn btn-primary" hidden>
+            {{ icon('plus') }}Neuer Termin
         </button>
     </div>
-    <div class="grid grid-cols-1 gap-6">
-        <div class="bg-white p-4 border rounded shadow-sm min-h-[600px]">
-            {# Hier zeichnet FullCalendar den Kalender hinein (app.js::renderCalendar) #}
-            <div id="calendar-container"></div>
+
+    {# ---------- Kennzahlen (befüllt dashboard.js::loadUpcoming) ---------- #}
+    <section aria-label="Übersicht" class="mb-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
+        <div class="stat">
+            <div class="stat-icon bg-accent-soft text-accent">{{ icon('calendar') }}</div>
+            <div>
+                <p class="stat-label">Heute</p>
+                <p class="stat-value" id="stat-today"><span class="skeleton inline-block h-6 w-10 align-middle"></span></p>
+            </div>
         </div>
+        <div class="stat">
+            <div class="stat-icon bg-violet-soft text-violet">{{ icon('sparkles') }}</div>
+            <div>
+                <p class="stat-label">Nächste 14 Tage</p>
+                <p class="stat-value" id="stat-upcoming"><span class="skeleton inline-block h-6 w-10 align-middle"></span></p>
+            </div>
+        </div>
+        <div class="stat col-span-2 lg:col-span-1">
+            <div class="stat-icon bg-success-soft text-success">{{ icon('clock') }}</div>
+            <div class="min-w-0">
+                <p class="stat-label">Nächster Termin</p>
+                <p class="truncate text-[0.9375rem] font-semibold text-fg" id="stat-next-title"><span class="skeleton inline-block h-5 w-40 align-middle"></span></p>
+                <p class="truncate text-xs text-fg-muted" id="stat-next-time"></p>
+            </div>
+        </div>
+    </section>
+
+    {# ---------- Hinweis: abgelehnte Termine (nur Planer, dashboard.js blendet ein) ---------- #}
+    <div id="reassign-banner" class="alert alert-warning mb-6 items-center" role="status" hidden>
+        {{ icon('alert') }}
+        <p class="flex-1" id="reassign-banner-text"></p>
+        <button type="button" id="reassign-banner-btn" class="btn btn-sm btn-secondary">Anzeigen</button>
     </div>
+
+    {# ---------- Kalender ---------- #}
+    <section class="card p-3 sm:p-5" aria-label="Kalender">
+        {# Hier zeichnet FullCalendar den Kalender hinein (dashboard.js::renderCalendar) #}
+        <div id="calendar-container" class="min-h-[560px]">
+            <div class="skeleton h-[560px] w-full rounded-xl" aria-hidden="true"></div>
+        </div>
+        <div class="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-line pt-4 text-xs text-fg-muted">
+            <span class="font-medium text-fg">Legende:</span>
+            <span class="inline-flex items-center gap-2"><span class="size-2.5 rounded-full bg-brand-600"></span>Termin (Farbe = Kunde)</span>
+            <span class="inline-flex items-center gap-2"><span class="size-2.5 rounded-full bg-[#dc2626]"></span>Abgelehnt – neu zuweisen (gestreift)</span>
+            <span class="inline-flex items-center gap-2"><span class="h-0.5 w-4 bg-danger"></span>Aktuelle Uhrzeit</span>
+        </div>
+    </section>
 </div>
 
-{# ================= Modal: Neuer / Bearbeiten Termin ================= #}
-<div id="event-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
-    <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-md">
-        <h2 id="event-modal-title" class="text-xl font-bold text-[#1A365D] mb-4">Neuen Termin anlegen</h2>
-        <form id="event-form" class="space-y-4">
+{# ================= Dialog: Neuer / Bearbeiten Termin ================= #}
+<dialog id="event-modal" class="dialog dialog-lg" aria-labelledby="event-modal-title">
+    <form id="event-form" novalidate class="flex min-h-0 flex-col">
+        <div class="dialog-header">
+            <div>
+                <h2 id="event-modal-title" class="dialog-title">Neuen Termin anlegen</h2>
+                <p class="mt-0.5 text-sm text-fg-muted">Kollisionen mit anderen Terminen werden automatisch geprüft.</p>
+            </div>
+            <button type="button" class="btn-icon -mt-1 -mr-2" data-close-dialog aria-label="Dialog schließen">{{ icon('x') }}</button>
+        </div>
+        <div class="dialog-body grid gap-5 sm:grid-cols-2">
             {# Leer = neuer Termin (POST), gefüllt = Bearbeiten (PUT /api/v1/events/<id>) #}
             <input type="hidden" id="editing-event-id" value="">
+            <div class="sm:col-span-2">
+                <label class="label" for="event-title">Titel</label>
+                <input type="text" id="event-title" required maxlength="200" class="input" placeholder="z. B. Schulung Python-Grundlagen">
+            </div>
+
+            <label class="flex cursor-pointer items-center gap-3 rounded-lg border border-line bg-surface-2 px-3.5 py-3 sm:col-span-2" for="event-is-all-day">
+                {# Umschalten zwischen Datum+Uhrzeit und reinem Datum (dashboard.js::setAllDayInputs) #}
+                <input type="checkbox" id="event-is-all-day" class="checkbox">
+                <span>
+                    <span class="block text-sm font-medium text-fg">Ganztägiger Termin</span>
+                    <span class="block text-xs text-fg-muted">Nur Datum, ohne Uhrzeit</span>
+                </span>
+            </label>
+
             <div>
-                <label class="block text-sm font-medium text-gray-700" for="event-title">Titel</label>
-                <input type="text" id="event-title" required maxlength="200" class="mt-1 block w-full border-gray-300 rounded p-2 border focus:ring-[#2B6CB0]">
+                <label class="label" for="event-start">Beginn</label>
+                {# Eingabe in Lokalzeit; toUtcIso() (app.js) rechnet vor dem Senden in UTC um #}
+                <input type="datetime-local" id="event-start" required class="input tabular">
             </div>
             <div>
-                <label class="block text-sm font-medium text-gray-700" for="event-meeting-link">Teams / Meeting Link (Optional)</label>
-                {# type="url" hilft dem Browser; app.js zeigt Links später nur an, wenn sie http(s) sind #}
-                <input type="url" id="event-meeting-link" maxlength="500" class="mt-1 block w-full border-gray-300 rounded p-2 border focus:ring-[#2B6CB0]" placeholder="https://teams.microsoft.com/...">
+                <label class="label" for="event-end">Ende</label>
+                <input type="datetime-local" id="event-end" required class="input tabular">
+            </div>
+
+            <div>
+                <label class="label" for="event-assignee">Zuweisen an</label>
+                {# Optionen lädt dashboard.js::loadTrainers() aus GET /api/v1/auth/trainers #}
+                <select id="event-assignee" class="input">
+                    <option value="">Nicht zugewiesen</option>
+                </select>
             </div>
             <div>
-                <label class="block text-sm font-medium text-gray-700" for="event-assignee">Zuweisen an (Mitarbeiter)</label>
-                {# Optionen lädt app.js::loadTrainers() aus GET /api/v1/auth/trainers #}
-                <select id="event-assignee" class="mt-1 block w-full border-gray-300 rounded p-2 border focus:ring-[#2B6CB0]">
-                    <option value="">-- Unzugewiesen --</option>
+                <label class="label" for="event-customer">Kunde / Projekt</label>
+                {# Die Kundenfarbe färbt den Termin im Kalender #}
+                <select id="event-customer" class="input">
+                    <option value="">Intern / kein Kunde</option>
                 </select>
             </div>
 
-            <div class="flex items-center space-x-2 mb-2 bg-blue-50 p-2 rounded border border-blue-100">
-                {# Umschalten zwischen Datum+Uhrzeit und reinem Datum (app.js::setAllDayInputs) #}
-                <input type="checkbox" id="event-is-all-day" class="rounded text-[#2B6CB0] border-gray-300 w-4 h-4 cursor-pointer">
-                <label class="text-sm font-bold text-[#1A365D] cursor-pointer" for="event-is-all-day">Ganztägiger Termin (All-Day)</label>
+            <div class="sm:col-span-2">
+                <label class="label" for="event-meeting-link">Meeting-Link <span class="label-optional">(optional)</span></label>
+                <div class="input-group">
+                    {{ icon('video') }}
+                    {# type="url" hilft dem Browser; angezeigt wird der Link später nur, wenn er http(s) ist #}
+                    <input type="url" id="event-meeting-link" maxlength="500" class="input" placeholder="https://teams.microsoft.com/…">
+                </div>
             </div>
 
-            <div>
-                <label class="block text-sm font-medium text-gray-700" for="event-customer">Kunde / Projekt (Farbe)</label>
-                {# Optionen lädt app.js::loadCustomers(); die Kundenfarbe färbt den Termin im Kalender #}
-                <select id="event-customer" class="mt-1 block w-full border-gray-300 rounded p-2 border focus:ring-[#2B6CB0] mb-3">
-                    <option value="">-- Intern / Kein Kunde --</option>
-                </select>
-            </div>
-            <div class="grid grid-cols-2 gap-4">
-                <div>
-                    <label class="block text-sm font-medium text-gray-700" for="event-start">Start</label>
-                    {# Eingabe in Lokalzeit; app.js::toUtcIso rechnet vor dem Senden in UTC um #}
-                    <input type="datetime-local" id="event-start" required class="mt-1 block w-full border-gray-300 rounded p-2 border focus:ring-[#2B6CB0]">
-                </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700" for="event-end">Ende</label>
-                    <input type="datetime-local" id="event-end" required class="mt-1 block w-full border-gray-300 rounded p-2 border focus:ring-[#2B6CB0]">
-                </div>
-            </div>
             {# Server-Fehler (z. B. 409 Terminkollision) werden hier als Text angezeigt #}
-            <div id="event-error" class="text-red-600 text-sm hidden"></div>
-            <div class="flex justify-end space-x-3 mt-6">
-                <button type="button" id="close-modal-btn" class="px-4 py-2 text-gray-600 hover:text-gray-900">Abbrechen</button>
-                <button type="submit" class="bg-[#1A365D] text-white px-4 py-2 rounded hover:bg-[#2B6CB0]">Speichern</button>
-            </div>
-        </form>
-    </div>
-</div>
+            <div id="event-error" class="alert alert-error sm:col-span-2" role="alert" hidden></div>
+        </div>
+        <div class="dialog-footer">
+            <button type="button" id="close-modal-btn" class="btn btn-secondary" data-close-dialog>Abbrechen</button>
+            <button type="submit" id="event-submit" class="btn btn-primary">{{ icon('check') }}Speichern</button>
+        </div>
+    </form>
+</dialog>
 
-{# ================= Modal: Termindetails / RSVP ================= #}
-<div id="event-details-modal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center hidden z-50">
-    <div class="bg-white rounded-lg shadow-lg p-6 w-full max-w-md">
-        <h2 id="detail-title" class="text-xl font-bold text-[#1A365D] mb-2"></h2>
-        <p id="detail-time" class="text-sm text-gray-600 mb-2"></p>
-        {# Wird nur eingeblendet, wenn der Link eine gültige http(s)-URL ist (app.js::isSafeHttpUrl) #}
-        <a id="detail-link" target="_blank" rel="noopener noreferrer" class="text-sm text-[#2B6CB0] font-bold hover:underline mb-4 hidden block break-all">🎥 Online-Meeting beitreten</a>
+{# ================= Dialog: Termindetails / RSVP ================= #}
+<dialog id="event-details-modal" class="dialog" aria-labelledby="detail-title">
+    {# Farbstreifen in Kundenfarbe (Farbe setzt dashboard.js über element.style → CSP-konform) #}
+    <div id="detail-color" class="h-1.5 w-full shrink-0 bg-accent"></div>
+    <div class="dialog-header border-b-0 pb-2">
+        <div class="min-w-0">
+            <span id="detail-status" class="badge badge-red badge-dot mb-2" hidden>Abgelehnt – neu zuweisen</span>
+            <h2 id="detail-title" class="dialog-title break-words"></h2>
+        </div>
+        <button type="button" class="btn-icon -mt-1 -mr-2" data-close-dialog aria-label="Dialog schließen">{{ icon('x') }}</button>
+    </div>
+
+    <div class="dialog-body pt-2">
+        <dl class="space-y-3 text-sm">
+            <div class="flex items-start gap-3">
+                <dt class="mt-0.5 text-fg-subtle">{{ icon('clock') }}<span class="sr-only">Zeit</span></dt>
+                <dd id="detail-time" class="text-fg tabular"></dd>
+            </div>
+            <div class="flex items-start gap-3" id="detail-assignee-row" hidden>
+                <dt class="mt-0.5 text-fg-subtle">{{ icon('user') }}<span class="sr-only">Zugewiesen an</span></dt>
+                <dd id="detail-assignee" class="text-fg"></dd>
+            </div>
+            <div class="flex items-start gap-3" id="detail-customer-row" hidden>
+                <dt class="mt-0.5 text-fg-subtle">{{ icon('building') }}<span class="sr-only">Kunde</span></dt>
+                <dd id="detail-customer" class="text-fg"></dd>
+            </div>
+        </dl>
+        {# Wird nur eingeblendet, wenn der Link eine gültige http(s)-URL ist (isSafeHttpUrl) #}
+        <a id="detail-link" target="_blank" rel="noopener noreferrer" class="btn btn-secondary mt-5 w-full" hidden>
+            {{ icon('video') }}Online-Meeting beitreten{{ icon('external', 'size-3.5 opacity-60') }}
+        </a>
 
         {# --- Nur für Trainer: Zusage / Absage --- #}
-        <div id="rsvp-section" class="hidden border-t pt-4 mt-4">
-            <h3 class="text-sm font-bold text-gray-800 mb-2">Deine Rückmeldung:</h3>
-            <div class="flex space-x-3 mb-3">
-                <button id="btn-accept" class="flex-1 bg-emerald-600 text-white py-2 rounded text-sm hover:bg-emerald-700 transition">Bestätigen</button>
-                <button id="btn-decline" class="flex-1 bg-red-600 text-white py-2 rounded text-sm hover:bg-red-700 transition">Ablehnen</button>
+        <div id="rsvp-section" class="mt-6 border-t border-line pt-5" hidden>
+            <h3 class="text-sm font-semibold text-fg">Deine Rückmeldung</h3>
+            <p class="mt-0.5 mb-3 text-xs text-fg-muted">Bitte bestätige den Termin oder lehne ihn mit Begründung ab.</p>
+            <div class="grid grid-cols-2 gap-3">
+                <button type="button" id="btn-accept" class="btn btn-success">{{ icon('check') }}Zusagen</button>
+                <button type="button" id="btn-decline" class="btn btn-soft-danger" aria-expanded="false" aria-controls="decline-container">{{ icon('x') }}Absagen</button>
             </div>
-            <div id="decline-container" class="hidden space-y-2">
-                <label class="block text-xs font-medium text-gray-700" for="decline-reason">Begründung (Pflichtfeld):</label>
-                <textarea id="decline-reason" class="w-full border-gray-300 rounded p-2 border text-sm" rows="2"></textarea>
-                <button id="btn-submit-decline" class="w-full bg-red-800 text-white py-2 rounded text-sm hover:bg-red-900 transition">Absenden</button>
+            <div id="decline-container" class="mt-4 space-y-3" hidden>
+                <div>
+                    <label class="label" for="decline-reason">Begründung <span class="label-optional">(Pflichtfeld)</span></label>
+                    <textarea id="decline-reason" class="input" rows="3" maxlength="500" placeholder="z. B. Krankheit, Urlaub, Überschneidung …"></textarea>
+                </div>
+                <button type="button" id="btn-submit-decline" class="btn btn-danger btn-block">Absage senden</button>
             </div>
-            <div id="rsvp-error" class="text-red-600 text-xs hidden mt-2"></div>
+            <div id="rsvp-error" class="alert alert-error mt-3" role="alert" hidden></div>
         </div>
 
         {# --- CEO/ADMIN/TL: abgelehnten Termin neu zuweisen --- #}
-        <div id="reassign-section" class="hidden border-t pt-4 mt-4">
-            <h3 class="text-sm font-bold text-red-600 mb-2">Termin abgelehnt! Neu zuweisen:</h3>
-            {# Ablehnungsgrund = Benutzertext → app.js setzt ihn per textContent #}
-            <p id="detail-rejection-reason" class="text-xs text-gray-700 italic bg-gray-100 p-2 rounded mb-2 hidden"></p>
-            <select id="reassign-select" class="block w-full border-gray-300 rounded p-2 border text-sm mb-3">
-                <option value="">-- Wähle neuen Mitarbeiter --</option>
-            </select>
-            <button id="btn-reassign" class="w-full bg-[#1A365D] text-white py-2 rounded text-sm hover:bg-[#2B6CB0] transition">Speichern & Zuweisen</button>
-        </div>
-
-        {# --- CEO/ADMIN/TL: Bearbeiten / Löschen --- #}
-        <div id="admin-actions" class="hidden border-t pt-4 mt-4">
-            <h3 class="text-sm font-bold text-gray-800 mb-2">Verwaltung:</h3>
-            <div class="flex space-x-3">
-                <button id="btn-edit" class="flex-1 bg-blue-600 text-white py-2 rounded text-sm hover:bg-blue-700 transition">Bearbeiten</button>
-                <button id="btn-delete" class="flex-1 bg-red-600 text-white py-2 rounded text-sm hover:bg-red-700 transition">Löschen</button>
+        <div id="reassign-section" class="mt-6 border-t border-line pt-5" hidden>
+            <h3 class="text-sm font-semibold text-fg">Termin neu zuweisen</h3>
+            {# Ablehnungsgrund = Benutzertext → dashboard.js setzt ihn per textContent #}
+            <blockquote id="detail-rejection-reason" class="mt-3 rounded-lg border-l-4 border-danger bg-danger-soft px-3.5 py-2.5 text-sm text-fg break-words" hidden></blockquote>
+            <label class="label mt-4" for="reassign-select">Neuer Mitarbeiter</label>
+            <div class="flex flex-col gap-2 sm:flex-row">
+                <select id="reassign-select" class="input">
+                    <option value="">Bitte wählen …</option>
+                </select>
+                <button type="button" id="btn-reassign" class="btn btn-primary">{{ icon('repeat') }}Zuweisen</button>
             </div>
         </div>
-
-        <div class="flex justify-end mt-6">
-            <button type="button" id="close-details-btn" class="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300">Schließen</button>
-        </div>
     </div>
-</div>
+
+    {# flex-col statt col-reverse: mobil zuerst die Aktionen, dann "Schließen" #}
+    <div class="dialog-footer flex-col sm:flex-row">
+        {# --- CEO/ADMIN/TL: Bearbeiten / Löschen --- #}
+        <div id="admin-actions" class="flex gap-2 sm:mr-auto" hidden>
+            <button type="button" id="btn-edit" class="btn btn-secondary flex-1 sm:flex-none">{{ icon('pencil') }}Bearbeiten</button>
+            <button type="button" id="btn-delete" class="btn btn-soft-danger flex-1 sm:flex-none">{{ icon('trash') }}Löschen</button>
+        </div>
+        <button type="button" id="close-details-btn" class="btn btn-ghost" data-close-dialog>Schließen</button>
+    </div>
+</dialog>
 {% endblock %}
