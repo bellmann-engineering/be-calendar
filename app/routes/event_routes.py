@@ -11,7 +11,6 @@ event_bp = Blueprint("events", __name__, url_prefix="/api/v1/events")
 @jwt_required()
 @role_required("CEO", "ADMIN", "TEAM_LEADER")
 def create_event():
-    """Erstellt einen neuen Termin mit detaillierter Fehlerbehandlung."""
     data = request.get_json() or {}
     required_fields = ["title", "start_time", "end_time"]
 
@@ -49,13 +48,6 @@ def create_event():
                     "buffer_after_mins": event.buffer_after_mins,
                     "is_all_day": getattr(event, "is_all_day", False),
                     "customer_id": getattr(event, "customer_id", None),
-                    "required_skills": [
-                        {"id": skill.id, "name": skill.name}
-                        for skill in event.required_skills
-                    ],
-                    "qualification_warning": getattr(
-                        event, "qualification_warning", None
-                    ),
                 },
             }
         ),
@@ -66,7 +58,6 @@ def create_event():
 @event_bp.route("", methods=["GET"])
 @jwt_required()
 def list_events():
-    """Listet nur Termine auf, die für die Rolle sichtbar sind."""
     events, error_message, status_code = EventService.list_visible_events(
         int(get_jwt_identity())
     )
@@ -104,10 +95,6 @@ def list_events():
                 "assigned_to_id": e.assigned_to_id,
                 "meeting_link": getattr(e, "meeting_link", None),
                 "reallocation_required": getattr(e, "reallocation_required", False),
-                "required_skills": [
-                    {"id": skill.id, "name": skill.name}
-                    for skill in (e.required_skills or [])
-                ],
                 "buffer_before_mins": getattr(e, "buffer_before_mins", 15),
                 "buffer_after_mins": getattr(e, "buffer_after_mins", 15),
                 "is_all_day": getattr(e, "is_all_day", False),
@@ -122,12 +109,9 @@ def list_events():
 @jwt_required()
 @role_required("CEO", "ADMIN", "TEAM_LEADER")
 def update_event(event_id):
-    """Aktualisiert einen bestehenden Termin mit rollenbasierter Zugriffskontrolle."""
     data = request.get_json(silent=True) or {}
     event, error_message, status_code = EventService.update_event(
-        event_id=event_id,
-        data=data,
-        user_id=int(get_jwt_identity()),
+        event_id=event_id, data=data, user_id=int(get_jwt_identity())
     )
     if error_message:
         return (
@@ -139,6 +123,7 @@ def update_event(event_id):
             ),
             status_code,
         )
+
     return (
         jsonify(
             {
@@ -158,13 +143,6 @@ def update_event(event_id):
                     "is_all_day": getattr(event, "is_all_day", False),
                     "customer_id": getattr(event, "customer_id", None),
                     "reallocation_required": event.reallocation_required,
-                    "required_skills": [
-                        {"id": skill.id, "name": skill.name}
-                        for skill in event.required_skills
-                    ],
-                    "qualification_warning": getattr(
-                        event, "qualification_warning", None
-                    ),
                 },
             }
         ),
@@ -176,15 +154,12 @@ def update_event(event_id):
 @jwt_required()
 @role_required("CEO", "ADMIN", "TEAM_LEADER")
 def delete_event(event_id):
-    """Führt ein Soft-Delete für einen Termin durch."""
     user_id = int(get_jwt_identity())
     success, error_message, status_code = EventService.soft_delete_event(
         event_id, user_id
     )
-
     if not success:
         return jsonify({"error": error_message}), status_code
-
     return jsonify({"message": f"Termin {event_id} erfolgreich gelöscht."}), status_code
 
 
@@ -192,7 +167,6 @@ def delete_event(event_id):
 @jwt_required()
 @role_required("CEO", "ADMIN")
 def get_audit():
-    """Liefert die letzten 1000 Audit Logs inkl. Rollen an das Frontend."""
     from app.models import AuditLog, User, Role
     from app import db
 

@@ -112,7 +112,6 @@ class UserService:
                 "team_name": u.team.name if u.team else "-",
                 "is_active": u.is_active,
                 "created_at": u.created_at.isoformat() if u.created_at else None,
-                "skill_ids": [s.id for s in u.skills],
             }
             for u in users
         ]

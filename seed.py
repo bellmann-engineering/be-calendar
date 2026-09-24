@@ -14,7 +14,6 @@ def seed_roles():
             RoleEnum.ADMIN.value: [
                 "users:manage",
                 "events:manage",
-                "skills:manage",
                 "audit:read",
             ],
             RoleEnum.TEAM_LEADER.value: [

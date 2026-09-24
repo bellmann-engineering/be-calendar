@@ -28,7 +28,6 @@ def create_app(config_class=Config):
     from app.routes.auth_routes import auth_bp
     from app.routes.event_routes import event_bp
     from app.routes.rsvp_routes import rsvp_bp
-    from app.routes.skill_routes import skill_bp
     from app.routes.team_routes import team_bp
     from app.routes.notification_routes import notification_bp
     from app.routes.calendar_routes import calendar_bp
@@ -37,7 +36,6 @@ def create_app(config_class=Config):
     app.register_blueprint(auth_bp)
     app.register_blueprint(event_bp)
     app.register_blueprint(rsvp_bp)
-    app.register_blueprint(skill_bp)
     app.register_blueprint(team_bp)
     app.register_blueprint(notification_bp)
     app.register_blueprint(calendar_bp)

@@ -46,7 +46,6 @@ document.addEventListener("DOMContentLoaded", () => {
             if (['CEO', 'ADMIN', 'TEAM_LEADER'].includes(currentUserRole)) {
                 document.getElementById("open-modal-btn")?.classList.remove("hidden");
                 loadTrainers(token);
-                loadSkills(token);
                 loadCustomers(token);
                 loadNotifications(token);
                 

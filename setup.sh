@@ -45,7 +45,6 @@ echo " Initialisiere Datenbank und lade Testdaten..."
 docker exec -it bellmann_web flask db upgrade
 docker exec -it bellmann_web python seed.py
 docker exec -it bellmann_web python seed_dev.py
-docker exec -it bellmann_web python create_skills.py
 
 # 5. Abschlussmeldung
 echo ""
