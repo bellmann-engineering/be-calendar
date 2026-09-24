@@ -80,30 +80,26 @@ class EventService:
         buffer_after=0,
         exclude_event_id=None,
     ):
-        """Prüft mathematische Überlappungen unter Berücksichtigung von Pufferzeiten."""
+        """Prüft Überlappungen inkl. Pufferzeiten in lokaler DB und Google Calendar."""
         if not assigned_to_id:
             return None
 
         # Zeiten normalisieren
         st_norm = EventService._normalize_dt(start_time)
         et_norm = EventService._normalize_dt(end_time)
-
         new_effective_start = st_norm - timedelta(minutes=buffer_before)
         new_effective_end = et_norm + timedelta(minutes=buffer_after)
 
+        # 1. Lokale Datenbankprüfung
         query = Event.query.filter(
             Event.assigned_to_id == assigned_to_id, not Event.is_deleted
         )
-
         if exclude_event_id:
             query = query.filter(Event.id != exclude_event_id)
 
-        existing_events = query.all()
-
-        for event in existing_events:
+        for event in query.all():
             e_st = EventService._normalize_dt(event.start_time)
             e_et = EventService._normalize_dt(event.end_time)
-
             existing_effective_start = e_st - timedelta(
                 minutes=event.buffer_before_mins
             )
@@ -114,6 +110,38 @@ class EventService:
                 and existing_effective_end > new_effective_start
             ):
                 return event
+
+        # 2. Google Calendar Prüfung
+        user = db.session.get(User, assigned_to_id)
+        if user and getattr(user, "google_calendar_id", None):
+            try:
+                from app.services.calendar_service import GoogleCalendarService
+
+                google_service = GoogleCalendarService()
+
+                # Wir übergeben die effektiven Start-/Endzeiten inkl. Puffer an Google
+                busy_times = google_service.get_busy_times(
+                    user.google_calendar_id, new_effective_start, new_effective_end
+                )
+
+                if busy_times:
+                    # Konflikt in Google gefunden! Dummy-Event für das Frontend bauen
+                    b_start = datetime.fromisoformat(
+                        busy_times[0]["start"].replace("Z", "+00:00")
+                    ).replace(tzinfo=None)
+                    b_end = datetime.fromisoformat(
+                        busy_times[0]["end"].replace("Z", "+00:00")
+                    ).replace(tzinfo=None)
+
+                    conflict_event = Event(
+                        id=0,
+                        title="Privater Termin (Google Kalender)",
+                        start_time=b_start,
+                        end_time=b_end,
+                    )
+                    return conflict_event
+            except Exception as e:
+                print(f"Warnung: Google Calendar Prüfung fehlgeschlagen: {e}")
 
         return None
 
@@ -212,7 +240,6 @@ class EventService:
                 created_by_id=creator_id,
                 assigned_to_id=assigned_to_id,
                 is_all_day=data.get("is_all_day", False),
-                is_mandatory=data.get("is_mandatory", False),
                 customer_id=data.get("customer_id"),
                 meeting_link=data.get("meeting_link"),
             )
@@ -263,6 +290,26 @@ class EventService:
                     )
                 )
             db.session.commit()
+
+            # --- GOOGLE CALENDAR WRITE SYNC ---
+            if assigned_user and getattr(assigned_user, "google_calendar_id", None):
+                try:
+                    from app.services.calendar_service import GoogleCalendarService
+
+                    g_service = GoogleCalendarService()
+                    g_id = g_service.insert_event(
+                        calendar_id=assigned_user.google_calendar_id,
+                        title=new_event.title,
+                        start_time=new_event.start_time,
+                        end_time=new_event.end_time,
+                        description=new_event.description,
+                    )
+                    if g_id:
+                        new_event.google_event_id = g_id
+                        db.session.commit()
+                except Exception as e:
+                    print(f"Google Sync fehlgeschlagen: {e}")
+
             new_event.qualification_warning = qualification_warning
             return new_event, None, 201
 
@@ -293,6 +340,21 @@ class EventService:
         try:
             event.is_deleted = True
             event.deleted_at = datetime.now(timezone.utc)
+
+            # --- GOOGLE CALENDAR DELETE SYNC ---
+            if getattr(event, "google_event_id", None) and getattr(
+                event, "assigned_to_id", None
+            ):
+                try:
+                    from app.services.calendar_service import GoogleCalendarService
+
+                    del_user = db.session.get(User, event.assigned_to_id)
+                    if del_user and getattr(del_user, "google_calendar_id", None):
+                        GoogleCalendarService().delete_event(
+                            del_user.google_calendar_id, event.google_event_id
+                        )
+                except Exception:
+                    pass
 
             audit = AuditLog(
                 event_id=event.id,
@@ -457,9 +519,6 @@ class EventService:
             event.assigned_to_id = assigned_to_id
             event.is_all_day = data.get(
                 "is_all_day", getattr(event, "is_all_day", False)
-            )
-            event.is_mandatory = data.get(
-                "is_mandatory", getattr(event, "is_mandatory", False)
             )
             event.customer_id = data.get(
                 "customer_id", getattr(event, "customer_id", None)

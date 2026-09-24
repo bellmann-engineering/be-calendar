@@ -12,8 +12,8 @@ class Event(db.Model):
     title = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text, nullable=True)
     meeting_link = db.Column(db.String(500), nullable=True)
+    google_event_id = db.Column(db.String(255), nullable=True)
     is_all_day = db.Column(db.Boolean, default=False, nullable=False)
-    is_mandatory = db.Column(db.Boolean, default=False, nullable=False)
     customer_id = db.Column(db.Integer, db.ForeignKey("customers.id"), nullable=True)
     customer = db.relationship("Customer", foreign_keys=[customer_id], backref="events")
 

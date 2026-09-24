@@ -18,3 +18,6 @@ postgres_data/
 
 # Temporär generierte Dateien
 projekt_status*.txt
+google_credentials.json
+export_code.sh
+projekt_status*.txt

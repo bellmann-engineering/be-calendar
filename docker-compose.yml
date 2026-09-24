@@ -7,8 +7,8 @@ services:
       - .env
     environment:
       - FLASK_ENV=production
-      - DATABASE_URL=postgresql+psycopg://bellmann_user:bellmann_pass@bellmann_db:5432/bellmann_db
-      - JWT_SECRET_KEY=produktions-geheimnis-hier-aendern-2026
+      - DATABASE_URL=postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@bellmann_db:5432/${POSTGRES_DB}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
     expose:
       - "5000"
     depends_on:
@@ -19,9 +19,9 @@ services:
     container_name: bellmann_db
     restart: always
     environment:
-      - POSTGRES_USER=bellmann_user
-      - POSTGRES_PASSWORD=bellmann_pass
-      - POSTGRES_DB=bellmann_db
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:

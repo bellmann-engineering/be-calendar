@@ -291,7 +291,7 @@ function setupEventCreation(token) {
         if (assignee_id) payload.assigned_to_id = parseInt(assignee_id);
         if (meeting_link) payload.meeting_link = meeting_link;
         payload.is_all_day = is_all_day || false;
-        payload.is_mandatory = is_mandatory || false;
+        
         if (customer_id) payload.customer_id = parseInt(customer_id); else payload.customer_id = null;
         if (required_skill_ids.length > 0) payload.required_skill_ids = required_skill_ids;
 
@@ -308,7 +308,7 @@ function setupEventCreation(token) {
                 modal.classList.add("hidden"); form.reset(); errorDiv.classList.add("hidden");
                 if (globalCalendar) globalCalendar.refetchEvents();
             } else {
-                errorDiv.innerText = data.error || data.message || "Fehler beim Speichern."; 
+                errorDiv.innerText = data.message || data.error || "Fehler beim Speichern."; 
                 errorDiv.classList.remove("hidden");
             }
         } catch (err) { 

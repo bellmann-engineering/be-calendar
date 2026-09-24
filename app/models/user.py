@@ -14,6 +14,7 @@ class User(db.Model):
     first_name = db.Column(db.String(50), nullable=False)
     last_name = db.Column(db.String(50), nullable=False)
     is_active = db.Column(db.Boolean, default=True)
+    google_calendar_id = db.Column(db.String(255), nullable=True)
     created_at = db.Column(db.DateTime, default=lambda: datetime.now(timezone.utc))
 
     # Fremdschlüssel für die Rolle
