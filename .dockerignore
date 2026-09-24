@@ -1,5 +1,38 @@
-venv/
-__pycache__/
+# =============================================================================
+# .dockerignore – Was NICHT ins Docker-Image kopiert wird ("COPY . .")
+# Kleineres Image, schnellere Builds und vor allem: keine Geheimnisse im Image.
+# =============================================================================
+
+# Geheimnisse & lokale Konfiguration
 .env
-*.pyc
+.env.*
+!.env.example
+secrets/
+nginx/certs/
+google_credentials.json
+
+# Versionskontrolle & CI
 .git/
+.github/
+.gitignore
+.pre-commit-config.yaml
+
+# Python-Artefakte & lokale Umgebungen
+venv/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Entwicklung & Tests (nicht zur Laufzeit benötigt)
+tests/
+requirements-dev.txt
+docker-compose*.yml
+setup.sh
+
+# Persönliche Hilfsdateien
+projekt_status*.txt
+export_code.sh

@@ -1,12 +1,23 @@
 # Python & Umgebungen
 venv/
+.venv/
 __pycache__/
 *.pyc
 .pytest_cache/
 .ruff_cache/
+.coverage
+htmlcov/
 
-# Umgebungsvariablen und Geheimnisse
+# Umgebungsvariablen und Geheimnisse (Vorlage .env.example IST versioniert)
 .env
+.env.*
+!.env.example
+secrets/
+nginx/certs/
+google_credentials.json
+
+# Lokale Compose-Anpassungen (z. B. DB-Port für DBeaver)
+docker-compose.override.yml
 
 # Datenbanken und Docker-Volumes
 postgres_data/
@@ -16,8 +27,8 @@ postgres_data/
 .idea/
 .DS_Store
 
+# Persönliche Lern- und Diagnosewerkzeuge (nicht Teil des Firmenprojekts)
+devtools/
+
 # Temporär generierte Dateien
-projekt_status*.txt
-google_credentials.json
-export_code.sh
 projekt_status*.txt

@@ -1,42 +1,85 @@
+# =============================================================================
+# docker-compose.yml – Produktions-Stack von Bellmann Calendar
+# -----------------------------------------------------------------------------
+#   Browser ──https:8443──> nginx ──:5000──> web (Gunicorn/Flask) ──:5432──> db (PostgreSQL)
+#   (http:8080 leitet nur auf https:8443 um)
+#
+# Nur nginx ist vom Host aus erreichbar. web und db hängen ausschließlich im internen
+# Docker-Netzwerk ("expose" statt "ports").
+#
+# Zugangsdaten stehen NICHT hier, sondern in der .env-Datei (siehe .env.example).
+# Compose ersetzt ${VARIABLE} beim Start durch die Werte aus der .env.
+#
+# Lokaler Datenbankzugriff (z. B. mit DBeaver/psql) für Entwickler: eine Datei
+# docker-compose.override.yml anlegen (wird von Git ignoriert):
+#   services:
+#     db:
+#       ports: ["127.0.0.1:5432:5432"]     # nur vom eigenen Rechner erreichbar
+# =============================================================================
 services:
   web:
     build: .
+    image: bellmann-calendar:local
     container_name: bellmann_web
-    restart: always
+    restart: unless-stopped
     env_file:
       - .env
     environment:
-      - FLASK_ENV=production
-      - DATABASE_URL=postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@bellmann_db:5432/${POSTGRES_DB}
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      # Diese Werte ÜBERSCHREIBEN die .env – Produktion ist damit erzwungen,
+      # egal ob in der .env z. B. FLASK_DEBUG=1 steht.
+      APP_ENV: production
+      FLASK_DEBUG: "0"
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      GOOGLE_CREDENTIALS_FILE: /run/secrets/google_credentials.json
+    volumes:
+      # Google-Service-Account read-only einhängen (nicht ins Image kopieren).
+      # Fehlt die Datei in ./secrets/, läuft die App einfach ohne Google-Anbindung.
+      - ./secrets:/run/secrets:ro
     expose:
       - "5000"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
+    # Der HEALTHCHECK selbst steht im Dockerfile (GET /health inkl. DB-Prüfung).
 
   db:
     image: postgres:16-alpine
     container_name: bellmann_db
-    restart: always
+    restart: unless-stopped
     environment:
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+    # Nur im Docker-Netzwerk erreichbar – NICHT mehr am Host-Port 5432 veröffentlicht.
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   nginx:
-    image: nginx:alpine
+    image: nginx:1.27-alpine
     container_name: bellmann_nginx
-    restart: always
+    restart: unless-stopped
     ports:
-      - "8080:80"
+      - "${HTTP_PORT:-8080}:80"     # nur Umleitung auf HTTPS
+      - "${HTTPS_PORT:-8443}:443"   # die eigentliche Anwendung: https://localhost:8443
+    environment:
+      # Wird beim Start in das Template eingesetzt (Redirect-Ziel von Port 80).
+      NGINX_HTTPS_PORT: ${HTTPS_PORT:-8443}
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # Als Template eingehängt -> das Image ersetzt ${NGINX_HTTPS_PORT} beim Start.
+      - ./nginx/nginx.conf:/etc/nginx/templates/default.conf.template:ro
+      # TLS-Zertifikat + Schlüssel (scripts/generate_dev_cert.sh bzw. echtes Zertifikat).
+      - ./nginx/certs:/etc/nginx/certs:ro
     depends_on:
-      - web
+      web:
+        # Nginx startet erst, wenn "web" laut HEALTHCHECK gesund ist.
+        condition: service_healthy
 
 volumes:
   postgres_data:
