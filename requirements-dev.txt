@@ -1,0 +1,16 @@
+# =============================================================================
+# requirements-dev.txt – Werkzeuge für Entwicklung, Tests und CI
+# -----------------------------------------------------------------------------
+# Installation lokal:   pip install -r requirements-dev.txt
+# Wird NICHT ins Produktions-Image installiert (kleiner, weniger Angriffsfläche).
+# =============================================================================
+-r requirements.txt
+
+# --- Tests ---
+pytest==8.1.1                      # Test-Runner (Konfiguration in pyproject.toml)
+pytest-cov==5.0.0                  # Coverage-Messung (--cov)
+
+# --- Code-Qualität ---
+ruff==0.16.8                       # Linter + Import-Sortierung (Regeln in pyproject.toml)
+black==26.5.1                      # Code-Formatter
+pre-commit==4.3.0                  # Führt ruff/black automatisch vor jedem Commit aus

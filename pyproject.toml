@@ -1,0 +1,70 @@
+# =============================================================================
+# pyproject.toml – zentrale Konfiguration der Entwicklungswerkzeuge
+# -----------------------------------------------------------------------------
+# Wird gelesen von: ruff (Linter), black (Formatter), pytest (Tests), coverage.
+# Genutzt lokal, im pre-commit-Hook (.pre-commit-config.yaml) und in der CI
+# (.github/workflows/ci.yml). So prüfen alle mit exakt denselben Regeln.
+# =============================================================================
+
+[project]
+name = "bellmann-calendar"
+version = "1.0.0"
+description = "Kalender- und Einsatzplanung für Bellmann Engineering"
+requires-python = ">=3.12"
+
+# --------------------------------------------------------------------- Black
+[tool.black]
+line-length = 100
+target-version = ["py312"]
+extend-exclude = "(venv|migrations/versions/__pycache__)"
+
+# --------------------------------------------------------------------- Ruff
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["venv"]
+
+[tool.ruff.lint]
+# E/W  = pycodestyle (Stil), F = pyflakes (echte Fehler), I = Import-Sortierung,
+# UP   = moderne Python-Syntax, B = bugbear (typische Fallen), DTZ = naive datetimes,
+# T20  = print()-Verbot, S = bandit (Sicherheit), SIM = Vereinfachungen,
+# ANN  = Type Hints (nur für app/services erzwungen, siehe per-file-ignores).
+select = ["E", "W", "F", "I", "UP", "B", "DTZ", "T20", "S", "SIM", "ANN"]
+ignore = [
+    "UP017",   # Projektregel: datetime.now(timezone.utc) statt datetime.UTC
+    "ANN401",  # "Any" ist in Dekoratoren legitim
+    "E501",    # Zeilenlänge regelt Black; lange deutsche Meldungen sind erlaubt
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Type Hints sind für die Service-Schicht Pflicht, sonst nur empfohlen.
+"app/models/**" = ["ANN"]
+"app/routes/**" = ["ANN"]
+"app/decorators/**" = ["ANN"]
+"app/*.py" = ["ANN"]
+"tests/**" = ["S101", "S105", "S106", "ANN", "DTZ"]   # assert & Test-Passwörter sind ok
+"migrations/**" = ["ANN", "S608", "E501", "I001", "UP"]
+# Kommandozeilen-Skripte dürfen print() für ihre Ausgabe verwenden.
+"scripts/**" = ["T20", "ANN"]
+"seed*.py" = ["T20", "ANN"]
+"run.py" = ["S104", "ANN"]
+"wsgi.py" = ["ANN"]
+"gunicorn.conf.py" = ["ANN"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app"]
+
+# --------------------------------------------------------------------- pytest
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+filterwarnings = ["error::DeprecationWarning:app.*"]
+
+# --------------------------------------------------------------------- Coverage
+[tool.coverage.run]
+source = ["app"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true

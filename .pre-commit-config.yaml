@@ -1,10 +1,24 @@
+# =============================================================================
+# pre-commit: prüft/formatiert Code automatisch VOR jedem "git commit".
+# Einmalig aktivieren:  pip install -r requirements-dev.txt && pre-commit install
+# Versionen identisch zu requirements-dev.txt und CI (.github/workflows/ci.yml).
+# =============================================================================
 repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.16.8
+    hooks:
+      - id: ruff-check
+        args: [--fix]
   - repo: https://github.com/psf/black
-    rev: 24.2.0
+    rev: 26.5.1
     hooks:
       - id: black
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.3.2
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
     hooks:
-      - id: ruff
-        args: [--fix]
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      # Verhindert versehentliches Committen von privaten Schlüsseln.
+      - id: detect-private-key
+      - id: check-added-large-files
