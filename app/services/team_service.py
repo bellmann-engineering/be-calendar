@@ -1,20 +1,34 @@
-"""Geschäftslogik für Teams und deren Mitgliederzuordnungen."""
+"""
+Geschäftslogik für Teams und deren Mitgliederzuordnungen.
+
+Wer benutzt sie?
+    ``app/routes/team_routes.py`` -> POST /api/v1/teams, PUT /api/v1/teams/<id>/members/<uid>
+    (nur CEO/ADMIN).
+
+Womit spricht sie?
+    Tabellen ``teams``, ``users``, ``audit_logs``.
+
+Warum sind Teams wichtig?
+    Eine Teamleitung darf nur Termine für Mitglieder IHRES Teams anlegen/ändern und sieht
+    nur deren Termine (siehe AuthorizationService und EventService.list_visible_events).
+"""
 
 from __future__ import annotations
 
-from typing import Optional, Tuple
+from sqlalchemy.exc import IntegrityError
 
 from app import db
 from app.models import AuditLog, RoleEnum, Team, User
+
+TeamResult = tuple[Team | None, str | None, int]
+MemberResult = tuple[User | None, str | None, int]
 
 
 class TeamService:
     """Kapselt transaktionssichere Teamverwaltung mit Audit-Protokollierung."""
 
     @staticmethod
-    def create_team(
-        name: str, team_leader_id: Optional[int], actor_id: int
-    ) -> Tuple[Optional[Team], Optional[str], int]:
+    def create_team(name: str | None, team_leader_id: int | None, actor_id: int) -> TeamResult:
         """Erstellt ein Team und ordnet optional eine gültige Teamleitung zu.
 
         Args:
@@ -25,11 +39,12 @@ class TeamService:
         Returns:
             Team, Fehlertext und passender HTTP-Statuscode.
         """
-        cleaned_name = (name or "").strip()
+        cleaned_name = (name or "").strip() if isinstance(name, str) else ""
         if not cleaned_name:
             return None, "Der Teamname ist erforderlich.", 400
         if len(cleaned_name) > 100:
             return None, "Der Teamname darf höchstens 100 Zeichen enthalten.", 400
+        # Vergleich ohne Groß-/Kleinschreibung: "Vertrieb" und "vertrieb" sind dasselbe Team.
         if Team.query.filter(db.func.lower(Team.name) == cleaned_name.lower()).first():
             return None, "Ein Team mit diesem Namen existiert bereits.", 409
 
@@ -39,35 +54,30 @@ class TeamService:
             if leader is None:
                 return None, "Die angegebene Teamleitung wurde nicht gefunden.", 404
             if leader.role.name != RoleEnum.TEAM_LEADER.value:
-                return (
-                    None,
-                    "Die angegebene Person besitzt nicht die Rolle TEAM_LEADER.",
-                    400,
-                )
+                return None, "Die angegebene Person besitzt nicht die Rolle TEAM_LEADER.", 400
 
+        team = Team(name=cleaned_name, leader=leader)
+        db.session.add(team)
         try:
-            team = Team(name=cleaned_name, leader=leader)
-            db.session.add(team)
             db.session.flush()
-            if leader is not None:
-                leader.team_id = team.id
-            db.session.add(
-                AuditLog(
-                    user_id=actor_id,
-                    action="CREATE_TEAM",
-                    details_json={"team_id": team.id, "name": team.name},
-                )
-            )
-            db.session.commit()
-            return team, None, 201
-        except Exception:
+        except IntegrityError:
+            # Zwei gleichzeitige Anfragen mit demselben Namen: die UNIQUE-Constraint gewinnt.
             db.session.rollback()
-            return None, "Das Team konnte nicht gespeichert werden.", 500
+            return None, "Ein Team mit diesem Namen existiert bereits.", 409
+        if leader is not None:
+            leader.team_id = team.id
+        db.session.add(
+            AuditLog(
+                user_id=actor_id,
+                action="CREATE_TEAM",
+                details_json={"team_id": team.id, "name": team.name},
+            )
+        )
+        db.session.commit()
+        return team, None, 201
 
     @staticmethod
-    def assign_member(
-        team_id: int, user_id: int, actor_id: int
-    ) -> Tuple[Optional[User], Optional[str], int]:
+    def assign_member(team_id: int, user_id: int, actor_id: int) -> MemberResult:
         """Ordnet einen Benutzer einem Team zu und protokolliert die Änderung.
 
         Args:
@@ -85,28 +95,20 @@ class TeamService:
         if user is None:
             return None, "Benutzer nicht gefunden.", 404
         if user.led_team is not None and user.led_team.id != team.id:
-            return (
-                None,
-                "Eine Teamleitung kann nicht in ein fremdes Team verschoben werden.",
-                409,
-            )
+            return None, "Eine Teamleitung kann nicht in ein fremdes Team verschoben werden.", 409
 
         previous_team_id = user.team_id
-        try:
-            user.team_id = team.id
-            db.session.add(
-                AuditLog(
-                    user_id=actor_id,
-                    action="ASSIGN_TEAM_MEMBER",
-                    details_json={
-                        "target_user_id": user.id,
-                        "previous_team_id": previous_team_id,
-                        "new_team_id": team.id,
-                    },
-                )
+        user.team_id = team.id
+        db.session.add(
+            AuditLog(
+                user_id=actor_id,
+                action="ASSIGN_TEAM_MEMBER",
+                details_json={
+                    "target_user_id": user.id,
+                    "previous_team_id": previous_team_id,
+                    "new_team_id": team.id,
+                },
             )
-            db.session.commit()
-            return user, None, 200
-        except Exception:
-            db.session.rollback()
-            return None, "Die Teamzuordnung konnte nicht gespeichert werden.", 500
+        )
+        db.session.commit()
+        return user, None, 200

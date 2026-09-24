@@ -1,69 +1,151 @@
-from flask import Blueprint, request, jsonify, render_template
-from flask_jwt_extended import jwt_required, get_jwt_identity, get_jwt
+"""
+HTTP-Endpunkte für Anmeldung, Sitzung und Benutzerverwaltung (/api/v1/auth/...).
+
+Sitzungsmodell (Cookies statt localStorage):
+    * ``POST /login``   -> setzt HttpOnly-Cookies ``access_token_cookie`` (30 min) und
+                           ``refresh_token_cookie`` (8 h) plus die lesbaren CSRF-Cookies.
+    * ``POST /refresh`` -> neues Access-Token, solange das Refresh-Token gültig ist.
+                           Das Frontend (app.js::apiFetch) ruft das automatisch bei 401 auf.
+    * ``POST /logout``  -> löscht alle Cookies.
+    JavaScript kann die Tokens nicht lesen -> ein XSS-Angriff kann sie nicht stehlen.
+
+Wer ruft diese Endpunkte auf?
+    ``app/static/js/app.js`` (Login, Logout, /me), ``members.html`` (Benutzerverwaltung),
+    ``login.html`` (Passwort vergessen), ``reset_password.html``.
+
+Wovon hängt die Datei ab?
+    AuthService, UserService, AdminService, ``@role_required``, Flask-Limiter.
+
+Rate-Limits: Zusätzlich zu Nginx (limit_req) begrenzt Flask-Limiter pro Client-IP.
+"""
+
+from flask import Blueprint, jsonify, request
+from flask_jwt_extended import (
+    create_access_token,
+    create_refresh_token,
+    current_user,
+    jwt_required,
+    set_access_cookies,
+    set_refresh_cookies,
+    unset_jwt_cookies,
+)
+from sqlalchemy import select
+
+from app import db, limiter
+from app.decorators.auth import role_required
+from app.models import Role, RoleEnum, User
+from app.services.admin_service import AdminService
 from app.services.auth_service import AuthService
 from app.services.user_service import UserService
-from app.decorators.auth import role_required
-from app import limiter
-import secrets
-from werkzeug.security import generate_password_hash
-from app.services.email_service import EmailService
-from app.models import User
-from app import db
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/api/v1/auth")
 
 
+def _serialize_me(user: User) -> dict:
+    """Öffentliche Darstellung des eingeloggten Benutzers (ohne Passwort-Hash!)."""
+    return {
+        "id": user.id,
+        "email": user.email,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
+        "role": user.role.name,
+        "team_id": user.team_id,
+    }
+
+
+# ====================================================================== Sitzung
 @auth_bp.route("/login", methods=["POST"])
-@limiter.limit("5 per minute")
+# Zweite Verteidigungslinie hinter Nginx (dort 20/min pro IP, prozessübergreifend).
+@limiter.limit("30 per minute")
 def login():
-    data = request.get_json() or {}
+    """Prüft E-Mail/Passwort und setzt bei Erfolg die JWT-Cookies."""
+    data = request.get_json(silent=True) or {}
     email = data.get("email")
     password = data.get("password")
-
-    if not email or not password:
+    if not isinstance(email, str) or not isinstance(password, str) or not email or not password:
         return jsonify({"error": "E-Mail und Passwort sind erforderlich."}), 400
 
-    result = AuthService.authenticate_user(email, password)
-    if not result:
-        return (
-            jsonify({"error": "Ungültige Anmeldedaten oder inaktiver Benutzer."}),
-            401,
-        )
-    return jsonify(result), 200
+    user = AuthService.authenticate_user(email, password)
+    if user is None:
+        return jsonify({"error": "Ungültige Anmeldedaten oder inaktiver Benutzer."}), 401
+
+    response = jsonify({"user": _serialize_me(user)})
+    # identity=user -> security.py::user_identity schreibt str(user.id) in den Token.
+    set_access_cookies(response, create_access_token(identity=user))
+    set_refresh_cookies(response, create_refresh_token(identity=user))
+    return response, 200
+
+
+@auth_bp.route("/refresh", methods=["POST"])
+@jwt_required(refresh=True)
+def refresh():
+    """Stellt ein neues Access-Token aus (verlangt Refresh-Cookie + CSRF-Header)."""
+    response = jsonify({"message": "Sitzung verlängert."})
+    set_access_cookies(response, create_access_token(identity=current_user))
+    return response, 200
+
+
+@auth_bp.route("/logout", methods=["POST"])
+def logout():
+    """Löscht alle Auth-Cookies. Bewusst ohne @jwt_required: Logout muss immer gehen."""
+    response = jsonify({"message": "Abgemeldet."})
+    unset_jwt_cookies(response)
+    return response, 200
 
 
 @auth_bp.route("/me", methods=["GET"])
 @jwt_required()
 def me():
-    current_user_id = get_jwt_identity()
-    claims = get_jwt()
+    """Daten des eingeloggten Benutzers (für Navigation, Rollen-Sichtbarkeit im Frontend)."""
+    return jsonify(_serialize_me(current_user)), 200
+
+
+# ====================================================================== Passwort
+@auth_bp.route("/forgot-password", methods=["POST"])
+@limiter.limit("5 per minute")
+def forgot_password():
+    """Verschickt einen Reset-Link. Antwort ist IMMER gleich (keine User-Enumeration)."""
+    data = request.get_json(silent=True) or {}
+    email = data.get("email")
+    if not isinstance(email, str) or not email.strip():
+        return jsonify({"error": "E-Mail ist erforderlich."}), 400
+    AuthService.request_password_reset(email)
     return (
         jsonify(
-            {
-                "id": current_user_id,
-                "role": claims.get("role"),
-                "first_name": claims.get("first_name"),
-                "last_name": claims.get("last_name"),
-            }
+            {"message": "Falls die E-Mail existiert, wurde ein Link zum Zurücksetzen versendet."}
         ),
         200,
     )
 
 
+@auth_bp.route("/reset-password", methods=["POST"])
+@limiter.limit("10 per minute")
+def reset_password():
+    """Setzt ein neues Passwort mit dem Token aus der E-Mail."""
+    data = request.get_json(silent=True) or {}
+    ok, error, code = AuthService.reset_password(data.get("token"), data.get("password"))
+    if not ok:
+        return jsonify({"error": error}), code
+    return jsonify({"message": "Passwort gespeichert. Du kannst dich jetzt anmelden."}), 200
+
+
+# ====================================================================== Benutzerverwaltung
 @auth_bp.route("/users", methods=["POST"])
 @jwt_required()
 @role_required("CEO", "ADMIN")
 def create_user():
-    data = request.get_json() or {}
-    new_user, error, status_code = UserService.create_user(
-        data, int(get_jwt_identity())
-    )
+    """Legt einen Benutzer an (Hierarchie-Prüfung im UserService)."""
+    data = request.get_json(silent=True) or {}
+    new_user, error, status_code = UserService.create_user(data, current_user.id)
     if error:
         return jsonify({"error": error}), status_code
     return (
         jsonify(
             {
-                "message": f"Benutzer {new_user.email} wurde mit der Rolle {new_user.role.name} erfolgreich angelegt.",
+                "message": (
+                    f"Benutzer {new_user.email} wurde mit der Rolle "
+                    f"{new_user.role.name} erfolgreich angelegt."
+                ),
                 "user_id": new_user.id,
             }
         ),
@@ -73,32 +155,34 @@ def create_user():
 
 @auth_bp.route("/trainers", methods=["GET"])
 @jwt_required()
+@role_required("CEO", "ADMIN", "TEAM_LEADER")
 def get_trainers():
-    from app.models import Role, User
-
-    trainers = (
-        User.query.join(Role).filter(Role.name == "TRAINER", User.is_active).all()
+    """Aktive Trainer für die Zuweisungs-Dropdowns im Termin-Formular."""
+    stmt = (
+        select(User.id, User.first_name, User.last_name)
+        .join(Role)
+        .where(Role.name == RoleEnum.TRAINER.value, User.is_active.is_(True))
+        .order_by(User.first_name)
     )
-    return (
-        jsonify(
-            [{"id": t.id, "name": f"{t.first_name} {t.last_name}"} for t in trainers]
-        ),
-        200,
-    )
+    rows = db.session.execute(stmt).all()
+    return jsonify([{"id": r.id, "name": f"{r.first_name} {r.last_name}"} for r in rows]), 200
 
 
 @auth_bp.route("", methods=["GET"])
 @jwt_required()
+@role_required("CEO", "ADMIN", "TEAM_LEADER")
 def get_all_users():
-    return jsonify(UserService.get_all_users()), 200
+    """Benutzerliste (Teamleitung sieht nur ihr Team). Früher für JEDEN Login sichtbar."""
+    return jsonify(UserService.get_all_users(current_user)), 200
 
 
 @auth_bp.route("/users/<int:user_id>", methods=["PUT"])
 @jwt_required()
 @role_required("CEO", "ADMIN")
-def update_user(user_id):
-    data = request.get_json() or {}
-    user, error, code = UserService.update_user(user_id, data, int(get_jwt_identity()))
+def update_user(user_id: int):
+    """Ändert einen Benutzer (Hierarchie-Prüfung im UserService)."""
+    data = request.get_json(silent=True) or {}
+    _user, error, code = UserService.update_user(user_id, data, current_user.id)
     if error:
         return jsonify({"error": error}), code
     return jsonify({"message": "Benutzer aktualisiert."}), 200
@@ -107,8 +191,9 @@ def update_user(user_id):
 @auth_bp.route("/<int:user_id>/status", methods=["PUT"])
 @jwt_required()
 @role_required("CEO", "ADMIN")
-def toggle_user_status(user_id):
-    success, msg, code = UserService.toggle_status(user_id, int(get_jwt_identity()))
+def toggle_user_status(user_id: int):
+    """Aktiviert/deaktiviert einen Benutzer."""
+    success, msg, code = UserService.toggle_status(user_id, current_user.id)
     if not success:
         return jsonify({"error": msg}), code
     return jsonify({"message": "Status aktualisiert."}), 200
@@ -117,86 +202,39 @@ def toggle_user_status(user_id):
 @auth_bp.route("/csv", methods=["POST"])
 @jwt_required()
 @role_required("CEO", "ADMIN")
+@limiter.limit("10 per hour")
 def import_users_csv():
+    """CSV-Massenimport (multipart/form-data, Feld "file"). Größe begrenzt MAX_CONTENT_LENGTH."""
     if "file" not in request.files or request.files["file"].filename == "":
         return jsonify({"error": "Keine Datei hochgeladen"}), 400
-    result, code = UserService.import_csv(
-        request.files["file"], int(get_jwt_identity())
-    )
+    result, code = UserService.import_csv(request.files["file"], current_user.id)
     return jsonify(result), code
-
-
-@auth_bp.route("/forgot-password", methods=["POST"])
-def forgot_password():
-    data = request.get_json() or {}
-    email = data.get("email")
-    if not email:
-        return jsonify({"error": "E-Mail ist erforderlich."}), 400
-
-    user = User.query.filter_by(email=email.strip().lower()).first()
-    if not user or not user.is_active:
-        # Generische Sicherheitsmeldung zur Vermeidung von Benutzer-Enumeration
-        return (
-            jsonify(
-                {
-                    "message": "Falls die E-Mail existiert, wurde ein neues Passwort versendet."
-                }
-            ),
-            200,
-        )
-
-    new_pass = secrets.token_urlsafe(8)
-    user.password_hash = generate_password_hash(new_pass)
-    db.session.commit()
-
-    html_body = render_template(
-        "email/forgot_password.html",
-        user=user,
-        new_pass=new_pass,
-        login_url="http://localhost:8080/login",
-    )
-    msg_text = f"Hallo {user.first_name}, dein neues Passwort lautet: {new_pass}"
-    EmailService.send_email(
-        user.email, "Passwort zurückgesetzt", msg_text, html_body=html_body
-    )
-
-    return (
-        jsonify(
-            {
-                "message": "Falls die E-Mail existiert, wurde ein neues Passwort versendet."
-            }
-        ),
-        200,
-    )
 
 
 @auth_bp.route("/users/<int:user_id>/revoke-tl", methods=["PUT"])
 @jwt_required()
 @role_required("CEO", "ADMIN")
-def revoke_tl_role(user_id):
-    from app.services.admin_service import AdminService
-
-    result, code = AdminService.revoke_team_leader_role(
-        user_id, int(get_jwt_identity())
-    )
+def revoke_tl_role(user_id: int):
+    """Älterer Alias von /revoke-role."""
+    result, code = AdminService.revoke_team_leader_role(user_id, current_user.id)
     return jsonify(result), code
 
 
 @auth_bp.route("/users/<int:user_id>/revoke-role", methods=["PUT"])
 @jwt_required()
 @role_required("CEO", "ADMIN")
-def revoke_elevated_role_route(user_id):
-    from app.services.admin_service import AdminService
-
-    result, code = AdminService.revoke_elevated_role(user_id, int(get_jwt_identity()))
+def revoke_elevated_role_route(user_id: int):
+    """Stuft einen ADMIN/TEAM_LEADER auf TRAINER zurück."""
+    result, code = AdminService.revoke_elevated_role(user_id, current_user.id)
     return jsonify(result), code
 
 
 @auth_bp.route("/users/<int:user_id>", methods=["DELETE"])
 @jwt_required()
 @role_required("CEO", "ADMIN")
-def delete_user_route(user_id):
-    success, msg, code = UserService.delete_user(user_id, int(get_jwt_identity()))
+def delete_user_route(user_id: int):
+    """Löscht einen Benutzer endgültig."""
+    success, msg, code = UserService.delete_user(user_id, current_user.id)
     if not success:
         return jsonify({"error": msg}), code
     return jsonify({"message": "Benutzer erfolgreich und endgültig gelöscht."}), 200

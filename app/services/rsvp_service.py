@@ -1,12 +1,34 @@
-"""Geschäftslogik für Rückmeldungen zu Termineinladungen."""
+"""
+Geschäftslogik für Rückmeldungen (RSVP) zu Termineinladungen.
+
+Ablauf einer Ablehnung (DECLINED):
+    1. Trainer lehnt mit Pflicht-Begründung ab (PUT /api/v1/events/<id>/rsvp).
+    2. Termin verliert seine Zuweisung und wird mit ``reallocation_required=True`` markiert
+       (im Kalender rot).
+    3. Die zuständige Teamleitung (sonst der Ersteller) erhält EINE Benachrichtigung
+       (+ E-Mail nach dem Commit).
+    4. Audit-Log-Eintrag.
+
+Wer benutzt sie?
+    ``app/routes/rsvp_routes.py``.
+
+Womit spricht sie?
+    Tabellen ``event_rsvps``, ``events``, ``users``, ``teams``, ``audit_logs`` sowie
+    NotificationService.
+"""
 
 from __future__ import annotations
 
-from typing import Optional, Tuple
+import logging
 
 from app import db
 from app.models import AuditLog, Event, EventRSVP, RSVPStatusEnum, Team, User
 from app.services.notification_service import NotificationService
+
+logger = logging.getLogger(__name__)
+
+RSVPResult = tuple[EventRSVP | None, str | None, int]
+MAX_REASON_LENGTH = 2000
 
 
 class RSVPService:
@@ -16,14 +38,13 @@ class RSVPService:
     def update_rsvp(
         event_id: int,
         user_id: int,
-        status: str,
-        rejection_reason: Optional[str] = None,
-    ) -> Tuple[Optional[EventRSVP], Optional[str], int]:
+        status: str | None,
+        rejection_reason: str | None = None,
+    ) -> RSVPResult:
         """Aktualisiert die Rückmeldung eines eingeladenen Benutzers."""
-        try:
-            normalized_status = status.strip().upper()
-        except AttributeError:
+        if not isinstance(status, str):
             return None, "Der RSVP-Status muss als Text angegeben werden.", 400
+        normalized_status = status.strip().upper()
 
         allowed_statuses = {
             RSVPStatusEnum.ACCEPTED.value,
@@ -48,82 +69,70 @@ class RSVPService:
                 409,
             )
 
-        cleaned_reason = (rejection_reason or "").strip()
+        cleaned_reason = (
+            (rejection_reason or "").strip() if isinstance(rejection_reason, str) else ""
+        )
         if normalized_status == RSVPStatusEnum.DECLINED.value and not cleaned_reason:
             return None, "Für eine Ablehnung ist eine Begründung erforderlich.", 400
+        if len(cleaned_reason) > MAX_REASON_LENGTH:
+            return (
+                None,
+                f"Die Begründung darf höchstens {MAX_REASON_LENGTH} Zeichen lang sein.",
+                400,
+            )
 
         previous_status = rsvp.status
         rsvp.status = normalized_status
         rsvp.rejection_reason = (
-            cleaned_reason
-            if normalized_status == RSVPStatusEnum.DECLINED.value
-            else None
+            cleaned_reason if normalized_status == RSVPStatusEnum.DECLINED.value else None
         )
 
-        # In RSVPService.update_rsvp bei status == 'DECLINED':
         reallocation_required = normalized_status == RSVPStatusEnum.DECLINED.value
         if reallocation_required:
             event.assigned_to_id = None
             event.reallocation_required = True
-
-            leader_id = event.created_by_id
-            creator = db.session.get(User, event.created_by_id)
-            if creator and creator.team_id:
-                team = db.session.get(Team, creator.team_id)
-                if team and team.team_leader_id:
-                    leader_id = team.team_leader_id
-
-            # Aufgabe direkt an den TL übermitteln
+            # Früher wurden hier ZWEI fast identische Benachrichtigungen (+ zwei Mails)
+            # an dieselbe Person geschickt – jetzt genau eine.
             NotificationService.notify_user(
-                user_id=leader_id,
-                title="Aufgabe: Neue Zuordnung erforderlich",
-                message=f"Der Termin '{event.title}' wurde abgelehnt. Begründung: '{rsvp.rejection_reason}'. Bitte neu zuweisen.",
-                notification_type="TASK_REALLOCATION_NEEDED",
+                user_id=RSVPService._responsible_leader_id(event),
+                title="Termin abgelehnt – Neu-Zuweisung erforderlich",
+                message=(
+                    f"Der Termin '{event.title}' wurde abgelehnt. "
+                    f"Begründung: {rsvp.rejection_reason}. Bitte neu zuweisen."
+                ),
+                notification_type="REALLOCATION_REQUIRED",
             )
 
-            try:
-                NotificationService.notify_user(
-                    user_id=leader_id,
-                    title="Termin abgelehnt – Neu-Zuweisung erforderlich",
-                    message=f"Der Termin '{event.title}' wurde abgelehnt. Begründung: {rsvp.rejection_reason}",
-                    notification_type="REALLOCATION_REQUIRED",
-                )
-            except Exception:
-                pass
-
-        audit = AuditLog(
-            event_id=event.id,
-            user_id=user_id,
-            action=(
-                "RSVP_DECLINED_REALLOCATION_NEEDED"
-                if reallocation_required
-                else "UPDATE_RSVP"
-            ),
-            details_json={
-                "previous_status": previous_status,
-                "new_status": normalized_status,
-                "rejection_reason": rsvp.rejection_reason,
-                "reallocation_required": reallocation_required,
-            },
+        db.session.add(
+            AuditLog(
+                event_id=event.id,
+                user_id=user_id,
+                action=(
+                    "RSVP_DECLINED_REALLOCATION_NEEDED" if reallocation_required else "UPDATE_RSVP"
+                ),
+                details_json={
+                    "previous_status": previous_status,
+                    "new_status": normalized_status,
+                    "rejection_reason": rsvp.rejection_reason,
+                    "reallocation_required": reallocation_required,
+                },
+            )
         )
-        db.session.add(audit)
-
-        try:
-            db.session.commit()
-        except Exception as e:
-            db.session.rollback()
-            return (
-                None,
-                f"Die RSVP-Rückmeldung konnte nicht gespeichert werden: {str(e)}",
-                500,
-            )
-
+        db.session.commit()
         return rsvp, None, 200
 
     @staticmethod
-    def get_rsvp(
-        event_id: int, user_id: int
-    ) -> Tuple[Optional[EventRSVP], Optional[str], int]:
+    def _responsible_leader_id(event: Event) -> int:
+        """Wer muss neu zuweisen? Die Teamleitung des Erstellers, sonst der Ersteller selbst."""
+        creator = db.session.get(User, event.created_by_id)
+        if creator and creator.team_id:
+            team = db.session.get(Team, creator.team_id)
+            if team and team.team_leader_id:
+                return team.team_leader_id
+        return event.created_by_id
+
+    @staticmethod
+    def get_rsvp(event_id: int, user_id: int) -> RSVPResult:
         """Liest die persönliche Rückmeldung eines eingeladenen Benutzers aus."""
         event = db.session.get(Event, event_id)
         if event is None or event.is_deleted:
@@ -132,5 +141,4 @@ class RSVPService:
         rsvp = EventRSVP.query.filter_by(event_id=event_id, user_id=user_id).first()
         if rsvp is None:
             return None, "Für diesen Benutzer liegt keine Termineinladung vor.", 404
-
         return rsvp, None, 200

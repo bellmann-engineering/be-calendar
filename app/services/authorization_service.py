@@ -1,19 +1,78 @@
-"""Zentrale Geschäftsregeln für rollen- und teambezogene Zugriffsprüfungen."""
+"""
+Zentrale Geschäftsregeln für rollen- und teambezogene Zugriffsprüfungen.
+
+Was macht diese Datei?
+    Sie beantwortet Fragen wie "Darf Person A das mit Person/Termin B tun?" – an EINER
+    Stelle, damit nicht jede Route ihre eigenen (und irgendwann widersprüchlichen)
+    Regeln hat. Jede Methode liefert ``(erlaubt: bool, fehlermeldung: str | None)``.
+
+Die Rollen-Hierarchie (siehe ``app/models/role.py::ROLE_RANK``):
+    CEO (4) > ADMIN (3) > TEAM_LEADER (2) > TRAINER (1)
+
+Wer benutzt sie?
+    EventService (Termine anlegen/ändern/löschen, Überbuchung),
+    UserService (Benutzer anlegen/ändern/löschen/sperren, CSV-Import),
+    AdminService (Rechte entziehen).
+
+Wovon hängt sie ab?
+    Nur von den Models – kein Datenbankzugriff, kein HTTP. Dadurch leicht testbar.
+"""
 
 from __future__ import annotations
 
-from typing import Optional, Tuple
-
 from app.models import Event, RoleEnum, User
+from app.models.role import ROLE_RANK
+
+
+def _rank(role_name: str | None) -> int:
+    """Rang einer Rolle; unbekannte Rollen bekommen 0 (= keinerlei Rechte)."""
+    return ROLE_RANK.get(role_name or "", 0)
 
 
 class AuthorizationService:
     """Kapselt Zugriffsentscheidungen unabhängig von Flask-Routen."""
 
+    # ------------------------------------------------------------------ Benutzerverwaltung
     @staticmethod
-    def can_manage_assignee(
-        actor: User, assignee: Optional[User]
-    ) -> Tuple[bool, Optional[str]]:
+    def can_manage_user(
+        actor: User, target: User | None, new_role_name: str | None = None
+    ) -> tuple[bool, str | None]:
+        """Darf ``actor`` den Benutzer ``target`` anlegen/ändern/löschen/sperren?
+
+        Regeln:
+            * CEO darf alles.
+            * ADMIN darf nur Benutzer UNTER sich verwalten (TEAM_LEADER, TRAINER) und
+              nur diese Rollen vergeben. Sich selbst darf er bearbeiten (Name, Passwort),
+              aber seine Rolle nicht ändern – sonst könnte er sich zum CEO befördern.
+            * Alle anderen Rollen dürfen keine Benutzer verwalten.
+
+        Args:
+            actor: Der eingeloggte, ausführende Benutzer.
+            target: Der betroffene Benutzer; None beim Anlegen eines neuen Benutzers.
+            new_role_name: Die Rolle, die vergeben werden soll (oder None = unverändert).
+        """
+        actor_role = actor.role.name
+        if actor_role == RoleEnum.CEO.value:
+            return True, None
+        if actor_role != RoleEnum.ADMIN.value:
+            return False, "Ihre Rolle darf keine Benutzer verwalten."
+
+        is_self = target is not None and target.id == actor.id
+        if target is not None and not is_self and _rank(target.role.name) >= _rank(actor_role):
+            return False, "Ein Admin darf keine anderen Admins oder den CEO verwalten."
+
+        if new_role_name is not None:
+            role_unchanged = is_self and new_role_name == actor_role
+            if not role_unchanged and _rank(new_role_name) >= _rank(actor_role):
+                return (
+                    False,
+                    "Ein Admin darf nur die Rollen TRAINER und TEAM_LEADER vergeben.",
+                )
+        return True, None
+
+    # ------------------------------------------------------------------ Termine
+    @staticmethod
+    def can_manage_assignee(actor: User, assignee: User | None) -> tuple[bool, str | None]:
         """Prüft, ob ein Benutzer einen Termin für die Zielperson anlegen darf.
 
         Args:
@@ -44,7 +103,7 @@ class AuthorizationService:
         return True, None
 
     @staticmethod
-    def can_manage_event(actor: User, event: Event) -> Tuple[bool, Optional[str]]:
+    def can_manage_event(actor: User, event: Event) -> tuple[bool, str | None]:
         """Prüft, ob ein Benutzer einen bestehenden Termin ändern oder löschen darf.
 
         Args:
@@ -66,9 +125,7 @@ class AuthorizationService:
         return True, None
 
     @staticmethod
-    def can_override_conflict(
-        actor: User, requested_override: bool
-    ) -> Tuple[bool, Optional[str]]:
+    def can_override_conflict(actor: User, requested_override: bool) -> tuple[bool, str | None]:
         """Prüft die explizite CEO-Freigabe für eine kollidierende Überbuchung.
 
         Args:

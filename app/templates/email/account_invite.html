@@ -1,0 +1,15 @@
+{#
+  E-Mail: "Dein Zugang zum Bellmann Calendar" (Einladung nach CSV-Import)
+  Versendet von: app/services/user_service.py::_queue_invite() – erst NACH dem Commit.
+  Variablen:     user (User), setup_url (signierter Link, 72 h gültig, einmalig)
+#}
+{% extends "email/base.html" %}
+{% block content %}
+    <h3 style="color: #1A365D; margin-top: 0;">Willkommen im Bellmann Calendar</h3>
+    <p>Hallo {{ user.first_name }},</p>
+    <p>für dich wurde ein Konto angelegt. Dein Benutzername ist deine E-Mail-Adresse <strong>{{ user.email }}</strong>.</p>
+    <p>Bitte lege über den folgenden Button dein persönliches Passwort fest. Der Link ist <strong>72 Stunden</strong> gültig.</p>
+    <div style="text-align: center; margin-top: 35px;">
+        <a href="{{ setup_url }}" style="background-color: #2B6CB0; color: #ffffff; padding: 14px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">Passwort festlegen</a>
+    </div>
+{% endblock %}
