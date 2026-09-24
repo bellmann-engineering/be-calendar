@@ -1,0 +1,1835 @@
+<!doctype html>
+<!--
+  =============================================================================
+  Bellmann Calendar – Wissensdatenbank (KB)
+  -----------------------------------------------------------------------------
+  Eine einzige, eigenständige HTML-Datei: kein Server, keine externen Skripte,
+  keine Schriften aus dem Internet. Einfach im Browser öffnen (Doppelklick oder
+  "explorer.exe docs/kb/index.html" unter WSL). Funktioniert offline.
+
+  Aufbau:
+    * <header>   Suche (Taste "/"), Hell/Dunkel-Umschalter, Lernfortschritt
+    * <nav>      Inhaltsverzeichnis – wird per JavaScript aus den Artikeln erzeugt
+    * <main>     Alle Artikel als <article data-gruppe="..." data-titel="...">
+                 Es wird immer EIN Artikel angezeigt (Adresse: index.html#a-...).
+  Neue Artikel: einfach einen <article> nach dem vorhandenen Muster einfügen –
+  Inhaltsverzeichnis, Suche, Vor/Zurück und Fortschritt passen sich automatisch an.
+  Der Lernfortschritt wird nur lokal im Browser gespeichert (localStorage).
+  =============================================================================
+-->
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Wissensdatenbank zum Bellmann Calendar: Architektur, Datenbank, Sicherheit, Betrieb und Qualität – mit Diagrammen, Beispielen und Quellen.">
+<meta name="color-scheme" content="light dark">
+<title>Bellmann Calendar – Wissensdatenbank</title>
+<style>
+/* ---------------------------------------------------------------- Design-Tokens */
+:root{
+  --navy:#1A365D; --akzent:#2B6CB0; --akzent-2:#3b82f6;
+  --bg:#f7f8fb; --fläche:#ffffff; --fläche-2:#f1f4f9; --text:#16213a; --text-2:#4a5672; --linie:#e2e7f0;
+  --code-bg:#0f172a; --code-text:#e2e8f0; --ok:#0f9d58; --warn:#b45309; --gefahr:#c0262d; --info:#2563eb;
+  --radius:12px; --schatten:0 1px 2px rgba(16,24,40,.04),0 4px 16px rgba(16,24,40,.06);
+  --schrift:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --mono:ui-monospace,SFMono-Regular,"Cascadia Code",Consolas,"Liberation Mono",monospace;
+  --nav-breite:300px; --aktiv-text:var(--navy);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="hell"]){
+  --bg:#0b1120; --fläche:#111a2e; --fläche-2:#16213a; --text:#e6ebf5; --text-2:#9aa7c2; --linie:#243150;
+  --akzent:#60a5fa; --akzent-2:#93c5fd; --aktiv-text:#93c5fd; --code-bg:#050a16; --schatten:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.25);
+}}
+:root[data-theme="dunkel"]{
+  --bg:#0b1120; --fläche:#111a2e; --fläche-2:#16213a; --text:#e6ebf5; --text-2:#9aa7c2; --linie:#243150;
+  --akzent:#60a5fa; --akzent-2:#93c5fd; --aktiv-text:#93c5fd; --code-bg:#050a16; --schatten:0 1px 2px rgba(0,0,0,.3),0 8px 24px rgba(0,0,0,.25);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*{transition:none!important;animation:none!important}}
+body{margin:0;font:16px/1.65 var(--schrift);background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
+a{color:var(--akzent);text-underline-offset:2px}
+a:hover{color:var(--akzent-2)}
+:focus-visible{outline:3px solid var(--akzent-2);outline-offset:2px;border-radius:4px}
+.skip{position:absolute;left:-999px;top:8px;background:var(--navy);color:#fff;padding:8px 12px;border-radius:8px;z-index:100}
+.skip:focus{left:8px}
+
+/* ---------------------------------------------------------------- Kopfzeile */
+header.kopf{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:16px;padding:10px 20px;
+  background:color-mix(in srgb,var(--fläche) 88%,transparent);backdrop-filter:saturate(1.4) blur(10px);border-bottom:1px solid var(--linie)}
+.marke{display:flex;align-items:center;gap:10px;font-weight:700;color:var(--text);text-decoration:none;white-space:nowrap}
+.marke svg{flex:none}
+.marke small{display:block;font-weight:500;color:var(--text-2);font-size:12px;line-height:1.1}
+.suche{position:relative;flex:1;max-width:560px;margin-left:auto}
+.suche input{width:100%;padding:9px 12px 9px 36px;border:1px solid var(--linie);border-radius:10px;background:var(--fläche-2);color:var(--text);font:inherit;font-size:15px}
+.suche svg{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--text-2)}
+.suche kbd{position:absolute;right:10px;top:50%;transform:translateY(-50%)}
+kbd{font:12px var(--mono);border:1px solid var(--linie);border-bottom-width:2px;border-radius:5px;padding:1px 6px;color:var(--text-2);background:var(--fläche)}
+.knopf{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--linie);background:var(--fläche);color:var(--text);
+  border-radius:10px;padding:8px 12px;font:inherit;font-size:14px;cursor:pointer}
+.knopf:hover{border-color:var(--akzent)}
+.knopf.primär{background:var(--navy);border-color:var(--navy);color:#fff}
+.menü-knopf{display:none}
+.fortschritt{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-2);white-space:nowrap}
+.fortschritt .balken{width:90px;height:6px;border-radius:99px;background:var(--linie);overflow:hidden}
+.fortschritt .balken i{display:block;height:100%;background:linear-gradient(90deg,var(--akzent),var(--ok));width:0}
+
+/* ---------------------------------------------------------------- Layout */
+.rahmen{display:grid;grid-template-columns:var(--nav-breite) minmax(0,1fr);min-height:calc(100vh - 57px)}
+nav.inhalt{position:sticky;top:57px;height:calc(100vh - 57px);overflow:auto;padding:18px 14px 40px;border-right:1px solid var(--linie);background:var(--fläche)}
+nav.inhalt h2{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-2);margin:18px 10px 6px}
+nav.inhalt a{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:8px;color:var(--text);text-decoration:none;font-size:14.5px}
+nav.inhalt a:hover{background:var(--fläche-2)}
+nav.inhalt a[aria-current="page"]{background:color-mix(in srgb,var(--akzent) 14%,transparent);color:var(--aktiv-text);font-weight:600}
+nav.inhalt a .häkchen{margin-left:auto;color:var(--ok);font-size:13px;visibility:hidden}
+nav.inhalt a.gelesen .häkchen{visibility:visible}
+main{padding:32px clamp(16px,4vw,56px) 80px;min-width:0}
+article{display:none;max-width:820px;margin:0 auto;scroll-margin-top:90px}
+article.aktiv{display:block;animation:rein .25s ease}
+@keyframes rein{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.brotkrumen{font-size:13px;color:var(--text-2);margin-bottom:6px}
+article h1{font-size:clamp(28px,3.4vw,38px);line-height:1.2;margin:0 0 8px;letter-spacing:-.01em}
+article .lead{font-size:18px;color:var(--text-2);margin:0 0 24px}
+article h2{font-size:22px;margin:36px 0 10px;padding-top:8px;letter-spacing:-.005em}
+article h3{font-size:17px;margin:24px 0 6px}
+article p,article li{max-width:72ch}
+code{font:0.9em var(--mono);background:var(--fläche-2);border:1px solid var(--linie);border-radius:6px;padding:1px 5px}
+pre{position:relative;background:var(--code-bg);color:var(--code-text);border-radius:var(--radius);padding:16px 18px;overflow:auto;font:13.5px/1.6 var(--mono)}
+pre code{background:none;border:0;padding:0;color:inherit;font:inherit}
+pre .kopieren{position:absolute;top:8px;right:8px;opacity:.7;font-size:12px;padding:4px 8px;border-radius:7px;border:1px solid #334155;background:#1e293b;color:#e2e8f0;cursor:pointer}
+pre .kopieren:hover{opacity:1}
+.k{color:#93c5fd}.s{color:#86efac}.c{color:#94a3b8;font-style:italic}.n{color:#fcd34d}
+table{width:100%;border-collapse:collapse;margin:14px 0;font-size:14.5px;background:var(--fläche);border-radius:var(--radius);overflow:hidden;box-shadow:var(--schatten)}
+th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--linie);vertical-align:top}
+th{background:var(--fläche-2);font-weight:600}
+tr:last-child td{border-bottom:0}
+.tabelle-wrap{overflow-x:auto}
+
+/* ---------------------------------------------------------------- Bausteine */
+.karte{background:var(--fläche);border:1px solid var(--linie);border-radius:var(--radius);padding:18px 20px;box-shadow:var(--schatten)}
+.raster{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));margin:18px 0}
+.raster a.karte{text-decoration:none;color:var(--text);transition:transform .15s,border-color .15s}
+.raster a.karte:hover{transform:translateY(-2px);border-color:var(--akzent)}
+.raster .karte b{display:block;margin-bottom:4px}
+.raster .karte span{color:var(--text-2);font-size:14px}
+.hinweis{border-left:4px solid var(--info);background:color-mix(in srgb,var(--info) 8%,var(--fläche));padding:12px 16px;border-radius:0 10px 10px 0;margin:18px 0}
+.hinweis.warn{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 9%,var(--fläche))}
+.hinweis.gefahr{border-color:var(--gefahr);background:color-mix(in srgb,var(--gefahr) 8%,var(--fläche))}
+.hinweis.ok{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 8%,var(--fläche))}
+.hinweis > b:first-child{display:block;margin-bottom:2px}
+.vorher-nachher{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.vorher-nachher .etikett{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+.vorher-nachher .schlecht{color:var(--gefahr)} .vorher-nachher .gut{color:var(--ok)}
+.abzeichen{display:inline-block;font-size:12px;font-weight:600;padding:2px 8px;border-radius:99px;background:var(--fläche-2);border:1px solid var(--linie);color:var(--text-2)}
+figure{margin:22px 0}
+figure .diagramm{background:var(--fläche);border:1px solid var(--linie);border-radius:var(--radius);padding:12px;box-shadow:var(--schatten);overflow-x:auto}
+figure svg{display:block;width:100%;height:auto;min-width:560px}
+figcaption{font-size:13.5px;color:var(--text-2);margin-top:8px}
+.diagramm [data-geh]{cursor:pointer}
+.diagramm [data-geh]:hover rect,.diagramm [data-geh]:focus rect{stroke:var(--akzent);stroke-width:2.5}
+/* SVG-Farben über CSS-Variablen -> Diagramme passen sich Hell/Dunkel an */
+.d-box{fill:var(--fläche-2);stroke:var(--linie);stroke-width:1.5}
+.d-box.navy{fill:var(--navy);stroke:var(--navy)}
+.d-box.akzent{fill:color-mix(in srgb,var(--akzent) 16%,var(--fläche));stroke:var(--akzent)}
+.d-box.ok{fill:color-mix(in srgb,var(--ok) 14%,var(--fläche));stroke:var(--ok)}
+.d-box.warn{fill:color-mix(in srgb,var(--warn) 14%,var(--fläche));stroke:var(--warn)}
+.d-box.gefahr{fill:color-mix(in srgb,var(--gefahr) 12%,var(--fläche));stroke:var(--gefahr)}
+.d-text{fill:var(--text);font:600 14px var(--schrift)}
+.d-klein{fill:var(--text-2);font:12px var(--schrift)}
+.d-weiß{fill:#fff;font:600 14px var(--schrift)}
+.d-mono{fill:var(--text);font:12px var(--mono)}
+.d-linie{stroke:var(--text-2);stroke-width:1.6;fill:none}
+.d-linie.akzent{stroke:var(--akzent)} .d-linie.ok{stroke:var(--ok)} .d-linie.gefahr{stroke:var(--gefahr)}
+.d-strich{stroke-dasharray:5 4}
+.d-pfeil{fill:var(--text-2)} .d-pfeil.akzent{fill:var(--akzent)} .d-pfeil.ok{fill:var(--ok)} .d-pfeil.gefahr{fill:var(--gefahr)}
+.d-lebenslinie{stroke:var(--linie);stroke-width:1.5;stroke-dasharray:4 4}
+
+/* Wissensfrage */
+.quiz{margin:26px 0;background:var(--fläche);border:1px solid var(--linie);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--schatten)}
+.quiz h3{margin:0 0 10px;font-size:15px;display:flex;align-items:center;gap:8px}
+.quiz button{display:block;width:100%;text-align:left;margin:6px 0;padding:10px 12px;border:1px solid var(--linie);border-radius:10px;background:var(--fläche-2);color:var(--text);font:inherit;cursor:pointer}
+.quiz button:hover{border-color:var(--akzent)}
+.quiz button[data-ergebnis="richtig"]{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 14%,var(--fläche))}
+.quiz button[data-ergebnis="falsch"]{border-color:var(--gefahr);background:color-mix(in srgb,var(--gefahr) 10%,var(--fläche))}
+.quiz .erklärung{display:none;margin-top:10px;color:var(--text-2)}
+.quiz.beantwortet .erklärung{display:block}
+
+.quellen{margin-top:30px;padding-top:14px;border-top:1px solid var(--linie)}
+.quellen h2{font-size:16px;margin:0 0 8px}
+.quellen ul{padding-left:18px}
+.quellen li{margin:4px 0}
+.quellen .typ{font-size:11.5px;color:var(--text-2);margin-left:6px}
+.fuß{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-top:34px;padding-top:18px;border-top:1px solid var(--linie)}
+.fuß a{display:flex;flex-direction:column;max-width:48%;padding:12px 14px;border:1px solid var(--linie);border-radius:10px;text-decoration:none;background:var(--fläche)}
+.fuß a:hover{border-color:var(--akzent)}
+.fuß small{color:var(--text-2)}
+.fuß .weiter{margin-left:auto;text-align:right}
+.aktionen{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:26px 0 0}
+
+/* Suche */
+#suchergebnisse{display:none;max-width:820px;margin:0 auto}
+#suchergebnisse.aktiv{display:block}
+#suchergebnisse a{display:block;padding:14px 16px;margin:10px 0;border:1px solid var(--linie);border-radius:10px;background:var(--fläche);text-decoration:none;color:var(--text)}
+#suchergebnisse a:hover{border-color:var(--akzent)}
+#suchergebnisse small{color:var(--text-2);display:block}
+mark{background:color-mix(in srgb,#facc15 45%,transparent);color:inherit;border-radius:3px;padding:0 2px}
+
+/* ---------------------------------------------------------------- Responsiv & Druck */
+@media (max-width:960px){
+  .rahmen{grid-template-columns:1fr}
+  nav.inhalt{position:fixed;inset:57px 0 0 0;height:auto;z-index:40;transform:translateX(-100%);transition:transform .2s;width:min(88vw,340px);box-shadow:var(--schatten)}
+  nav.inhalt.offen{transform:none}
+  .menü-knopf{display:inline-flex}
+  .fortschritt .balken,.fortschritt span{display:none}
+  .vorher-nachher{grid-template-columns:1fr}
+  .suche kbd{display:none}
+}
+@media (max-width:560px){.marke span{display:none}.fuß a{max-width:100%}header.kopf{gap:10px;padding:10px 12px}.knopf{padding:8px 10px}#thema{font-size:0;width:40px;justify-content:center}#thema::before{content:"◐";font-size:16px}}
+@media print{
+  header.kopf,nav.inhalt,.aktionen,.fuß,.quiz button,pre .kopieren{display:none!important}
+  .rahmen{display:block} article{display:block!important;page-break-after:always} body{background:#fff}
+}
+</style>
+</head>
+<body>
+<a class="skip" href="#hauptinhalt">Zum Inhalt springen</a>
+<header class="kopf">
+  <button class="knopf menü-knopf" id="menü" aria-controls="inhaltsverzeichnis" aria-expanded="false" aria-label="Inhaltsverzeichnis öffnen">☰</button>
+  <a class="marke" href="#a-start" aria-label="Zur Startseite der Wissensdatenbank">
+    <svg width="32" height="32" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#1A365D"/><rect x="7" y="9" width="18" height="16" rx="2.5" fill="none" stroke="#fff" stroke-width="2"/><path d="M7 14h18M12 6v5M20 6v5" stroke="#fff" stroke-width="2" stroke-linecap="round"/><circle cx="16" cy="19.5" r="2" fill="#60a5fa"/></svg>
+    <span>Bellmann Calendar<small>Wissensdatenbank</small></span>
+  </a>
+  <div class="suche" role="search">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <input id="suchfeld" type="search" placeholder="Suchen … (z. B. CSRF, Index, Migration)" aria-label="Wissensdatenbank durchsuchen" autocomplete="off">
+    <kbd>/</kbd>
+  </div>
+  <div class="fortschritt" title="Lernfortschritt"><div class="balken"><i id="fortschrittsbalken"></i></div><span id="fortschrittstext">0 %</span></div>
+  <button class="knopf" id="thema" aria-label="Farbschema wechseln">◐</button>
+</header>
+<div class="rahmen">
+  <nav class="inhalt" id="inhaltsverzeichnis" aria-label="Inhaltsverzeichnis"></nav>
+  <main id="hauptinhalt" tabindex="-1">
+    <section id="suchergebnisse" aria-live="polite"></section>
+
+    <!-- Gemeinsame Pfeilspitzen für alle Diagramme (einmal definiert, überall per url(#...) nutzbar) -->
+    <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+      <defs>
+        <marker id="pfeil" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-pfeil" d="M0 0 10 5 0 10z"/></marker>
+        <marker id="pfeil-akzent" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-pfeil akzent" d="M0 0 10 5 0 10z"/></marker>
+        <marker id="pfeil-ok" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-pfeil ok" d="M0 0 10 5 0 10z"/></marker>
+        <marker id="pfeil-gefahr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path class="d-pfeil gefahr" d="M0 0 10 5 0 10z"/></marker>
+      </defs>
+    </svg>
+
+    <!-- ============================================================ START -->
+    <article id="a-start" data-gruppe="Start" data-titel="Willkommen" data-icon="👋">
+      <h1>Willkommen in der Wissensdatenbank</h1>
+      <p class="lead">Alles, was du brauchst, um den <b>Bellmann Calendar</b> zu verstehen, zu betreiben und weiterzuentwickeln – mit Diagrammen, echten Code-Beispielen aus dem Projekt, Wissensfragen und geprüften Quellen.</p>
+
+      <div class="hinweis"><b>Was ist der Bellmann Calendar?</b>
+        Eine Web-Anwendung zur Einsatz- und Terminplanung für Bellmann Engineering. Termine werden Mitarbeitern (Trainern) zugewiesen, die zu- oder absagen. Das System verhindert Doppelbuchungen (inkl. Pufferzeiten und privatem Google-Kalender), kennt Rollen und Teams und protokolliert jede Änderung im Audit-Log.</div>
+
+      <h2>Womit fange ich an?</h2>
+      <div class="raster">
+        <a class="karte" href="#a-lernpfad"><b>🧭 Lernpfad</b><span>Empfohlene Reihenfolge für Einsteiger – vom Überblick bis zum Betrieb.</span></a>
+        <a class="karte" href="#a-design"><b>🎨 Oberfläche</b><span>Das neue Design, der Frontend-Build und die Regeln für neuen UI-Code.</span></a>
+        <a class="karte" href="#a-gesamtbild"><b>🏗 Architektur</b><span>Wie Browser, Nginx, Flask und PostgreSQL zusammenspielen.</span></a>
+        <a class="karte" href="#a-datenmodell"><b>🗄 Datenbank</b><span>Tabellen, Beziehungen, Zeitzonen, Indizes und Migrationen.</span></a>
+        <a class="karte" href="#a-auth"><b>🔐 Sicherheit</b><span>Login mit Cookies, CSRF, XSS, Rollen und Secrets.</span></a>
+        <a class="karte" href="#a-termine"><b>📅 Fachlogik</b><span>Termine, Kollisionen, Rückmeldungen und Benachrichtigungen.</span></a>
+        <a class="karte" href="#a-docker"><b>🐳 Betrieb</b><span>Docker, Gunicorn, Nginx/TLS, Backup und Fehlerbehebung.</span></a>
+        <a class="karte" href="#a-tests"><b>✅ Qualität</b><span>Tests, CI/CD, Code-Stil und Projektregeln.</span></a>
+        <a class="karte" href="#a-glossar"><b>📖 Glossar</b><span>Fachbegriffe von A wie Alembic bis X wie XSS.</span></a>
+      </div>
+
+      <h2>So benutzt du diese KB</h2>
+      <ul>
+        <li><kbd>/</kbd> öffnet die <b>Suche</b> – sie durchsucht alle Artikel im Volltext.</li>
+        <li>In Diagrammen sind die Kästen <b>anklickbar</b> und führen zum passenden Artikel.</li>
+        <li>Jeder Artikel endet mit einer <b>Wissensfrage</b> und <b>Quellen</b> zum Vertiefen (W3Schools, MDN, offizielle Dokumentation, OWASP).</li>
+        <li>Mit <b>„Als gelesen markieren“</b> verfolgst du deinen Fortschritt (oben rechts). Er wird nur in deinem Browser gespeichert.</li>
+        <li>Dateinamen wie <a data-datei="app/services/event_service.py">app/services/event_service.py</a> öffnen die Datei direkt auf GitHub.</li>
+      </ul>
+
+      <h2>Das Projekt in Zahlen</h2>
+      <div class="tabelle-wrap"><table>
+        <tr><th>Bereich</th><th>Technik</th></tr>
+        <tr><td>Backend</td><td>Python 3.12, Flask 3, SQLAlchemy 2, Flask-JWT-Extended, Flask-Limiter</td></tr>
+        <tr><td>Datenbank</td><td>PostgreSQL 16, Migrationen mit Alembic (Flask-Migrate)</td></tr>
+        <tr><td>Frontend</td><td>Jinja2-Templates, natives JavaScript, Tailwind CSS v4 (beim Build kompiliert), FullCalendar 6 (selbst gehostet), Schrift Inter</td></tr>
+        <tr><td>Betrieb</td><td>Docker Compose, Gunicorn (gthread), Nginx mit TLS</td></tr>
+        <tr><td>Qualität</td><td>56 automatisierte Tests (pytest, ≥ 70 % Abdeckung), ruff, black, pre-commit, GitHub Actions</td></tr>
+      </table></div>
+    </article>
+
+    <article id="a-lernpfad" data-gruppe="Start" data-titel="Lernpfad" data-icon="🧭">
+      <h1>Lernpfad für Einsteiger</h1>
+      <p class="lead">Eine sinnvolle Reihenfolge, wenn dir noch vieles neu ist. Plane pro Etappe einen halben bis ganzen Tag ein – und probiere alles direkt im Projekt aus.</p>
+      <div class="tabelle-wrap"><table>
+        <tr><th>Etappe</th><th>Artikel</th><th>Ziel – du kannst danach …</th></tr>
+        <tr><td>1. Überblick</td><td><a href="#a-gesamtbild">Gesamtbild</a>, <a href="#a-anfrage">Lebenszyklus einer Anfrage</a></td><td>… erklären, welcher Teil des Systems was macht.</td></tr>
+        <tr><td>2. Code-Struktur</td><td><a href="#a-schichten">Schichten</a>, <a href="#a-factory">Application Factory</a></td><td>… eine neue Route mit Service schreiben.</td></tr>
+        <tr><td>3. Daten</td><td><a href="#a-datenmodell">Datenmodell</a>, <a href="#a-migrationen">Migrationen</a>, <a href="#a-zeitzonen">Zeitzonen</a></td><td>… eine Spalte hinzufügen, ohne etwas kaputtzumachen.</td></tr>
+        <tr><td>4. Fachlogik</td><td><a href="#a-termine">Termine</a>, <a href="#a-kollision">Kollisionserkennung</a>, <a href="#a-rsvp">Rückmeldungen</a></td><td>… den Weg eines Termins von der Anlage bis zur Absage nachvollziehen.</td></tr>
+        <tr><td>5. Sicherheit</td><td><a href="#a-auth">Anmeldung</a>, <a href="#a-xss">XSS</a>, <a href="#a-rollen">Rollen</a>, <a href="#a-secrets">Secrets</a></td><td>… typische Sicherheitslücken erkennen und vermeiden.</td></tr>
+        <tr><td>6. Qualität</td><td><a href="#a-tests">Tests</a>, <a href="#a-ci">CI/CD</a>, <a href="#a-regeln">Projektregeln</a></td><td>… einen Test schreiben und einen sauberen Commit machen.</td></tr>
+        <tr><td>7. Betrieb</td><td><a href="#a-docker">Docker</a>, <a href="#a-nginx">Nginx &amp; TLS</a>, <a href="#a-backup">Backup</a>, <a href="#a-fehler">Fehlerbehebung</a></td><td>… ein Update einspielen und Probleme selbst diagnostizieren.</td></tr>
+      </table></div>
+      <div class="hinweis ok"><b>Tipp für die Praxis</b> Lies einen Artikel, öffne dann die genannten Dateien im Editor und verfolge den Code mit dem Finger. Stelle dir zu jeder Funktion drei Fragen: <i>Was kommt rein? Was geht raus? Was kann schiefgehen?</i></div>
+      <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://www.w3schools.com/python/" target="_blank" rel="noopener">Python-Tutorial</a><span class="typ">W3Schools</span></li>
+        <li><a href="https://flask.palletsprojects.com/en/stable/tutorial/" target="_blank" rel="noopener">Flask-Tutorial (offiziell)</a><span class="typ">Flask</span></li>
+        <li><a href="https://www.w3schools.com/sql/" target="_blank" rel="noopener">SQL-Tutorial</a><span class="typ">W3Schools</span></li>
+        <li><a href="https://developer.mozilla.org/de/docs/Learn" target="_blank" rel="noopener">Webentwicklung lernen</a><span class="typ">MDN (Deutsch)</span></li>
+      </ul></div>
+    </article>
+
+    <!-- ============================================================ ARCHITEKTUR -->
+    <article id="a-gesamtbild" data-gruppe="Architektur" data-titel="Gesamtbild" data-icon="🏗">
+      <h1>Das Gesamtbild</h1>
+      <p class="lead">Vier Bausteine arbeiten zusammen: der Browser, Nginx als Türsteher, die Flask-Anwendung und die PostgreSQL-Datenbank. Alles läuft in Docker-Containern.</p>
+      <figure>
+        <div class="diagramm">
+          <svg viewBox="0 0 900 360" role="group" aria-labelledby="d1t d1d">
+            <title id="d1t">Architektur des Bellmann Calendar</title>
+            <desc id="d1d">Der Browser spricht über HTTPS Port 8443 mit Nginx. Nginx leitet an Gunicorn mit der Flask-App weiter, die mit PostgreSQL spricht. Nebenbei nutzt die App SMTP für E-Mails und optional die Google Calendar API.</desc>
+            <rect x="0" y="40" width="900" height="300" rx="16" fill="none" class="d-linie d-strich" />
+            <text x="16" y="62" class="d-klein">Docker Compose (internes Netzwerk)</text>
+            <g data-geh="a-frontend" tabindex="0" role="link" aria-label="Browser – Artikel Frontend">
+              <rect x="10" y="150" width="140" height="80" rx="12" class="d-box akzent"/>
+              <text x="80" y="186" text-anchor="middle" class="d-text">Browser</text>
+              <text x="80" y="206" text-anchor="middle" class="d-klein">HTML · JS · Cookies</text>
+            </g>
+            <g data-geh="a-nginx" tabindex="0" role="link" aria-label="Nginx – Artikel Nginx und TLS">
+              <rect x="220" y="140" width="160" height="100" rx="12" class="d-box navy"/>
+              <text x="300" y="180" text-anchor="middle" class="d-weiß">Nginx</text>
+              <text x="300" y="200" text-anchor="middle" class="d-weiß" style="font-weight:400;font-size:12px">TLS · Header · Rate-Limit</text>
+            </g>
+            <g data-geh="a-gunicorn" tabindex="0" role="link" aria-label="Gunicorn und Flask – Artikel Gunicorn">
+              <rect x="450" y="120" width="190" height="140" rx="12" class="d-box"/>
+              <text x="545" y="150" text-anchor="middle" class="d-text">Gunicorn</text>
+              <rect x="470" y="165" width="150" height="75" rx="10" class="d-box akzent"/>
+              <text x="545" y="198" text-anchor="middle" class="d-text">Flask-App</text>
+              <text x="545" y="218" text-anchor="middle" class="d-klein">Routen · Services · Models</text>
+            </g>
+            <g data-geh="a-datenmodell" tabindex="0" role="link" aria-label="PostgreSQL – Artikel Datenmodell">
+              <rect x="720" y="140" width="160" height="100" rx="12" class="d-box ok"/>
+              <text x="800" y="182" text-anchor="middle" class="d-text">PostgreSQL 16</text>
+              <text x="800" y="202" text-anchor="middle" class="d-klein">Volume postgres_data</text>
+            </g>
+            <line x1="150" y1="190" x2="216" y2="190" class="d-linie akzent" marker-end="url(#pfeil-akzent)"/>
+            <text x="183" y="178" text-anchor="middle" class="d-klein">HTTPS</text>
+            <text x="183" y="212" text-anchor="middle" class="d-mono">:8443</text>
+            <line x1="380" y1="190" x2="446" y2="190" class="d-linie" marker-end="url(#pfeil)"/>
+            <text x="413" y="178" text-anchor="middle" class="d-klein">HTTP</text>
+            <text x="413" y="212" text-anchor="middle" class="d-mono">web:5000</text>
+            <line x1="640" y1="190" x2="716" y2="190" class="d-linie" marker-end="url(#pfeil)"/>
+            <text x="678" y="178" text-anchor="middle" class="d-klein">SQL</text>
+            <text x="678" y="212" text-anchor="middle" class="d-mono">db:5432</text>
+            <g data-geh="a-benachrichtigung" tabindex="0" role="link" aria-label="SMTP – Artikel Benachrichtigungen">
+              <rect x="455" y="285" width="85" height="40" rx="8" class="d-box warn"/>
+              <text x="497" y="310" text-anchor="middle" class="d-klein">SMTP</text>
+            </g>
+            <g data-geh="a-google" tabindex="0" role="link" aria-label="Google Calendar – Artikel Google">
+              <rect x="550" y="285" width="95" height="40" rx="8" class="d-box warn"/>
+              <text x="597" y="310" text-anchor="middle" class="d-klein">Google API</text>
+            </g>
+            <line x1="520" y1="260" x2="505" y2="283" class="d-linie d-strich" marker-end="url(#pfeil)"/>
+            <line x1="575" y1="260" x2="590" y2="283" class="d-linie d-strich" marker-end="url(#pfeil)"/>
+            <text x="20" y="22" class="d-klein">http://…:8080 wird dauerhaft auf https://…:8443 umgeleitet</text>
+          </svg>
+        </div>
+        <figcaption>Abbildung 1 – Architektur. Klick auf einen Kasten öffnet den passenden Artikel. Von außen erreichbar ist <b>nur</b> Nginx.</figcaption>
+      </figure>
+      <h2>Wer macht was?</h2>
+      <div class="tabelle-wrap"><table>
+        <tr><th>Baustein</th><th>Aufgabe</th><th>Datei(en)</th></tr>
+        <tr><td>Browser</td><td>Zeigt die Seiten, lädt Daten per <code>fetch</code> aus der JSON-API.</td><td><a data-datei="app/static/js/app.js">app/static/js/app.js</a>, <a data-datei="app/templates/base.html">app/templates/</a></td></tr>
+        <tr><td>Nginx</td><td>Reverse Proxy: verschlüsselt (TLS), setzt Sicherheits-Header, bremst Brute-Force-Versuche.</td><td><a data-datei="nginx/nginx.conf">nginx/nginx.conf</a></td></tr>
+        <tr><td>Gunicorn</td><td>WSGI-Server: startet mehrere Prozesse und Threads, die die Flask-App ausführen.</td><td><a data-datei="gunicorn.conf.py">gunicorn.conf.py</a></td></tr>
+        <tr><td>Flask-App</td><td>Die eigentliche Logik: Anmeldung, Termine, Rechte, Benachrichtigungen.</td><td><a data-datei="app/__init__.py">app/</a></td></tr>
+        <tr><td>PostgreSQL</td><td>Speichert alle Daten dauerhaft im Docker-Volume <code>postgres_data</code>.</td><td><a data-datei="app/models/__init__.py">app/models/</a>, <a data-datei="migrations/env.py">migrations/</a></td></tr>
+      </table></div>
+      <div class="hinweis"><b>Warum nicht einfach Flask direkt ins Internet?</b> Der eingebaute Flask-Server ist nur für die Entwicklung gedacht. Nginx kann TLS, Kompression, Rate-Limiting und statische Dateien viel effizienter – und schützt Gunicorn vor langsamen oder böswilligen Clients.</div>
+      <div class="quiz" data-richtig="2"><h3>🧠 Wissensfrage</h3><p>Welcher Baustein ist als einziger direkt vom Browser aus erreichbar?</p>
+        <button>PostgreSQL</button><button>Gunicorn</button><button>Nginx</button>
+        <p class="erklärung">Richtig ist <b>Nginx</b>. Web-App und Datenbank verwenden in <code>docker-compose.yml</code> nur <code>expose</code> – sie sind ausschließlich im internen Docker-Netzwerk sichtbar.</p></div>
+      <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://developer.mozilla.org/de/docs/Web/HTTP/Overview" target="_blank" rel="noopener">Überblick über HTTP</a><span class="typ">MDN (Deutsch)</span></li>
+        <li><a href="https://flask.palletsprojects.com/en/stable/deploying/" target="_blank" rel="noopener">Flask in Produktion betreiben</a><span class="typ">Flask</span></li>
+        <li><a href="https://docs.docker.com/compose/" target="_blank" rel="noopener">Docker Compose</a><span class="typ">Docker</span></li>
+      </ul></div>
+    </article>
+
+    <article id="a-anfrage" data-gruppe="Architektur" data-titel="Lebenszyklus einer Anfrage" data-icon="🔄">
+      <h1>Der Lebenszyklus einer Anfrage</h1>
+      <p class="lead">Was passiert genau, wenn eine Teamleitung im Kalender auf „Speichern“ klickt? Wir verfolgen <code>POST /api/v1/events</code> vom Klick bis zur Antwort.</p>
+      <figure>
+        <div class="diagramm">
+          <svg viewBox="0 0 900 470" role="img" aria-labelledby="d2t">
+            <title id="d2t">Sequenzdiagramm: Termin anlegen</title>
+            <g class="d-text" text-anchor="middle">
+              <rect x="20" y="10" width="130" height="40" rx="8" class="d-box akzent"/><text x="85" y="35">Browser</text>
+              <rect x="195" y="10" width="130" height="40" rx="8" class="d-box navy"/><text x="260" y="35" class="d-weiß">Nginx</text>
+              <rect x="370" y="10" width="150" height="40" rx="8" class="d-box"/><text x="445" y="35">Route + JWT</text>
+              <rect x="565" y="10" width="140" height="40" rx="8" class="d-box"/><text x="635" y="35">EventService</text>
+              <rect x="750" y="10" width="130" height="40" rx="8" class="d-box ok"/><text x="815" y="35">PostgreSQL</text>
+            </g>
+            <line x1="85" y1="50" x2="85" y2="460" class="d-lebenslinie"/><line x1="260" y1="50" x2="260" y2="460" class="d-lebenslinie"/>
+            <line x1="445" y1="50" x2="445" y2="460" class="d-lebenslinie"/><line x1="635" y1="50" x2="635" y2="460" class="d-lebenslinie"/>
+            <line x1="815" y1="50" x2="815" y2="460" class="d-lebenslinie"/>
+            <g class="d-klein">
+              <line x1="85" y1="85" x2="256" y2="85" class="d-linie akzent" marker-end="url(#pfeil-akzent)"/><text x="170" y="78" text-anchor="middle">① POST + Cookie + X-CSRF-TOKEN</text>
+              <line x1="260" y1="120" x2="441" y2="120" class="d-linie" marker-end="url(#pfeil)"/><text x="350" y="113" text-anchor="middle">② TLS entschlüsselt, weitergeleitet</text>
+              <line x1="445" y1="150" x2="811" y2="150" class="d-linie" marker-end="url(#pfeil)"/><text x="630" y="143" text-anchor="middle">③ Token prüfen, User + Rolle laden (1 SELECT mit JOIN)</text>
+              <text x="455" y="182">④ @role_required: CEO/ADMIN/TEAM_LEADER?</text>
+              <line x1="445" y1="205" x2="631" y2="205" class="d-linie" marker-end="url(#pfeil)"/><text x="540" y="198" text-anchor="middle">⑤ create_event(data)</text>
+              <text x="645" y="232">⑥ Validieren, Rechte, Puffer</text>
+              <line x1="635" y1="255" x2="811" y2="255" class="d-linie" marker-end="url(#pfeil)"/><text x="725" y="248" text-anchor="middle">⑦ Kollision? (SQL)</text>
+              <line x1="635" y1="290" x2="811" y2="290" class="d-linie ok" marker-end="url(#pfeil-ok)"/><text x="725" y="283" text-anchor="middle">⑧ INSERT + COMMIT</text>
+              <text x="645" y="322">⑨ nach COMMIT: E-Mail im Hintergrund</text>
+              <line x1="631" y1="350" x2="449" y2="350" class="d-linie" marker-end="url(#pfeil)"/><text x="540" y="343" text-anchor="middle">⑩ (event, None, 201)</text>
+              <line x1="441" y1="385" x2="264" y2="385" class="d-linie" marker-end="url(#pfeil)"/><text x="352" y="378" text-anchor="middle">⑪ JSON 201</text>
+              <line x1="256" y1="420" x2="89" y2="420" class="d-linie akzent" marker-end="url(#pfeil-akzent)"/><text x="172" y="413" text-anchor="middle">⑫ + Security-Header</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption>Abbildung 2 – Ablauf von „Termin anlegen“. Fehler (z. B. 403, 409 Kollision) verlassen den Ablauf früher mit JSON <code>{"error": …}</code>.</figcaption>
+      </figure>
+      <h2>Die Schritte im Code</h2>
+      <ol>
+        <li><b>Frontend:</b> <code>apiFetch()</code> in <a data-datei="app/static/js/app.js">app.js</a> schickt das Formular als JSON, der Browser hängt die HttpOnly-Cookies automatisch an, <code>apiFetch</code> ergänzt den Header <code>X-CSRF-TOKEN</code>.</li>
+        <li><b>Nginx</b> entschlüsselt TLS und setzt <code>X-Forwarded-For</code>, damit die App die echte Client-IP kennt (<code>ProxyFix</code>).</li>
+        <li><b>Flask-JWT-Extended</b> prüft Signatur, Ablaufzeit und CSRF und ruft <code>load_user()</code> in <a data-datei="app/security.py">app/security.py</a> auf.</li>
+        <li><b>@role_required</b> in <a data-datei="app/decorators/auth.py">app/decorators/auth.py</a> vergleicht die Rolle aus der Datenbank.</li>
+        <li><b>Route</b> <code>create_event()</code> in <a data-datei="app/routes/event_routes.py">event_routes.py</a> ruft den Service auf – sie enthält selbst keine Logik.</li>
+        <li><b>EventService.create_event()</b> in <a data-datei="app/services/event_service.py">event_service.py</a> validiert, prüft Rechte und Kollisionen, speichert und schreibt das Audit-Log.</li>
+        <li>Nach dem <code>COMMIT</code> verschickt ein Hook die E-Mail (<a data-datei="app/utils/transaction.py">transaction.py</a>).</li>
+      </ol>
+      <div class="quiz" data-richtig="1"><h3>🧠 Wissensfrage</h3><p>Warum wird die E-Mail erst <i>nach</i> dem COMMIT verschickt?</p>
+        <button>Weil SMTP sonst zu schnell wäre</button><button>Damit keine Mail zu einem Termin rausgeht, der am Ende gar nicht gespeichert wurde</button><button>Weil Flask das so vorschreibt</button>
+        <p class="erklärung">Scheitert der Commit (z. B. Datenbankfehler), wird zurückgerollt – dann darf auch keine „Ihnen wurde ein Termin zugewiesen“-Mail existieren. Zusätzlich blockiert ein langsamer Mailserver so nicht die offene Transaktion.</p></div>
+      <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://developer.mozilla.org/de/docs/Web/API/Fetch_API/Using_Fetch" target="_blank" rel="noopener">Fetch-API verwenden</a><span class="typ">MDN (Deutsch)</span></li>
+        <li><a href="https://developer.mozilla.org/de/docs/Web/HTTP/Status" target="_blank" rel="noopener">HTTP-Statuscodes</a><span class="typ">MDN (Deutsch)</span></li>
+        <li><a href="https://flask.palletsprojects.com/en/stable/lifecycle/" target="_blank" rel="noopener">Lebenszyklus einer Flask-Anfrage</a><span class="typ">Flask</span></li>
+      </ul></div>
+    </article>
+
+    <article id="a-schichten" data-gruppe="Architektur" data-titel="Schichten und Ordner" data-icon="🧱">
+      <h1>Schichten und Ordnerstruktur</h1>
+      <p class="lead">Der Code ist in Schichten aufgeteilt. Jede Schicht hat genau eine Aufgabe und spricht nur mit der Schicht darunter – so bleibt der Code testbar und verständlich.</p>
+      <figure>
+        <div class="diagramm">
+          <svg viewBox="0 0 900 300" role="group" aria-labelledby="d3t">
+            <title id="d3t">Schichtenmodell</title>
+            <g data-geh="a-anfrage" tabindex="0" role="link" aria-label="Routen">
+              <rect x="120" y="10" width="660" height="56" rx="10" class="d-box akzent"/><text x="140" y="44" class="d-text">Routen  app/routes/</text><text x="760" y="44" text-anchor="end" class="d-klein">HTTP rein/raus · JSON · @jwt_required · @role_required</text></g>
+            <g data-geh="a-termine" tabindex="0" role="link" aria-label="Services">
+              <rect x="120" y="82" width="660" height="56" rx="10" class="d-box"/><text x="140" y="116" class="d-text">Services  app/services/</text><text x="760" y="116" text-anchor="end" class="d-klein">Geschäftsregeln · Validierung · Transaktion · Audit-Log</text></g>
+            <g data-geh="a-datenmodell" tabindex="0" role="link" aria-label="Models">
+              <rect x="120" y="154" width="660" height="56" rx="10" class="d-box ok"/><text x="140" y="188" class="d-text">Models  app/models/</text><text x="760" y="188" text-anchor="end" class="d-klein">Tabellen · Beziehungen · Indizes (SQLAlchemy ORM)</text></g>
+            <rect x="120" y="226" width="660" height="56" rx="10" class="d-box navy"/><text x="140" y="260" class="d-weiß">PostgreSQL</text><text x="760" y="260" text-anchor="end" class="d-weiß" style="font-weight:400;font-size:12px">Schema nur über Alembic-Migrationen</text>
+            <g class="d-klein"><text x="60" y="44" text-anchor="middle">oben</text><text x="60" y="260" text-anchor="middle">unten</text></g>
+            <line x1="60" y1="56" x2="60" y2="240" class="d-linie" marker-end="url(#pfeil)"/>
+          </svg>
+        </div>
+        <figcaption>Abbildung 3 – Jede Schicht kennt nur die darunterliegende. Klick öffnet einen Beispiel-Artikel.</figcaption>
+      </figure>
+      <h2>Regeln für Services</h2>
+      <ul>
+        <li><b>Kein HTTP:</b> Services kennen weder <code>request</code> noch <code>jsonify</code>. Sie geben Tupel zurück: <code>(ergebnis, fehlertext, statuscode)</code>.</li>
+        <li><b>Eine Transaktion pro Anwendungsfall:</b> Der Service committet selbst.</li>
+        <li><b>Nebenwirkungen nach außen</b> (E-Mail, Google) erst nach dem Commit.</li>
+      </ul>
+<pre><code><span class="c"># app/routes/event_routes.py – die Route ist nur ein dünner Übersetzer</span>
+<span class="k">def</span> <span class="n">create_event</span>():
+    data = request.get_json(silent=<span class="k">True</span>) <span class="k">or</span> {}
+    event, error_message, status_code = EventService.create_event(data, current_user.id)
+    <span class="k">if</span> error_message:
+        <span class="k">return</span> jsonify({<span class="s">"error"</span>: <span class="s">"Terminerstellung fehlgeschlagen"</span>, <span class="s">"message"</span>: error_message}), status_code
+    <span class="k">return</span> jsonify({<span class="s">"event"</span>: serialize_event(event)}), <span class="n">201</span></code></pre>
+      <h2>Die wichtigsten Ordner</h2>
+      <div class="tabelle-wrap"><table>
+        <tr><th>Ordner / Datei</th><th>Inhalt</th></tr>
+        <tr><td><code>app/routes/</code></td><td>Blueprints: <code>auth</code>, <code>events</code>, <code>rsvps</code>, <code>teams</code>, <code>customers</code>, <code>notifications</code>, HTML-Seiten</td></tr>
+        <tr><td><code>app/services/</code></td><td>Logik: Event, RSVP, User, Auth, Authorization, Notification, E-Mail, Google Calendar …</td></tr>
+        <tr><td><code>app/models/</code></td><td>User, Role, Team, Event, EventRSVP, Customer, AuditLog, Notification</td></tr>
+        <tr><td><code>app/utils/</code></td><td><code>time.py</code> (Zeitzonen), <code>transaction.py</code> (Aktionen nach dem Commit)</td></tr>
+        <tr><td><code>migrations/</code></td><td>Alembic-Migrationen – Historie des Datenbankschemas</td></tr>
+        <tr><td><code>tests/</code></td><td>pytest-Suite gegen eine echte PostgreSQL</td></tr>
+        <tr><td><code>scripts/</code></td><td>Betriebsskripte: Backup, TLS-Zertifikat, Google-Test</td></tr>
+      </table></div>
+      <div class="quiz" data-richtig="0"><h3>🧠 Wissensfrage</h3><p>Wo gehört die Regel „Nicht-CEOs dürfen nur 15–30 Minuten Puffer setzen“ hin?</p>
+        <button>In den Service (EventService.validate_buffers)</button><button>In die Route</button><button>In das JavaScript im Browser</button>
+        <p class="erklärung">Geschäftsregeln gehören in den Service. Eine Prüfung nur im Browser wäre wertlos – jeder kann die API direkt aufrufen. Das Frontend darf die Regel <i>zusätzlich</i> anzeigen, entscheidend ist der Server.</p></div>
+      <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://flask.palletsprojects.com/en/stable/blueprints/" target="_blank" rel="noopener">Blueprints</a><span class="typ">Flask</span></li>
+        <li><a href="https://www.w3schools.com/python/python_classes.asp" target="_blank" rel="noopener">Klassen und Objekte in Python</a><span class="typ">W3Schools</span></li>
+        <li><a href="https://martinfowler.com/bliki/PresentationDomainDataLayering.html" target="_blank" rel="noopener">Presentation-Domain-Data Layering</a><span class="typ">Martin Fowler</span></li>
+      </ul></div>
+    </article>
+
+    <article id="a-factory" data-gruppe="Architektur" data-titel="Application Factory und Konfiguration" data-icon="⚙️">
+      <h1>Application Factory und Konfiguration</h1>
+      <p class="lead"><code>create_app()</code> baut die Anwendung zusammen. Welche Einstellungen gelten, entscheidet die Umgebungsvariable <code>APP_ENV</code> – Werte kommen immer aus der <code>.env</code>, nie aus dem Code.</p>
+      <h2>Was <code>create_app()</code> der Reihe nach macht</h2>
+      <ol>
+        <li>Konfigurationsklasse wählen (<code>production</code>, <code>development</code>, <code>testing</code>) und <b>validieren</b> – in Produktion bricht der Start ab, wenn <code>SECRET_KEY</code> oder <code>JWT_SECRET_KEY</code> fehlen oder kürzer als 32 Zeichen sind („Fail-fast“).</li>
+        <li>JSON-Logging einrichten (<a data-datei="app/logging_config.py">logging_config.py</a>).</li>
+        <li>Erweiterungen binden: SQLAlchemy, JWT, Migrate, Limiter.</li>
+        <li><code>ProxyFix</code>: vertraut genau <b>einem</b> Proxy (Nginx) für die echte Client-IP.</li>
+        <li>JWT-Callbacks und globale Fehler-Handler registrieren.</li>
+        <li>Blueprints registrieren und <code>/health</code> bereitstellen (prüft auch die Datenbank).</li>
+      </ol>
+<pre><code><span class="c"># app/config.py (Auszug)</span>
+<span class="k">class</span> <span class="n">ProductionConfig</span>(BaseConfig):
+    DEBUG = <span class="k">False</span>   <span class="c"># unabhängig von der .env immer aus</span>
+
+    @classmethod
+    <span class="k">def</span> <span class="n">validate</span>(cls) -> <span class="k">None</span>:
+        <span class="k">for</span> name <span class="k">in</span> (<span class="s">"SECRET_KEY"</span>, <span class="s">"JWT_SECRET_KEY"</span>):
+            <span class="k">if</span> len(getattr(cls, name) <span class="k">or</span> <span class="s">""</span>) &lt; <span class="n">32</span>:
+                <span class="k">raise</span> RuntimeError(f<span class="s">"{name} fehlt oder ist kürzer als 32 Zeichen."</span>)</code></pre>
+      <div class="hinweis"><b>Warum ein „Factory“-Muster?</b> Tests können mit <code>create_app(TestingConfig)</code> eine eigene App mit Test-Datenbank erzeugen, Gunicorn und Alembic eine mit Produktionseinstellungen – ohne globale Seiteneffekte beim Import.</div>
+      <h2>Das 12-Factor-Prinzip</h2>
+      <p>Konfiguration gehört in die Umgebung, nicht in den Code. Deshalb liegen alle Werte in der <code>.env</code> (nicht in Git), die Vorlage mit Erklärungen ist <a data-datei=".env.example">.env.example</a>. <code>docker-compose.yml</code> erzwingt zusätzlich <code>APP_ENV=production</code> und <code>FLASK_DEBUG=0</code>.</p>
+      <div class="quiz" data-richtig="1"><h3>🧠 Wissensfrage</h3><p>Was passiert, wenn in Produktion <code>JWT_SECRET_KEY</code> fehlt?</p>
+        <button>Die App nimmt einen Standardwert</button><button>Die App startet nicht und meldet den Fehler</button><button>Logins funktionieren ohne Signatur</button>
+        <p class="erklärung">Fail-fast: Ein Standardwert wäre öffentlich bekannt – jeder könnte gültige Tokens fälschen. Lieber gar nicht starten.</p></div>
+      <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://flask.palletsprojects.com/en/stable/patterns/appfactories/" target="_blank" rel="noopener">Application Factories</a><span class="typ">Flask</span></li>
+        <li><a href="https://12factor.net/de/config" target="_blank" rel="noopener">Konfiguration in der Umgebung</a><span class="typ">The Twelve-Factor App (Deutsch)</span></li>
+        <li><a href="https://werkzeug.palletsprojects.com/en/stable/middleware/proxy_fix/" target="_blank" rel="noopener">ProxyFix</a><span class="typ">Werkzeug</span></li>
+      </ul></div>
+    </article>
+
+    <article id="a-frontend" data-gruppe="Architektur" data-titel="Frontend und API" data-icon="🖥">
+      <h1>Frontend und JSON-API</h1>
+      <p class="lead">Die HTML-Seiten sind nur Hüllen. Alle Daten lädt das JavaScript über die JSON-API unter <code>/api/v1/…</code> – geschützt durch Cookies und CSRF-Token.</p>
+      <h2>Der zentrale Helfer <code>apiFetch()</code></h2>
+      <ul>
+        <li>schickt Cookies mit (<code>credentials: "same-origin"</code>),</li>
+        <li>setzt bei POST/PUT/DELETE den Header <code>X-CSRF-TOKEN</code> aus dem lesbaren Cookie <code>csrf_access_token</code>,</li>
+        <li>wandelt Objekte automatisch in JSON um,</li>
+        <li>versucht bei <code>401</code> einmal still, die Sitzung zu verlängern (<code>POST /api/v1/auth/refresh</code>), sonst Weiterleitung zum Login.</li>
+      </ul>
+      <h2>Wo liegt welcher Code?</h2>
+      <div class="tabelle-wrap"><table>
+        <tr><th>Datei</th><th>Aufgabe</th></tr>
+        <tr><td><a data-datei="app/static/js/app.js">app/static/js/app.js</a></td><td><code>apiFetch</code>, Sitzung, Kopfzeile, Benachrichtigungen – auf jeder Seite geladen</td></tr>
+        <tr><td><a data-datei="app/static/js/ui.js">app/static/js/ui.js</a></td><td>DOM-Baukasten <code>h()</code> (sicher statt <code>innerHTML</code>), Icons, <code>toast()</code>, <code>confirmDialog()</code>, Dropdowns</td></tr>
+        <tr><td><code>app/static/js/pages/*.js</code></td><td>Logik je Seite: Login, Kalender, Mitarbeiter, Kunden, Audit-Log, Vergleich, Passwort-Reset</td></tr>
+        <tr><td><code>app/templates/*.html</code></td><td>Seitenhüllen (Jinja2) – enthalten <b>kein</b> JavaScript</td></tr>
+      </table></div>
+      <h2>Wichtige Endpunkte</h2>
+      <div class="tabelle-wrap"><table>
+        <tr><th>Methode &amp; Pfad</th><th>Zweck</th><th>Rollen</th></tr>
+        <tr><td><code>POST /api/v1/auth/login</code></td><td>Anmelden, setzt Cookies</td><td>alle</td></tr>
+        <tr><td><code>GET /api/v1/auth/me</code></td><td>eingeloggter Benutzer</td><td>angemeldet</td></tr>
+        <tr><td><code>GET /api/v1/events?start=&amp;end=</code></td><td>sichtbare Termine im Zeitraum</td><td>angemeldet (gefiltert nach Rolle)</td></tr>
+        <tr><td><code>POST / PUT / DELETE /api/v1/events</code></td><td>Termin anlegen / ändern / löschen</td><td>CEO, ADMIN, TEAM_LEADER</td></tr>
+        <tr><td><code>PUT /api/v1/events/&lt;id&gt;/rsvp</code></td><td>zu- oder absagen</td><td>eingeladene Person</td></tr>
+        <tr><td><code>GET /api/v1/events/audit</code></td><td>Audit-Log</td><td>CEO, ADMIN</td></tr>
+        <tr><td><code>/api/v1/customers</code></td><td>Kunden verwalten</td><td>lesen: CEO/ADMIN/TL · schreiben: CEO/ADMIN</td></tr>
+        <tr><td><code>/api/v1/auth/users…</code></td><td>Benutzerverwaltung, CSV-Import</td><td>CEO, ADMIN</td></tr>
+      </table></div>
+      <div class="hinweis warn"><b>Zeiten</b> Die API liefert alle Zeiten in UTC mit Offset (<code>2026-10-01T08:00:00+00:00</code>). FullCalendar rechnet sie im Browser in die lokale Zeit um. Formulare senden <code>new Date(wert).toISOString()</code>.</div>
+      <div class="quiz" data-richtig="2"><h3>🧠 Wissensfrage</h3><p>Warum kann das JavaScript das Anmelde-Token <b>nicht</b> lesen?</p>
+        <button>Weil es verschlüsselt ist</button><button>Weil es im localStorage liegt</button><button>Weil es in einem HttpOnly-Cookie steckt</button>
+        <p class="erklärung">HttpOnly-Cookies schickt der Browser automatisch mit, gibt sie aber nie an JavaScript heraus. Selbst eine XSS-Lücke kann das Token so nicht stehlen.</p></div>
+      <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://www.w3schools.com/js/js_api_fetch.asp" target="_blank" rel="noopener">Fetch-API</a><span class="typ">W3Schools</span></li>
+        <li><a href="https://www.w3schools.com/js/js_json_intro.asp" target="_blank" rel="noopener">JSON-Einführung</a><span class="typ">W3Schools</span></li>
+        <li><a href="https://fullcalendar.io/docs" target="_blank" rel="noopener">FullCalendar-Dokumentation</a><span class="typ">FullCalendar</span></li>
+      </ul></div>
+    </article>
+
+
+    <article id="a-design" data-gruppe="Architektur" data-titel="Oberfläche und Designsystem" data-icon="🎨">
+      <h1>Oberfläche und Designsystem</h1>
+      <p class="lead">Seit dem 25.09.2026 hat der Bellmann Calendar ein komplett neues Design: einheitliche Komponenten, Dunkelmodus, mobile Ansicht – und dabei schneller und sicherer als vorher.</p>
+      <figure>
+        <div class="diagramm"><img src="img/dashboard.webp" width="1200" height="1280" alt="Neues Dashboard: Begrüßung, drei Kennzahlen und ein Wochenkalender mit farbigen Terminen" loading="lazy" style="width:100%;height:auto;border-radius:8px"></div>
+        <figcaption>Abbildung 13 – Das neue Dashboard mit Kennzahlen und Wochenkalender (Demodaten).</figcaption>
+      </figure>
+      <h2>Vorher und nachher</h2>
+      <div class="vorher-nachher">
+        <figure><img src="img/vorher-dashboard.webp" width="1200" height="965" alt="Altes Dashboard: schlichter Kalender ohne Termine, englische Knöpfe" loading="lazy" style="width:100%;height:auto;border-radius:8px;border:1px solid var(--linie)"><figcaption>Vorher</figcaption></figure>
+        <figure><img src="img/dashboard-dunkel.webp" width="1200" height="1280" alt="Neues Dashboard im Dunkelmodus" loading="lazy" style="width:100%;height:auto;border-radius:8px;border:1px solid var(--linie)"><figcaption>Nachher – im Dunkelmodus</figcaption></figure>
+      </div>
+      <div class="raster">
+        <figure class="karte" style="padding:10px"><img src="img/login.webp" width="1200" height="750" alt="Anmeldeseite mit Markenbereich links und Formular rechts" loading="lazy" style="width:100%;height:auto;border-radius:6px"><figcaption>Anmeldung</figcaption></figure>
+        <figure class="karte" style="padding:10px"><img src="img/mitarbeiter.webp" width="1200" height="750" alt="Mitarbeiterliste mit Suche, Rollenfilter und Aktionen" loading="lazy" style="width:100%;height:auto;border-radius:6px"><figcaption>Mitarbeiter</figcaption></figure>
+        <figure class="karte" style="padding:10px"><img src="img/audit-log.webp" width="1200" height="1500" alt="Audit-Log mit Filtern und Einträgen" loading="lazy" style="width:100%;height:auto;border-radius:6px"><figcaption>Audit-Log</figcaption></figure>
+        <figure class="karte" style="padding:10px"><img src="img/dashboard-mobil.webp" width="420" height="1450" alt="Dashboard auf dem Smartphone als Terminliste" loading="lazy" style="width:100%;height:auto;border-radius:6px"><figcaption>Smartphone (Listenansicht)</figcaption></figure>
+      </div>
+      <h2>Das Designsystem</h2>
+      <ul>
+        <li><b>Farben als Tokens:</b> eine Markenskala um Navy <code>#1A365D</code> und Akzent <code>#2B6CB0</code>. Komponenten nutzen nur semantische Namen (<code>bg-surface</code>, <code>text-fg</code>, <code>border-line</code>, <code>bg-primary</code> …) – so funktioniert der Dunkelmodus automatisch.</li>
+        <li><b>Komponenten:</b> Buttons, Karten, Eingabefelder, Badges, Avatare, Tabellen (unter 768 px als Karten), Skeleton-Ladezustände, native <code>&lt;dialog&gt;</code>-Fenster mit Fokusfalle, <code>toast()</code> statt <code>alert()</code>, <code>confirmDialog()</code> statt <code>confirm()</code>.</li>
+        <li><b>Schrift:</b> „Inter“, selbst gehostet als woff2 (keine Google-Fonts-Verbindung).</li>
+        <li><b>Barrierefreiheit (WCAG 2.2 AA):</b> Sprunglink, Landmarken, Labels, sichtbarer Fokus, <code>aria-live</code> für Meldungen, reduzierte Bewegung.</li>
+      </ul>
+      <h2>Der Build: von Tailwind-Klassen zur fertigen CSS-Datei</h2>
+      <figure>
+        <div class="diagramm">
+          <svg viewBox="0 0 900 170" role="img" aria-labelledby="d13t">
+            <title id="d13t">Frontend-Build im Docker-Image</title>
+            <g text-anchor="middle">
+              <rect x="10" y="40" width="190" height="80" rx="10" class="d-box akzent"/><text x="105" y="72" class="d-text">frontend/app.css</text><text x="105" y="92" class="d-klein">Tokens + Komponenten</text><text x="105" y="108" class="d-klein">+ Templates &amp; JS</text>
+              <rect x="250" y="40" width="190" height="80" rx="10" class="d-box"/><text x="345" y="72" class="d-text">npm run build</text><text x="345" y="92" class="d-klein">Tailwind v4 CLI</text><text x="345" y="108" class="d-klein">Node-Stufe im Dockerfile</text>
+              <rect x="490" y="40" width="190" height="80" rx="10" class="d-box ok"/><text x="585" y="72" class="d-text">app/static/dist/</text><text x="585" y="92" class="d-klein">app.css ~50 KB (gzip ~10)</text><text x="585" y="108" class="d-klein">FullCalendar, Inter</text>
+              <rect x="730" y="40" width="160" height="80" rx="10" class="d-box navy"/><text x="810" y="72" class="d-weiß">Laufzeit-Image</text><text x="810" y="94" class="d-weiß" style="font-weight:400;font-size:12px">ohne Node.js</text>
+            </g>
+            <line x1="200" y1="80" x2="246" y2="80" class="d-linie" marker-end="url(#pfeil)"/><line x1="440" y1="80" x2="486" y2="80" class="d-linie" marker-end="url(#pfeil)"/><line x1="680" y1="80" x2="726" y2="80" class="d-linie" marker-end="url(#pfeil)"/>
+            <text x="450" y="155" text-anchor="middle" class="d-klein">Nur die tatsächlich verwendeten Klassen landen im CSS. Lokal: npm ci &amp;&amp; npm run build (Node.js ≥ 20).</text>
+          </svg>
+        </div>
+        <figcaption>Abbildung 14 – Der Frontend-Build. <code>app/static/dist/</code> ist nicht in Git, sondern wird gebaut.</figcaption>
+      </figure>
+      <h2>Performance</h2>
+      <div class="tabelle-wrap"><table>
+        <tr><th>Maßnahme</th><th>Effekt</th></tr>
+        <tr><td>Tailwind beim Build kompilieren statt Play-CDN</td><td>~10 KB statt eines großen Laufzeit-Skripts, kein Aufbau der Styles im Browser</td></tr>
+        <tr><td>Cache-Busting mit <code>asset_url()</code> (<a data-datei="app/utils/assets.py">app/utils/assets.py</a>)</td><td>Dateien werden ein Jahr gecacht (<code>immutable</code>), nach Updates gibt es automatisch eine neue URL</td></tr>
+        <tr><td>gzip in Nginx, Skripte mit <code>defer</code></td><td>kleinere Übertragung, kein blockiertes Rendern</td></tr>
+        <tr><td>FullCalendar nur auf Kalender-Seiten</td><td>Mitarbeiter-, Kunden- und Log-Seite laden weniger</td></tr>
+      </table></div>
+      <div class="hinweis ok"><b>Gemessen mit Lighthouse</b> Performance, Barrierefreiheit und Best Practices: jeweils 100 auf allen Seiten, auf Desktop und Mobilgerät.</div>
+      <h2>Regeln für neuen Frontend-Code</h2>
+      <ul>
+        <li>Kein Inline-JavaScript und keine <code>style="…"</code>-Attribute – neues Skript = neue Datei unter <code>app/static/js/pages/</code>.</li>
+        <li>API-Daten nie per <code>innerHTML</code>, sondern mit <code>h()</code> bzw. <code>textContent</code>.</li>
+        <li>Nur semantische Farb-Tokens verwenden, dann stimmt der Dunkelmodus automatisch.</li>
+        <li>Nach Änderungen an Klassen: <code>npm run build:css</code> (oder <code>npm run watch:css</code> beim Entwickeln).</li>
+      </ul>
+      <div class="quiz" data-richtig="1"><h3>🧠 Wissensfrage</h3><p>Du möchtest auf der Kundenseite einen neuen Knopf mit einer Klick-Aktion einbauen. Wie geht das richtig?</p>
+        <button><code>&lt;button onclick="speichern()"&gt;</code> im Template</button><button>Knopf im Template, Klick-Handler per <code>addEventListener</code> in <code>app/static/js/pages/customers.js</code></button><button>Ein <code>&lt;script&gt;</code>-Block direkt unter dem Knopf</button>
+        <p class="erklärung">Die CSP (<code>script-src 'self'</code>) blockiert Inline-Handler und Inline-Skripte – sie würden schlicht nicht ausgeführt. Außerdem schlägt der Test <code>test_seiten_ohne_inline_javascript</code> fehl.</p></div>
+      <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://tailwindcss.com/docs/installation/tailwind-cli" target="_blank" rel="noopener">Tailwind CSS mit der CLI</a><span class="typ">Tailwind CSS</span></li>
+        <li><a href="https://developer.mozilla.org/de/docs/Web/HTML/Element/dialog" target="_blank" rel="noopener">Das &lt;dialog&gt;-Element</a><span class="typ">MDN (Deutsch)</span></li>
+        <li><a href="https://web.dev/articles/http-cache" target="_blank" rel="noopener">HTTP-Caching richtig einsetzen</a><span class="typ">web.dev</span></li>
+        <li><a href="https://developer.chrome.com/docs/lighthouse/overview" target="_blank" rel="noopener">Lighthouse</a><span class="typ">Chrome</span></li>
+        <li><a href="https://www.w3.org/WAI/standards-guidelines/wcag/" target="_blank" rel="noopener">WCAG – Überblick</a><span class="typ">W3C</span></li>
+      </ul></div>
+    </article>
+
+    <!-- ============================================================ DATENBANK -->
+    <article id="a-datenmodell" data-gruppe="Datenbank" data-titel="Datenmodell" data-icon="🗄">
+      <h1>Das Datenmodell</h1>
+      <p class="lead">Acht Tabellen, verbunden über Fremdschlüssel. Jede Model-Klasse in <code>app/models/</code> entspricht genau einer Tabelle.</p>
+      <figure>
+        <div class="diagramm">
+          <svg viewBox="0 0 900 520" role="img" aria-labelledby="d4t">
+            <title id="d4t">Entity-Relationship-Diagramm</title>
+            <!-- Tabellen -->
+            <g><rect x="20" y="20" width="170" height="92" rx="10" class="d-box"/><text x="36" y="44" class="d-text">roles</text>
+              <text x="36" y="66" class="d-mono">id  PK</text><text x="36" y="84" class="d-mono">name  UNIQUE</text><text x="36" y="102" class="d-mono">permissions_json</text></g>
+            <g><rect x="20" y="180" width="170" height="92" rx="10" class="d-box"/><text x="36" y="204" class="d-text">teams</text>
+              <text x="36" y="226" class="d-mono">id  PK</text><text x="36" y="244" class="d-mono">name  UNIQUE</text><text x="36" y="262" class="d-mono">team_leader_id  FK</text></g>
+            <g><rect x="280" y="60" width="200" height="170" rx="10" class="d-box akzent"/><text x="296" y="84" class="d-text">users</text>
+              <text x="296" y="106" class="d-mono">id  PK</text><text x="296" y="124" class="d-mono">email  UNIQUE</text><text x="296" y="142" class="d-mono">password_hash</text>
+              <text x="296" y="160" class="d-mono">role_id  FK ⚡</text><text x="296" y="178" class="d-mono">team_id  FK ⚡</text><text x="296" y="196" class="d-mono">is_active</text><text x="296" y="214" class="d-mono">created_at  tz</text></g>
+            <g><rect x="580" y="170" width="220" height="230" rx="10" class="d-box ok"/><text x="596" y="194" class="d-text">events</text>
+              <text x="596" y="216" class="d-mono">id  PK</text><text x="596" y="234" class="d-mono">title, description</text><text x="596" y="252" class="d-mono">start_time, end_time  tz ⚡</text>
+              <text x="596" y="270" class="d-mono">buffer_before/after_mins</text><text x="596" y="288" class="d-mono">created_by_id  FK ⚡</text><text x="596" y="306" class="d-mono">assigned_to_id  FK ⚡</text>
+              <text x="596" y="324" class="d-mono">customer_id  FK ⚡</text><text x="596" y="342" class="d-mono">is_deleted, deleted_at</text><text x="596" y="360" class="d-mono">reallocation_required</text><text x="596" y="378" class="d-mono">parent_event_id  FK ⚡</text></g>
+            <g><rect x="620" y="20" width="180" height="92" rx="10" class="d-box"/><text x="636" y="44" class="d-text">customers</text>
+              <text x="636" y="66" class="d-mono">id  PK</text><text x="636" y="84" class="d-mono">name, email</text><text x="636" y="102" class="d-mono">color_hex</text></g>
+            <g><rect x="280" y="300" width="210" height="110" rx="10" class="d-box"/><text x="296" y="324" class="d-text">event_rsvps</text>
+              <text x="296" y="346" class="d-mono">event_id, user_id  UNIQUE</text><text x="296" y="364" class="d-mono">status</text><text x="296" y="382" class="d-mono">rejection_reason</text><text x="296" y="400" class="d-mono">updated_at  tz</text></g>
+            <g><rect x="20" y="340" width="200" height="92" rx="10" class="d-box"/><text x="36" y="364" class="d-text">notifications</text>
+              <text x="36" y="386" class="d-mono">user_id  FK ⚡</text><text x="36" y="404" class="d-mono">title, message, type</text><text x="36" y="422" class="d-mono">is_read, created_at</text></g>
+            <g><rect x="580" y="430" width="220" height="80" rx="10" class="d-box warn"/><text x="596" y="454" class="d-text">audit_logs</text>
+              <text x="596" y="476" class="d-mono">event_id, user_id  FK ⚡</text><text x="596" y="494" class="d-mono">action, timestamp, details_json</text></g>
+            <!-- Beziehungen -->
+            <path d="M190 66 H235 V150 H280" class="d-linie" marker-end="url(#pfeil)"/>
+            <path d="M190 226 H235 V170 H280" class="d-linie" marker-end="url(#pfeil)"/>
+            <path d="M480 150 H530 V300 H580" class="d-linie akzent" marker-end="url(#pfeil-akzent)"/>
+            <path d="M710 112 V168" class="d-linie" marker-end="url(#pfeil)"/>
+            <path d="M578 355 H490" class="d-linie" marker-end="url(#pfeil)"/>
+            <path d="M380 230 V298" class="d-linie" marker-end="url(#pfeil)"/>
+            <path d="M280 200 H250 V386 H222" class="d-linie" marker-end="url(#pfeil)"/>
+            <path d="M690 400 V428" class="d-linie" marker-end="url(#pfeil)"/>
+            <text x="500" y="292" class="d-klein">zugewiesen / erstellt</text>
+            <text x="20" y="480" class="d-klein">⚡ = indizierte Spalte   ·   tz = timestamptz (UTC)</text>
+            <text x="20" y="500" class="d-klein">Pfeil = Fremdschlüssel (zeigt auf die referenzierte Tabelle)</text>
+          </svg>
+        </div>
+        <figcaption>Abbildung 4 – Tabellen und Fremdschlüssel (vereinfacht). Pfeile zeigen von der referenzierten zur referenzierenden Tabelle.</figcaption>
+      </figure>
+      <h2>Besonderheiten</h2>
+      <ul>
+        <li><b>Soft-Delete:</b> Termine werden nie physisch gelöscht, sondern mit <code>is_deleted=True</code> markiert – das Audit-Log bleibt nachvollziehbar.</li>
+        <li><b>Eindeutigkeit:</b> Pro Termin und Person gibt es genau eine Rückmeldung (<code>UNIQUE(event_id, user_id)</code>).</li>
+        <li><b>ON DELETE:</b> RSVPs sterben mit dem Termin (<code>CASCADE</code>), Audit-Einträge bleiben erhalten (<code>SET NULL</code>).</li>
+        <li><b>Zirkuläre Beziehung</b> users ↔ teams: <code>use_alter=True</code> erzeugt den Fremdschlüssel erst nach beiden Tabellen.</li>
+      </ul>
+<pre><code><span class="c"># app/models/rsvp.py (Auszug)</span>
+<span class="k">class</span> <span class="n">EventRSVP</span>(db.Model):
+    __tablename__ = <span class="s">"event_rsvps"</span>
+    __table_args__ = (db.UniqueConstraint(<span class="s">"event_id"</span>, <span class="s">"user_id"</span>, name=<span class="s">"uq_event_rsvps_event_user"</span>),)
+    event_id = db.Column(db.Integer, db.ForeignKey(<span class="s">"events.id"</span>, ondelete=<span class="s">"CASCADE"</span>), nullable=<span class="k">False</span>)
+    user_id = db.Column(db.Integer, db.ForeignKey(<span class="s">"users.id"</span>), nullable=<span class="k">False</span>, index=<span class="k">True</span>)</code></pre>
+      <div class="quiz" data-richtig="1"><h3>🧠 Wissensfrage</h3><p>Warum werden Termine nur „soft“ gelöscht?</p>
+        <button>Weil DELETE in PostgreSQL langsam ist</button><button>Damit Historie und Audit-Log nachvollziehbar bleiben</button><button>Weil Flask kein DELETE kann</button>
+        <p class="erklärung">Wer hat wann welchen Termin gelöscht? Diese Frage muss auch später noch beantwortbar sein. Gelöschte Termine werden in allen Abfragen mit <code>Event.is_deleted.is_(False)</code> ausgefiltert.</p></div>
+      <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://www.w3schools.com/sql/sql_foreignkey.asp" target="_blank" rel="noopener">SQL FOREIGN KEY</a><span class="typ">W3Schools</span></li>
+        <li><a href="https://www.w3schools.com/sql/sql_unique.asp" target="_blank" rel="noopener">SQL UNIQUE</a><span class="typ">W3Schools</span></li>
+        <li><a href="https://docs.sqlalchemy.org/en/20/orm/basic_relationships.html" target="_blank" rel="noopener">Beziehungen in SQLAlchemy</a><span class="typ">SQLAlchemy</span></li>
+      </ul></div>
+    </article>
+
+    <article id="a-zeitzonen" data-gruppe="Datenbank" data-titel="Zeitzonen und timestamptz" data-icon="🌍">
+      <h1>Zeitzonen richtig behandeln</h1>
+      <p class="lead">Die wichtigste Regel: <b>In der Datenbank und im Python-Code ist jede Zeit UTC mit Zeitzonen-Information.</b> Umgerechnet wird nur an den Rändern.</p>
+      <div class="vorher-nachher">
+        <div><span class="etikett schlecht">✗ Verboten</span>
+<pre><code>datetime.utcnow()      <span class="c"># "naiv": keine Zone</span>
+datetime.now()         <span class="c"># lokale Zeit, naiv</span>
+db.Column(db.DateTime)  <span class="c"># timestamp ohne Zone</span></code></pre></div>
+        <div><span class="etikett gut">✓ Projektstandard</span>
+<pre><code>datetime.now(timezone.utc)  <span class="c"># oder utc_now()</span>
+parse_iso_datetime(wert)    <span class="c"># naiv = Berlin</span>
+db.Column(db.DateTime(timezone=<span class="k">True</span>))</code></pre></div>
+      </div>
+      <h2>Der Weg einer Uhrzeit</h2>
+      <ol>
+        <li>Die Teamleitung wählt im Formular <b>10:00</b> (deutsche Ortszeit, Sommerzeit = UTC+2).</li>
+        <li>Das JavaScript sendet <code>2026-10-01T08:00:00.000Z</code> (UTC).</li>
+        <li><code>parse_iso_datetime()</code> in <a data-datei="app/utils/time.py">app/utils/time.py</a> erzeugt ein „aware“ UTC-Datum. Kommt ein Wert <i>ohne</i> Zone, gilt er als Europe/Berlin.</li>
+        <li>PostgreSQL speichert <code>timestamptz</code> (intern UTC).</li>
+        <li>Die API liefert <code>2026-10-01T08:00:00+00:00</code>; FullCalendar zeigt wieder <b>10:00</b>.</li>
+      </ol>
+      <div class="hinweis gefahr"><b>Was früher schiefging</b> Termine wurden als „naive“ Ortszeit gespeichert, der Google-Kalender bekam sie aber als UTC – im Google-Kalender standen sie dadurch zwei Stunden verschoben. Die Migration <code>a7c9e2d4f6b8</code> hat alle alten Werte korrekt als Berliner Zeit nach UTC umgerechnet.</div>
+      <div class="quiz" data-richtig="0"><h3>🧠 Wissensfrage</h3><p>Ein API-Client sendet <code>"2026-12-24T18:00"</code> ohne Zeitzone. Welche UTC-Zeit wird gespeichert?</p>
+        <button>17:00 UTC (Berlin ist im Winter UTC+1)</button><button>18:00 UTC</button><button>16:00 UTC</button>
+        <p class="erklärung">Naive Werte gelten als Geschäftszeitzone <code>APP_TIMEZONE=Europe/Berlin</code>. Am 24.12. gilt Winterzeit (UTC+1), also 17:00 UTC.</p></div>
+      <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://www.w3schools.com/python/python_datetime.asp" target="_blank" rel="noopener">Python datetime</a><span class="typ">W3Schools</span></li>
+        <li><a href="https://docs.python.org/3/library/datetime.html#aware-and-naive-objects" target="_blank" rel="noopener">Aware und naive Objekte</a><span class="typ">Python-Doku</span></li>
+        <li><a href="https://www.postgresql.org/docs/16/datatype-datetime.html" target="_blank" rel="noopener">Datums-/Zeittypen</a><span class="typ">PostgreSQL</span></li>
+      </ul></div>
+    </article>
+
+    <article id="a-indizes" data-gruppe="Datenbank" data-titel="Indizes und N+1-Abfragen" data-icon="⚡">
+      <h1>Performance: Indizes und das N+1-Problem</h1>
+      <p class="lead">Zwei Klassiker, die jede ORM-Anwendung irgendwann langsam machen – und wie der Bellmann Calendar sie vermeidet.</p>
+      <h2>Indizes auf Fremdschlüsseln</h2>
+      <p>PostgreSQL legt für Primärschlüssel automatisch einen Index an, für Fremdschlüssel <b>nicht</b>. Ohne Index muss die Datenbank für „alle Termine von Trainer 5“ die ganze Tabelle lesen (Full Table Scan). Deshalb haben alle Fremdschlüssel <code>index=True</code>, und für die teuerste Abfrage – die Kollisionsprüfung – gibt es einen zusammengesetzten Index:</p>
+<pre><code>db.Index(<span class="s">"ix_events_assignee_active_start"</span>, <span class="s">"assigned_to_id"</span>, <span class="s">"is_deleted"</span>, <span class="s">"start_time"</span>)
+<span class="c"># Reihenfolge = Filterreihenfolge: erst Gleichheit, dann der Bereich</span></code></pre>
+      <h2>Das N+1-Problem</h2>
+      <div class="vorher-nachher">
+        <div><span class="etikett schlecht">✗ 1 + N Abfragen</span>
+<pre><code><span class="k">for</span> e <span class="k">in</span> events:            <span class="c"># 1 Abfrage</span>
+    farbe = e.customer.color_hex  <span class="c"># +1 je Termin!</span></code></pre></div>
+        <div><span class="etikett gut">✓ 1 Abfrage mit JOIN</span>
+<pre><code>Event.query.options(joinedload(Event.customer))
+<span class="c"># Kunde kommt im selben SELECT mit</span></code></pre></div>
+      </div>
+      <p>Bei 100 Terminen sind das 101 statt 1 Datenbankaufruf. Der Test <code>test_terminliste_ohne_n_plus_1</code> in <a data-datei="tests/test_events.py">tests/test_events.py</a> zählt die SQL-Statements und schlägt fehl, wenn ihre Anzahl mit der Anzahl der Termine wächst.</p>
+      <div class="tabelle-wrap"><table>
+        <tr><th>Werkzeug</th><th>Wann</th></tr>
+        <tr><td><code>joinedload()</code></td><td>n:1-Beziehungen (Termin → Kunde, User → Rolle)</td></tr>
+        <tr><td><code>selectinload()</code></td><td>1:n-Listen (Team → Mitglieder)</td></tr>
+        <tr><td>eine Abfrage mit <code>IN (…)</code> + Dictionary</td><td>eigene Aggregationen, z. B. <code>latest_rejection_reasons()</code></td></tr>
+      </table></div>
+      <div class="quiz" data-richtig="2"><h3>🧠 Wissensfrage</h3><p>Warum reicht in <code>event_rsvps</code> ein Index auf <code>user_id</code>, aber keiner auf <code>event_id</code>?</p>
+        <button>event_id wird nie abgefragt</button><button>PostgreSQL indiziert Fremdschlüssel automatisch</button><button>event_id ist die erste Spalte des UNIQUE-Index (event_id, user_id) – der deckt es ab</button>
+        <p class="erklärung">Ein zusammengesetzter Index kann für Abfragen auf seine <i>führenden</i> Spalten genutzt werden.</p></div>
+      <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://www.w3schools.com/sql/sql_create_index.asp" target="_blank" rel="noopener">SQL CREATE INDEX</a><span class="typ">W3Schools</span></li>
+        <li><a href="https://use-the-index-luke.com/de" target="_blank" rel="noopener">Use The Index, Luke</a><span class="typ">Buch, online (Deutsch)</span></li>
+        <li><a href="https://docs.sqlalchemy.org/en/20/orm/queryguide/relationships.html" target="_blank" rel="noopener">Loader-Strategien</a><span class="typ">SQLAlchemy</span></li>
+      </ul></div>
+    </article>
+
+    <article id="a-migrationen" data-gruppe="Datenbank" data-titel="Migrationen mit Alembic" data-icon="🧬">
+      <h1>Migrationen mit Alembic</h1>
+      <p class="lead">Jede Änderung am Datenbankschema ist eine versionierte Datei in <code>migrations/versions/</code>. <code>db.create_all()</code> ist tabu – es legt nur fehlende Tabellen an und ändert nie bestehende.</p>
+      <figure>
+        <div class="diagramm">
+          <svg viewBox="0 0 900 180" role="img" aria-labelledby="d5t">
+            <title id="d5t">Ablauf einer Schemaänderung</title>
+            <g text-anchor="middle">
+              <rect x="10" y="50" width="150" height="70" rx="10" class="d-box akzent"/><text x="85" y="82" class="d-text">Model ändern</text><text x="85" y="102" class="d-klein">app/models/*.py</text>
+              <rect x="190" y="50" width="160" height="70" rx="10" class="d-box"/><text x="270" y="82" class="d-text">flask db migrate</text><text x="270" y="102" class="d-klein">Datei erzeugen</text>
+              <rect x="380" y="50" width="150" height="70" rx="10" class="d-box warn"/><text x="455" y="82" class="d-text">Prüfen!</text><text x="455" y="102" class="d-klein">von Hand lesen</text>
+              <rect x="560" y="50" width="160" height="70" rx="10" class="d-box ok"/><text x="640" y="82" class="d-text">flask db upgrade</text><text x="640" y="102" class="d-klein">im Container autom.</text>
+              <rect x="750" y="50" width="140" height="70" rx="10" class="d-box"/><text x="820" y="82" class="d-text">flask db check</text><text x="820" y="102" class="d-klein">Model = DB?</text>
+            </g>
+            <line x1="160" y1="85" x2="186" y2="85" class="d-linie" marker-end="url(#pfeil)"/><line x1="350" y1="85" x2="376" y2="85" class="d-linie" marker-end="url(#pfeil)"/>
+            <line x1="530" y1="85" x2="556" y2="85" class="d-linie" marker-end="url(#pfeil)"/><line x1="720" y1="85" x2="746" y2="85" class="d-linie" marker-end="url(#pfeil)"/>
+            <text x="455" y="150" text-anchor="middle" class="d-klein">Alembic erkennt nicht alles (z. B. Umbenennungen) – deshalb immer lesen, bevor man sie anwendet.</text>
+          </svg>
+        </div>
+        <figcaption>Abbildung 5 – Vom geänderten Model zur aktualisierten Datenbank.</figcaption>
+      </figure>
+      <h2>Wie Alembic den Stand kennt</h2>
+      <p>Jede Migration hat eine <code>revision</code> und eine <code>down_revision</code> – so entsteht eine Kette. In der Tabelle <code>alembic_version</code> steht, welche Revision die Datenbank hat. <code>upgrade</code> spielt alle fehlenden der Reihe nach ein.</p>
+<pre><code>b02c2c99c1a7 → c4d3e2f1a9b8 → d7e6f5a4b3c2 → bcf52e20a906 → a7c9e2d4f6b8 (aktuell)</code></pre>
+      <div class="hinweis warn"><b>Die Migration a7c9e2d4f6b8 ist „idempotent“</b> Sie prüft vor jedem Schritt mit dem SQLAlchemy-Inspector, ob Tabelle/Spalte/Index schon existiert. Grund: Ältere Installationen hatten Teile des Schemas bereits über <code>create_all()</code> bekommen. So läuft sie auf einer leeren <i>und</i> auf einer „gewachsenen“ Datenbank fehlerfrei.</div>
+      <div class="quiz" data-richtig="1"><h3>🧠 Wissensfrage</h3><p>Beim Start meldet Alembic <code>Can't locate revision b0287b7f27b8</code>. Was bedeutet das?</p>
+        <button>Die Datenbank ist kaputt</button><button>alembic_version zeigt auf eine Migration, die es im Code nicht mehr gibt</button><button>Docker fehlt</button>
+        <p class="erklärung">Lösung: sichern, dann mit <code>flask db stamp bcf52e20a906</code> den bekannten Stand setzen und <code>flask db upgrade</code> ausführen (siehe README).</p></div>
+      <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://alembic.sqlalchemy.org/en/latest/tutorial.html" target="_blank" rel="noopener">Alembic-Tutorial</a><span class="typ">Alembic</span></li>
+        <li><a href="https://flask-migrate.readthedocs.io/en/latest/" target="_blank" rel="noopener">Flask-Migrate</a><span class="typ">Flask-Migrate</span></li>
+        <li><a href="https://www.w3schools.com/sql/sql_alter.asp" target="_blank" rel="noopener">SQL ALTER TABLE</a><span class="typ">W3Schools</span></li>
+      </ul></div>
+    </article>
+
+    <!-- ============================================================ FACHLOGIK -->
+    <article id="a-termine" data-gruppe="Fachlogik" data-titel="Termine anlegen und ändern" data-icon="📅">
+      <h1>Termine anlegen und ändern</h1>
+      <p class="lead"><code>EventService.create_event()</code> ist das Herzstück. Bevor etwas gespeichert wird, durchläuft jeder Termin eine feste Prüfkette.</p>
+      <h2>Die Prüfkette</h2>
+      <ol>
+        <li><b>Format:</b> gültige ISO-Zeiten, Ende nach Beginn, Titel vorhanden (max. 200 Zeichen), Meeting-Link nur <code>http(s)</code>, Kunde muss existieren.</li>
+        <li><b>Ausführender aktiv?</b> Deaktivierte Benutzer dürfen nichts anlegen.</li>
+        <li><b>Pufferzeiten:</b> ganze Zahlen ≥ 0; Nicht-CEOs nur 15–30 Minuten.</li>
+        <li><b>Zuweisung erlaubt?</b> Teamleitungen nur an Mitglieder des eigenen Teams (<code>AuthorizationService.can_manage_assignee</code>).</li>
+        <li><b>Kollision?</b> In der Datenbank und im privaten Google-Kalender – siehe <a href="#a-kollision">Kollisionserkennung</a>. Nur der CEO darf mit <code>override_conflict=true</code> bewusst überbuchen.</li>
+        <li><b>Speichern:</b> Termin, RSVP (Status PENDING), Benachrichtigung und Audit-Log in <b>einer</b> Transaktion.</li>
+        <li><b>Nach dem Commit:</b> E-Mail senden und Termin in Google spiegeln.</li>
+      </ol>
+      <div class="hinweis"><b>Teil-Updates</b> <code>update_event()</code> ändert nur Felder, die mitgeschickt werden. <code>"customer_id": null</code> oder <code>"meeting_link": null</code> bedeuten bewusst „entfernen“. Das Audit-Log speichert den Vorher- und Nachher-Stand.</div>
+      <div class="quiz" data-richtig="0"><h3>🧠 Wissensfrage</h3><p>Eine Teamleitung will einen Termin einem Trainer aus einem fremden Team zuweisen. Welche Antwort liefert die API?</p>
+        <button>403 – Zugriff verweigert</button><button>409 – Kollision</button><button>201 – angelegt</button>
+        <p class="erklärung"><code>can_manage_assignee</code> liefert „Termine dürfen nur Mitgliedern des eigenen Teams zugeordnet werden.“ und der Service antwortet mit 403.</p></div>
+      <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://developer.mozilla.org/de/docs/Web/HTTP/Status/409" target="_blank" rel="noopener">HTTP 409 Conflict</a><span class="typ">MDN (Deutsch)</span></li>
+        <li><a href="https://docs.sqlalchemy.org/en/20/orm/session_basics.html" target="_blank" rel="noopener">Session und Transaktionen</a><span class="typ">SQLAlchemy</span></li>
+      </ul></div>
+    </article>
+
+    <article id="a-kollision" data-gruppe="Fachlogik" data-titel="Kollisionserkennung" data-icon="🚧">
+      <h1>Kollisionserkennung mit Pufferzeiten</h1>
+      <p class="lead">Zwei Termine kollidieren, wenn sich ihre <b>um die Puffer verlängerten</b> Zeiträume überschneiden. Puffer stehen für Anfahrt, Vorbereitung oder Nachbereitung.</p>
+      <figure>
+        <div class="diagramm">
+          <svg viewBox="0 0 900 250" role="img" aria-labelledby="d6t d6d"><desc id="d6d">Termin A von 10 bis 11 Uhr und Termin B von 11:10 bis 12:10 Uhr, jeweils mit 15 Minuten Puffer. Die Puffer überschneiden sich zwischen 10:55 und 11:15 Uhr, daher meldet das System eine Kollision.</desc>
+            <title id="d6t">Zeitleiste: Kollision durch Pufferzeiten</title>
+            <line x1="40" y1="215" x2="650" y2="215" class="d-linie"/>
+            <g class="d-klein" text-anchor="middle">
+              <text x="80" y="237">09:00</text><text x="245" y="237">10:00</text><text x="410" y="237">11:00</text><text x="575" y="237">12:00</text>
+            </g>
+            <g><line x1="80" y1="210" x2="80" y2="220" class="d-linie"/><line x1="245" y1="210" x2="245" y2="220" class="d-linie"/><line x1="410" y1="210" x2="410" y2="220" class="d-linie"/><line x1="575" y1="210" x2="575" y2="220" class="d-linie"/></g>
+            <text x="40" y="36" class="d-text">Termin A (bestehend)</text>
+            <rect x="204" y="48" width="41" height="36" rx="6" class="d-box warn"/><rect x="245" y="48" width="165" height="36" rx="6" class="d-box ok"/><rect x="410" y="48" width="41" height="36" rx="6" class="d-box warn"/>
+            <text x="327" y="71" text-anchor="middle" class="d-text">10:00 – 11:00</text>
+            <text x="40" y="118" class="d-text">Termin B (neu)</text>
+            <rect x="395" y="130" width="41" height="36" rx="6" class="d-box warn"/><rect x="436" y="130" width="165" height="36" rx="6" class="d-box akzent"/><rect x="601" y="130" width="41" height="36" rx="6" class="d-box warn"/>
+            <text x="518" y="153" text-anchor="middle" class="d-text">11:10 – 12:10</text>
+            <rect x="395" y="44" width="56" height="126" rx="6" fill="none" class="d-linie gefahr d-strich"/>
+            <text x="665" y="150" class="d-klein" style="fill:var(--gefahr)">⚠ Puffer überschneiden sich:</text>
+            <text x="665" y="166" class="d-klein">A belegt bis 11:15, B ab 10:55</text>
+            <text x="665" y="182" class="d-klein">→ 409 Kollision, obwohl sich die</text>
+            <text x="665" y="198" class="d-klein" dy="0">Termine selbst nicht berühren</text>
+            <rect x="665" y="44" width="16" height="12" rx="3" class="d-box warn"/><text x="687" y="54" class="d-klein">= 15 Minuten Puffer</text>
+          </svg>
+        </div>
+        <figcaption>Abbildung 6 – B beginnt 10 Minuten nach dem Ende von A. Mit je 15 Minuten Puffer überschneiden sich die belegten Zeiträume.</figcaption>
+      </figure>
+      <h2>Die Bedingung</h2>
+<pre><code>A.start − A.puffer_vorher  &lt;  B.ende  + B.puffer_nachher
+<span class="k">UND</span>
+A.ende  + A.puffer_nachher &gt;  B.start − B.puffer_vorher</code></pre>
+      <p>Die komplette Bedingung läuft als SQL in PostgreSQL (mit <code>make_interval()</code> für die Puffer der bestehenden Termine) – nicht in einer Python-Schleife.</p>
+      <h2>Der größte Bug des Projekts</h2>
+      <div class="vorher-nachher">
+        <div><span class="etikett schlecht">✗ Vorher</span>
+<pre><code>Event.query.filter(
+  Event.assigned_to_id == uid,
+  <span class="k">not</span> Event.is_deleted)</code></pre></div>
+        <div><span class="etikett gut">✓ Nachher</span>
+<pre><code>select(...).where(
+  Event.assigned_to_id == uid,
+  Event.is_deleted.is_(<span class="k">False</span>))</code></pre></div>
+      </div>
+      <div class="hinweis gefahr"><b>Warum das fatal war</b> Python wertet <code>not Event.is_deleted</code> sofort aus – ein Objekt ist „wahr“, also ergibt <code>not …</code> <code>False</code>. Die Abfrage wurde zu <code>WHERE … AND false</code> und fand <b>nie</b> einen Konflikt. Doppelbuchungen waren unbemerkt möglich. SQLAlchemy kann <code>==</code> und <code>&lt;</code> überladen, Pythons <code>not</code>, <code>and</code>, <code>or</code> aber nicht – deshalb gibt es <code>is_()</code>, <code>not_()</code>, <code>and_()</code>, <code>or_()</code>.</div>
+      <h2>Und der Google-Kalender?</h2>
+      <p>Findet die Datenbank nichts und hat der Mitarbeiter eine <code>google_calendar_id</code>, fragt <code>GoogleCalendarService.get_busy_times()</code> die Free/Busy-API ab. Jeder belegte Block im Zeitraum zählt als „Privater Termin (Google Kalender)“.</p>
+      <div class="quiz" data-richtig="1"><h3>🧠 Wissensfrage</h3><p>Termin A: 14:00–15:00, Puffer 15/15. Termin B soll um 15:30 beginnen (Puffer 15/15). Kollision?</p>
+        <button>Ja</button><button>Nein – A ist bis 15:15 belegt, B ab 15:15</button><button>Nur für Nicht-CEOs</button>
+        <p class="erklärung">Die Bedingung verlangt echtes „kleiner als“: 15:15 &lt; 15:15 ist falsch. Die Puffer berühren sich nur – keine Überschneidung.</p></div>
+      <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://docs.sqlalchemy.org/en/20/core/sqlelement.html#sqlalchemy.sql.expression.ColumnOperators.is_" target="_blank" rel="noopener">ColumnOperators.is_()</a><span class="typ">SQLAlchemy</span></li>
+        <li><a href="https://www.w3schools.com/python/python_booleans.asp" target="_blank" rel="noopener">Booleans in Python</a><span class="typ">W3Schools</span></li>
+        <li><a href="https://www.postgresql.org/docs/16/functions-datetime.html" target="_blank" rel="noopener">Datums-Funktionen (make_interval)</a><span class="typ">PostgreSQL</span></li>
+      </ul></div>
+    </article>
+
+    <article id="a-rsvp" data-gruppe="Fachlogik" data-titel="Rückmeldungen (RSVP)" data-icon="✉️">
+      <h1>Rückmeldungen (RSVP)</h1>
+      <p class="lead">Wer einen Termin zugewiesen bekommt, erhält eine Einladung mit Status <code>PENDING</code> und antwortet mit Zusage, Vorbehalt oder Absage – eine Absage braucht eine Begründung.</p>
+      <figure>
+        <div class="diagramm">
+          <svg viewBox="0 0 900 280" role="img" aria-labelledby="d7t">
+            <title id="d7t">Zustandsdiagramm einer Rückmeldung</title>
+            <g text-anchor="middle">
+              <rect x="30" y="110" width="150" height="60" rx="30" class="d-box"/><text x="105" y="145" class="d-text">PENDING</text>
+              <rect x="330" y="20" width="160" height="60" rx="30" class="d-box ok"/><text x="410" y="55" class="d-text">ACCEPTED</text>
+              <rect x="330" y="110" width="160" height="60" rx="30" class="d-box warn"/><text x="410" y="145" class="d-text">TENTATIVE</text>
+              <rect x="330" y="200" width="160" height="60" rx="30" class="d-box gefahr"/><text x="410" y="235" class="d-text">DECLINED</text>
+              <rect x="620" y="195" width="250" height="70" rx="12" class="d-box akzent"/><text x="745" y="222" class="d-text">Termin frei · reallocation</text><text x="745" y="244" class="d-klein">Teamleitung wird benachrichtigt</text>
+            </g>
+            <path d="M180 130 C 250 60, 270 50, 326 50" class="d-linie ok" marker-end="url(#pfeil-ok)"/>
+            <line x1="180" y1="140" x2="326" y2="140" class="d-linie" marker-end="url(#pfeil)"/>
+            <path d="M180 150 C 250 220, 270 230, 326 230" class="d-linie gefahr" marker-end="url(#pfeil-gefahr)"/>
+            <line x1="490" y1="230" x2="616" y2="230" class="d-linie gefahr" marker-end="url(#pfeil-gefahr)"/>
+            <path d="M745 195 C 745 110, 600 20, 110 20 L 105 106" class="d-linie akzent d-strich" marker-end="url(#pfeil-akzent)"/>
+            <text x="250" y="222" class="d-klein">mit Begründung (Pflicht)</text>
+            <text x="560" y="40" class="d-klein">neu zuweisen → neue Einladung PENDING</text>
+          </svg>
+        </div>
+        <figcaption>Abbildung 7 – Status einer Einladung. Eine Absage gibt den Termin frei und stößt die Neu-Zuweisung an.</figcaption>
+      </figure>
+      <h2>Was bei einer Absage passiert</h2>
+      <ol>
+        <li>Prüfung: Nur die eingeladene Person, nur solange sie noch zugewiesen ist (sonst 409).</li>
+        <li><code>assigned_to_id = NULL</code>, <code>reallocation_required = True</code> – der Termin erscheint im Kalender rot.</li>
+        <li><b>Genau eine</b> Benachrichtigung an die zuständige Teamleitung (Team des Erstellers), sonst an den Ersteller.</li>
+        <li>Audit-Eintrag <code>RSVP_DECLINED_REALLOCATION_NEEDED</code> mit Begründung.</li>
+      </ol>
+      <div class="hinweis warn"><b>Sicherheit</b> Die Begründung ist freier Text eines Trainers und landet in der Benachrichtigung der Teamleitung und des CEO. Genau hier saß eine XSS-Lücke – siehe <a href="#a-xss">XSS-Schutz</a>.</div>
+      <div class="quiz" data-richtig="2"><h3>🧠 Wissensfrage</h3><p>Ein Trainer lehnt ab, ohne Begründung. Ergebnis?</p>
+        <button>Absage wird gespeichert</button><button>Termin wird gelöscht</button><button>400 – „Für eine Ablehnung ist eine Begründung erforderlich.“</button>
+        <p class="erklärung">Die Pflichtbegründung wird im <code>RSVPService</code> geprüft – nicht nur im Formular.</p></div>
+      <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://de.wikipedia.org/wiki/Endlicher_Automat" target="_blank" rel="noopener">Endlicher Automat (Zustandsmaschine)</a><span class="typ">Wikipedia (Deutsch)</span></li>
+        <li><a href="https://www.w3schools.com/python/python_conditions.asp" target="_blank" rel="noopener">If … Else in Python</a><span class="typ">W3Schools</span></li>
+      </ul></div>
+    </article>
+
+    <article id="a-benachrichtigung" data-gruppe="Fachlogik" data-titel="Benachrichtigungen und E-Mail" data-icon="🔔">
+      <h1>Benachrichtigungen und E-Mail</h1>
+      <p class="lead">Jede Benachrichtigung entsteht zweifach: als Eintrag für das Glocken-Symbol und als E-Mail. Die E-Mail geht aber erst raus, wenn die Datenbank-Transaktion erfolgreich war.</p>
+      <figure>
+        <div class="diagramm">
+          <svg viewBox="0 0 900 220" role="img" aria-labelledby="d8t">
+            <title id="d8t">E-Mail nach dem Commit</title>
+            <g text-anchor="middle">
+              <rect x="10" y="70" width="170" height="70" rx="10" class="d-box"/><text x="95" y="100" class="d-text">notify_user()</text><text x="95" y="120" class="d-klein">Notification + queue_email</text>
+              <rect x="230" y="70" width="170" height="70" rx="10" class="d-box ok"/><text x="315" y="100" class="d-text">COMMIT</text><text x="315" y="120" class="d-klein">Transaktion erfolgreich</text>
+              <rect x="450" y="70" width="190" height="70" rx="10" class="d-box akzent"/><text x="545" y="100" class="d-text">after_commit-Hook</text><text x="545" y="120" class="d-klein">utils/transaction.py</text>
+              <rect x="690" y="70" width="190" height="70" rx="10" class="d-box warn"/><text x="785" y="100" class="d-text">Thread-Pool → SMTP</text><text x="785" y="120" class="d-klein">STARTTLS, Timeout 10 s</text>
+              <rect x="230" y="165" width="170" height="44" rx="10" class="d-box gefahr"/><text x="315" y="192" class="d-klein">ROLLBACK → Mail verworfen</text>
+            </g>
+            <line x1="180" y1="105" x2="226" y2="105" class="d-linie" marker-end="url(#pfeil)"/><line x1="400" y1="105" x2="446" y2="105" class="d-linie ok" marker-end="url(#pfeil-ok)"/>
+            <line x1="640" y1="105" x2="686" y2="105" class="d-linie" marker-end="url(#pfeil)"/><line x1="160" y1="140" x2="228" y2="180" class="d-linie gefahr d-strich" marker-end="url(#pfeil-gefahr)"/>
+            <text x="450" y="40" text-anchor="middle" class="d-klein">Der HTTP-Request wartet NICHT auf den Mailserver</text>
+          </svg>
+        </div>
+        <figcaption>Abbildung 8 – Nebenwirkungen nach außen erst nach dem Commit.</figcaption>
+      </figure>
+      <h2>Warum so kompliziert?</h2>
+      <ul>
+        <li><b>Konsistenz:</b> Keine Mail über einen Termin, der nie gespeichert wurde.</li>
+        <li><b>Geschwindigkeit:</b> Ein langsamer Mailserver blockiert weder die Transaktion noch den Benutzer.</li>
+        <li><b>Robustheit:</b> Fehler beim Versand werden geloggt, brechen aber nie die Anfrage ab.</li>
+      </ul>
+      <div class="hinweis warn"><b>Ohne SMTP keine Mails</b> Solange <code>SMTP_SERVER</code>, <code>SMTP_USER</code> und <code>SMTP_PASSWORD</code> in der <code>.env</code> leer sind, wird der Versand still übersprungen – auch „Passwort vergessen“ und Einladungen funktionieren dann nicht.</div>
+      <div class="quiz" data-richtig="0"><h3>🧠 Wissensfrage</h3><p>Innerhalb des <code>after_commit</code>-Hooks möchte jemand noch schnell einen Datensatz aktualisieren. Geht das?</p>
+        <button>Nein – in after_commit darf kein SQL ausgeführt werden</button><button>Ja, jederzeit</button><button>Nur mit db.create_all()</button>
+        <p class="erklärung">Die Session ist in diesem Moment nicht in einer aktiven Transaktion. Deshalb dürfen die Callbacks nur „nach außen“ sprechen (SMTP, HTTP). Die Google-ID wird darum mit einem eigenen, zweiten Commit nachgetragen.</p></div>
+      <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://docs.sqlalchemy.org/en/20/orm/events.html#sqlalchemy.orm.SessionEvents.after_commit" target="_blank" rel="noopener">SessionEvents.after_commit</a><span class="typ">SQLAlchemy</span></li>
+        <li><a href="https://docs.python.org/3/library/concurrent.futures.html" target="_blank" rel="noopener">ThreadPoolExecutor</a><span class="typ">Python-Doku</span></li>
+        <li><a href="https://docs.python.org/3/library/smtplib.html" target="_blank" rel="noopener">smtplib</a><span class="typ">Python-Doku</span></li>
+      </ul></div>
+    </article>
+
+    <article id="a-google" data-gruppe="Fachlogik" data-titel="Google-Calendar-Anbindung" data-icon="📆">
+      <h1>Google-Calendar-Anbindung</h1>
+      <p class="lead">Optional: Die App liest die Frei/Belegt-Zeiten aus dem privaten Google-Kalender eines Mitarbeiters und spiegelt zugewiesene Termine dorthin.</p>
+      <ul>
+        <li><b>Zugang:</b> ein Google-Service-Account. Die Schlüsseldatei liegt unter <code>secrets/google_credentials.json</code> und wird read-only nach <code>/run/secrets</code> in den Container eingehängt – nie ins Image kopiert.</li>
+        <li><b>Freigabe:</b> Jeder Mitarbeiter muss seinen Kalender für die E-Mail-Adresse des Service-Accounts freigeben.</li>
+        <li><b>Test:</b> <code>docker compose exec web python scripts/test_google_api.py name@firma.de</code></li>
+      </ul>
+      <div class="hinweis"><b>Thread-Sicherheit</b> Die Google-Bibliothek nutzt <code>httplib2</code>, das <i>nicht</i> threadsicher ist. Weil Gunicorn mehrere Threads pro Prozess verwendet, bekommt jeder Thread sein eigenes Service-Objekt (<code>threading.local</code>); die Zugangsdaten werden einmal pro Prozess geladen. Jeder Aufruf hat ein Timeout von 10 Sekunden.</div>
+      <div class="quiz" data-richtig="1"><h3>🧠 Wissensfrage</h3><p>Was passiert, wenn die Datei mit den Google-Zugangsdaten fehlt?</p>
+        <button>Die App startet nicht</button><button>Die App läuft normal, nur ohne Google-Abgleich</button><button>Alle Termine kollidieren</button>
+        <p class="erklärung">Alle Google-Methoden sind dann „No-Ops“ – es wird eine Warnung geloggt, sonst passiert nichts.</p></div>
+      <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://developers.google.com/calendar/api/v3/reference/freebusy/query" target="_blank" rel="noopener">Free/Busy-API</a><span class="typ">Google</span></li>
+        <li><a href="https://cloud.google.com/iam/docs/service-account-overview" target="_blank" rel="noopener">Service-Accounts</a><span class="typ">Google Cloud</span></li>
+      </ul></div>
+    </article>
+
+    <article id="a-csv" data-gruppe="Fachlogik" data-titel="CSV-Import von Benutzern" data-icon="📥">
+      <h1>CSV-Import von Benutzern</h1>
+      <p class="lead">CEO und Admins können viele Mitarbeiter auf einmal anlegen. Jeder neue Benutzer erhält per E-Mail einen Link, um sein Passwort selbst festzulegen.</p>
+<pre><code>email,first_name,last_name,role
+anna.schmidt@bellmann-engineering.com,Anna,Schmidt,TRAINER
+max.weber@bellmann-engineering.com,Max,Weber,TEAM_LEADER</code></pre>
+      <h2>Was geprüft wird</h2>
+      <ul>
+        <li>Datei in UTF-8 (ein Byte-Order-Mark von Excel wird toleriert), max. 2 MB.</li>
+        <li>Pflichtfelder, Dubletten (auch innerhalb derselben Datei), gültige Rolle.</li>
+        <li><b>Rollen-Hierarchie:</b> Ein Admin kann per CSV keine Admins oder CEOs anlegen.</li>
+        <li>Fehlermeldungen mit Zeilennummer, passend zu Excel: <code>Zeile 3: E-Mail … existiert bereits.</code></li>
+      </ul>
+      <div class="hinweis"><b>Kein N+1</b> Vorab werden <i>einmal</i> alle vorhandenen E-Mails und Rollen geladen – statt zwei Abfragen pro Zeile.</div>
+      <div class="quiz" data-richtig="2"><h3>🧠 Wissensfrage</h3><p>Welches Passwort bekommt ein per CSV importierter Benutzer?</p>
+        <button>„startpasswort123“</button><button>Seinen Nachnamen</button><button>Ein zufälliges, unbekanntes – er legt es über den Einladungslink selbst fest</button>
+        <p class="erklärung">Ein unbekanntes Zufallspasswort plus ein signierter Link (72 h gültig, nur einmal verwendbar) ist sicherer als jedes Standardpasswort.</p></div>
+      <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://docs.python.org/3/library/csv.html" target="_blank" rel="noopener">csv-Modul</a><span class="typ">Python-Doku</span></li>
+        <li><a href="https://www.w3schools.com/python/python_file_handling.asp" target="_blank" rel="noopener">Dateien in Python</a><span class="typ">W3Schools</span></li>
+      </ul></div>
+    </article>
+
+    <!-- ============================================================ SICHERHEIT -->
+    <article id="a-auth" data-gruppe="Sicherheit" data-titel="Anmeldung mit JWT-Cookies und CSRF" data-icon="🔐">
+      <h1>Anmeldung: JWT in Cookies und CSRF-Schutz</h1>
+      <p class="lead">Nach dem Login liegt das Sitzungs-Token in einem <b>HttpOnly-Cookie</b>, das JavaScript nicht lesen kann. Gegen gefälschte Anfragen von fremden Seiten schützt zusätzlich ein <b>CSRF-Token</b>.</p>
+      <figure>
+        <div class="diagramm">
+          <svg viewBox="0 0 900 430" role="img" aria-labelledby="d9t">
+            <title id="d9t">Sequenzdiagramm: Login, Anfrage, Refresh</title>
+            <g text-anchor="middle">
+              <rect x="60" y="10" width="160" height="40" rx="8" class="d-box akzent"/><text x="140" y="35" class="d-text">Browser</text>
+              <rect x="370" y="10" width="160" height="40" rx="8" class="d-box"/><text x="450" y="35" class="d-text">Flask-App</text>
+              <rect x="680" y="10" width="160" height="40" rx="8" class="d-box ok"/><text x="760" y="35" class="d-text">Datenbank</text>
+            </g>
+            <line x1="140" y1="50" x2="140" y2="420" class="d-lebenslinie"/><line x1="450" y1="50" x2="450" y2="420" class="d-lebenslinie"/><line x1="760" y1="50" x2="760" y2="420" class="d-lebenslinie"/>
+            <g class="d-klein">
+              <line x1="140" y1="85" x2="446" y2="85" class="d-linie akzent" marker-end="url(#pfeil-akzent)"/><text x="295" y="78" text-anchor="middle">① POST /auth/login {email, passwort}</text>
+              <line x1="450" y1="112" x2="756" y2="112" class="d-linie" marker-end="url(#pfeil)"/><text x="605" y="105" text-anchor="middle">② Benutzer + Passwort-Hash prüfen</text>
+              <line x1="446" y1="150" x2="144" y2="150" class="d-linie ok" marker-end="url(#pfeil-ok)"/><text x="295" y="143" text-anchor="middle">③ Set-Cookie: access (HttpOnly) + refresh (HttpOnly)</text>
+              <text x="295" y="166" text-anchor="middle">+ csrf_access_token / csrf_refresh_token (lesbar für JS)</text>
+              <line x1="140" y1="205" x2="446" y2="205" class="d-linie akzent" marker-end="url(#pfeil-akzent)"/><text x="295" y="198" text-anchor="middle">④ PUT /events/7  Cookie + X-CSRF-TOKEN</text>
+              <text x="460" y="228">⑤ Signatur, Ablauf, CSRF prüfen → load_user()</text>
+              <line x1="450" y1="262" x2="756" y2="262" class="d-linie" marker-end="url(#pfeil)"/><text x="605" y="255" text-anchor="middle">⑥ User + Rolle frisch laden (aktiv?)</text>
+              <line x1="446" y1="297" x2="144" y2="297" class="d-linie gefahr" marker-end="url(#pfeil-gefahr)"/><text x="295" y="290" text-anchor="middle">nach 30 min: 401 „Sitzung abgelaufen“</text>
+              <line x1="140" y1="330" x2="446" y2="330" class="d-linie akzent" marker-end="url(#pfeil-akzent)"/><text x="295" y="323" text-anchor="middle">⑦ POST /auth/refresh (Refresh-Cookie + CSRF)</text>
+              <line x1="446" y1="365" x2="144" y2="365" class="d-linie ok" marker-end="url(#pfeil-ok)"/><text x="295" y="358" text-anchor="middle">⑧ neues Access-Cookie → Anfrage wird wiederholt</text>
+              <text x="295" y="400" text-anchor="middle">nach 8 h läuft auch das Refresh-Token ab → neuer Login</text>
+            </g>
+          </svg>
+        </div>
+        <figcaption>Abbildung 9 – Login, geschützte Anfrage und automatisches Verlängern der Sitzung durch <code>apiFetch()</code>.</figcaption>
+      </figure>
+      <h2>Die Cookie-Einstellungen</h2>
+      <div class="tabelle-wrap"><table>
+        <tr><th>Attribut</th><th>Wirkung</th></tr>
+        <tr><td><code>HttpOnly</code></td><td>JavaScript kann das Token nicht lesen → XSS kann es nicht stehlen.</td></tr>
+        <tr><td><code>Secure</code></td><td>Cookie nur über HTTPS (<code>COOKIE_SECURE=1</code>).</td></tr>
+        <tr><td><code>SameSite=Strict</code></td><td>Der Browser schickt das Cookie nie bei Anfragen, die von fremden Seiten ausgelöst werden.</td></tr>
+        <tr><td>CSRF-Double-Submit</td><td>Bei POST/PUT/DELETE muss der Wert des lesbaren Cookies <code>csrf_access_token</code> zusätzlich im Header <code>X-CSRF-TOKEN</code> stehen – das kann eine fremde Seite nicht.</td></tr>
+      </table></div>
+      <div class="hinweis ok"><b>Sofortige Wirkung</b> Weil <code>load_user()</code> den Benutzer bei <i>jeder</i> Anfrage aus der Datenbank lädt, wirken Deaktivierung und Rechteentzug sofort – nicht erst, wenn das Token abläuft. Eine Token-Sperrliste ist dadurch überflüssig.</div>
+      <div class="quiz" data-richtig="1"><h3>🧠 Wissensfrage</h3><p>Ein Admin wird zum Trainer herabgestuft, während er eingeloggt ist. Was passiert bei seinem nächsten Aufruf des Audit-Logs?</p>
+        <button>Er sieht es noch 30 Minuten</button><button>403 – die Rolle wird bei jeder Anfrage frisch aus der Datenbank gelesen</button><button>Er wird ausgeloggt</button>
+        <p class="erklärung">Früher stand die Rolle im Token („Claim“) – ein Herabgestufter behielt seine Rechte bis zum Ablauf. Jetzt entscheidet die Datenbank.</p></div>
+      <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://developer.mozilla.org/de/docs/Web/HTTP/Cookies" target="_blank" rel="noopener">HTTP-Cookies</a><span class="typ">MDN (Deutsch)</span></li>
+        <li><a href="https://flask-jwt-extended.readthedocs.io/en/stable/token_locations.html" target="_blank" rel="noopener">JWT in Cookies + CSRF</a><span class="typ">Flask-JWT-Extended</span></li>
+        <li><a href="https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html" target="_blank" rel="noopener">CSRF-Prävention</a><span class="typ">OWASP</span></li>
+        <li><a href="https://jwt.io/introduction" target="_blank" rel="noopener">Einführung in JWT</a><span class="typ">jwt.io</span></li>
+      </ul></div>
+    </article>
+
+    <article id="a-rollen" data-gruppe="Sicherheit" data-titel="Rollen und Berechtigungen" data-icon="🛡">
+      <h1>Rollen und Berechtigungen</h1>
+      <p class="lead">Vier Rollen mit klarer Hierarchie: <b>CEO &gt; ADMIN &gt; TEAM_LEADER &gt; TRAINER</b>. Alle Regeln stehen an einer Stelle: <a data-datei="app/services/authorization_service.py">authorization_service.py</a>.</p>
+      <div class="tabelle-wrap"><table>
+        <tr><th>Aktion</th><th>CEO</th><th>ADMIN</th><th>TEAM_LEADER</th><th>TRAINER</th></tr>
+        <tr><td>Eigene Termine sehen, zu-/absagen</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+        <tr><td>Termine anlegen/ändern/löschen</td><td>alle</td><td>alle</td><td>nur eigenes Team</td><td>–</td></tr>
+        <tr><td>Kollision bewusst überbuchen</td><td>✓</td><td>–</td><td>–</td><td>–</td></tr>
+        <tr><td>Pufferzeiten frei wählen</td><td>✓</td><td>15–30 min</td><td>15–30 min</td><td>–</td></tr>
+        <tr><td>Benutzerliste sehen</td><td>alle</td><td>alle</td><td>eigenes Team</td><td>–</td></tr>
+        <tr><td>Benutzer anlegen/ändern/sperren</td><td>alle Rollen</td><td>nur TRAINER/TEAM_LEADER</td><td>–</td><td>–</td></tr>
+        <tr><td>Kunden verwalten</td><td>✓</td><td>✓</td><td>nur lesen</td><td>–</td></tr>
+        <tr><td>Audit-Log</td><td>✓</td><td>✓</td><td>–</td><td>–</td></tr>
+      </table></div>
+      <h2>Die Lücke, die geschlossen wurde</h2>
+      <div class="hinweis gefahr"><b>Rechteausweitung (Privilege Escalation)</b> Früher prüfte <code>update_user()</code> die Hierarchie nicht: Ein Admin konnte sich selbst zum CEO machen, das CEO-Passwort ändern oder per CSV CEO-Konten anlegen. Heute fragt jede verändernde Methode <code>AuthorizationService.can_manage_user(actor, target, neue_rolle)</code>. Die Tests in <a data-datei="tests/test_users.py">tests/test_users.py</a> stellen sicher, dass das so bleibt.</div>
+<pre><code><span class="c"># Kern der Regel (vereinfacht)</span>
+<span class="k">if</span> actor_rolle == <span class="s">"ADMIN"</span>:
+    <span class="k">if</span> ziel <span class="k">is not</span> actor <span class="k">and</span> rang(ziel) &gt;= rang(<span class="s">"ADMIN"</span>):  <span class="c"># andere Admins / CEO</span>
+        <span class="k">return</span> <span class="k">False</span>, <span class="s">"Ein Admin darf keine anderen Admins oder den CEO verwalten."</span>
+    <span class="k">if</span> neue_rolle <span class="k">and</span> rang(neue_rolle) &gt;= rang(<span class="s">"ADMIN"</span>) <span class="k">and not</span> rolle_unverändert:
+        <span class="k">return</span> <span class="k">False</span>, <span class="s">"Ein Admin darf nur die Rollen TRAINER und TEAM_LEADER vergeben."</span></code></pre>
+      <div class="quiz" data-richtig="0"><h3>🧠 Wissensfrage</h3><p>Warum reicht es nicht, im Frontend den „CEO“-Eintrag im Rollen-Dropdown auszublenden?</p>
+        <button>Weil jeder die API direkt (z. B. mit curl) aufrufen kann – nur der Server kann Regeln durchsetzen</button><button>Weil Dropdowns langsam sind</button><button>Es reicht völlig</button>
+        <p class="erklärung">Das Frontend ist Komfort, keine Sicherheit. Berechtigungen werden immer serverseitig geprüft.</p></div>
+      <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://owasp.org/Top10/de/A01_2021-Broken_Access_Control/" target="_blank" rel="noopener">A01 – Broken Access Control</a><span class="typ">OWASP Top 10 (Deutsch)</span></li>
+        <li><a href="https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html" target="_blank" rel="noopener">Authorization Cheat Sheet</a><span class="typ">OWASP</span></li>
+      </ul></div>
+    </article>
+
+    <article id="a-xss" data-gruppe="Sicherheit" data-titel="XSS-Schutz" data-icon="🧪">
+      <h1>Cross-Site-Scripting (XSS) verhindern</h1>
+      <p class="lead">XSS bedeutet: Ein Angreifer schmuggelt JavaScript in Daten, die später im Browser eines anderen Benutzers ausgeführt werden. Die Regel dagegen ist einfach: <b>Daten nie als HTML behandeln.</b></p>
+      <h2>Der echte Angriffsweg in diesem Projekt</h2>
+      <ol>
+        <li>Ein Trainer lehnt einen Termin ab und schreibt als Begründung <code>&lt;img src=x onerror="…"&gt;</code>.</li>
+        <li>Die Begründung landet in der Benachrichtigung des CEO.</li>
+        <li>Früher wurde sie per <code>innerHTML</code> eingefügt → der Browser führte den Code mit der Sitzung des CEO aus.</li>
+      </ol>
+      <div class="vorher-nachher">
+        <div><span class="etikett schlecht">✗ Vorher</span>
+<pre><code>list.innerHTML = notifications.map(n =&gt;
+  `&lt;p&gt;${n.message}&lt;/p&gt;`).join("");</code></pre></div>
+        <div><span class="etikett gut">✓ Nachher</span>
+<pre><code><span class="k">const</span> p = document.createElement(<span class="s">"p"</span>);
+p.textContent = n.message;  <span class="c">// nie HTML</span>
+<span class="c">// oder: `${escapeHtml(n.message)}`</span></code></pre></div>
+      </div>
+      <h2>Mehrere Schutzschichten</h2>
+      <div class="tabelle-wrap"><table>
+        <tr><th>Schicht</th><th>Schutz</th></tr>
+        <tr><td>Ausgabe im Frontend</td><td>DOM-Baukasten <code>h()</code> aus <code>ui.js</code>, <code>textContent</code> oder <code>escapeHtml()</code>; es gibt keine <code>onclick="…"</code>-Attribute mehr</td></tr>
+        <tr><td>Eingabe im Backend</td><td>z. B. Kundenfarbe nur im Format <code>#RRGGBB</code>, Meeting-Links nur <code>http(s)</code></td></tr>
+        <tr><td>Templates</td><td>Jinja2 escaped automatisch (<code>{{ wert }}</code>)</td></tr>
+        <tr><td>Browser</td><td>Content-Security-Policy aus <a data-datei="nginx/nginx.conf">nginx.conf</a> (siehe <a href="#a-nginx">Nginx &amp; TLS</a>)</td></tr>
+        <tr><td>Cookies</td><td>HttpOnly – selbst bei einer Lücke bleibt das Token unlesbar</td></tr>
+      </table></div>
+      <div class="quiz" data-richtig="1"><h3>🧠 Wissensfrage</h3><p>Welche Zuweisung ist sicher, um einen Benutzernamen anzuzeigen?</p>
+        <button><code>el.innerHTML = user.name</code></button><button><code>el.textContent = user.name</code></button><button><code>el.outerHTML = user.name</code></button>
+        <p class="erklärung"><code>textContent</code> setzt reinen Text – <code>&lt;script&gt;</code> wird einfach als Zeichenfolge angezeigt.</p></div>
+      <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html" target="_blank" rel="noopener">XSS Prevention Cheat Sheet</a><span class="typ">OWASP</span></li>
+        <li><a href="https://developer.mozilla.org/de/docs/Web/API/Node/textContent" target="_blank" rel="noopener">textContent</a><span class="typ">MDN (Deutsch)</span></li>
+        <li><a href="https://www.w3schools.com/jsref/prop_html_innerhtml.asp" target="_blank" rel="noopener">innerHTML</a><span class="typ">W3Schools</span></li>
+      </ul></div>
+    </article>
+
+    <article id="a-secrets" data-gruppe="Sicherheit" data-titel="Secrets und Git-Hygiene" data-icon="🗝">
+      <h1>Secrets und Git-Hygiene</h1>
+      <p class="lead">Passwörter und Schlüssel gehören ausschließlich in die <code>.env</code>. Was einmal in Git landet, ist für immer im Verlauf – auch nach dem Löschen.</p>
+      <h2>Der Vorfall vom 24.09.2026</h2>
+      <div class="hinweis gefahr"><b>Was passiert war</b> Die <code>.env</code> war früher versioniert, und <code>setup.sh</code> enthielt feste Werte für JWT-Schlüssel, Datenbank- und Admin-Passwort. Mit dem JWT-Schlüssel hätte jeder mit Zugriff auf das Repository ein gültiges CEO-Token fälschen können. Das CEO-Konto nutzte sogar noch das öffentliche Standardpasswort.</div>
+      <h3>Die Aufräumarbeiten</h3>
+      <ol>
+        <li><b>Rotieren</b> (das Wichtigste): neuer <code>SECRET_KEY</code>, <code>JWT_SECRET_KEY</code>, Datenbank-Passwort (<code>ALTER USER</code>) und CEO-Passwort. Alte Werte sind damit wertlos.</li>
+        <li><code>setup.sh</code> erzeugt Secrets jetzt <b>zufällig</b> (<code>secrets.token_urlsafe</code>).</li>
+        <li>Verlauf bereinigt mit <code>git filter-repo</code>: <code>.env</code> aus allen Commits entfernt, alte Werte ersetzt, per Force-Push veröffentlicht.</li>
+        <li>Wer das Repository vorher geklont hatte, muss neu klonen (Hinweis in der README).</li>
+      </ol>
+      <h2>Regeln für den Alltag</h2>
+      <ul>
+        <li><code>.env</code>, <code>secrets/</code>, <code>nginx/certs/</code> stehen in <code>.gitignore</code> und <code>.dockerignore</code>.</li>
+        <li>Vorlage ohne echte Werte: <a data-datei=".env.example">.env.example</a>.</li>
+        <li>Der pre-commit-Hook <code>detect-private-key</code> verhindert versehentliche Schlüssel-Commits.</li>
+        <li>Neues Secret: <code>python -c "import secrets; print(secrets.token_urlsafe(48))"</code></li>
+      </ul>
+      <div class="quiz" data-richtig="2"><h3>🧠 Wissensfrage</h3><p>Ein Passwort wurde versehentlich gepusht. Was ist der <b>wichtigste</b> erste Schritt?</p>
+        <button>Die Datei löschen und neu committen</button><button>Den Verlauf umschreiben</button><button>Das Passwort sofort ändern (rotieren)</button>
+        <p class="erklärung">Löschen oder Umschreiben hilft nicht gegen Kopien, die schon jemand gezogen hat. Nur ein neues Passwort macht das alte wertlos. Das Aufräumen im Verlauf kommt danach.</p></div>
+      <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html" target="_blank" rel="noopener">Secrets Management</a><span class="typ">OWASP</span></li>
+        <li><a href="https://docs.github.com/de/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository" target="_blank" rel="noopener">Sensible Daten aus einem Repository entfernen</a><span class="typ">GitHub (Deutsch)</span></li>
+        <li><a href="https://git-scm.com/docs/gitignore/de" target="_blank" rel="noopener">gitignore</a><span class="typ">Git (Deutsch)</span></li>
+      </ul></div>
+    </article>
+
+    <article id="a-passwort" data-gruppe="Sicherheit" data-titel="Passwort-Reset mit Einmal-Links" data-icon="🔑">
+      <h1>Passwort-Reset mit Einmal-Links</h1>
+      <p class="lead">Früher setzte „Passwort vergessen“ sofort ein neues Passwort und schickte es im Klartext per E-Mail – jeder konnte so fremde Konten sperren. Heute gibt es einen signierten Link, der nur einmal funktioniert.</p>
+      <h2>So funktioniert der Token</h2>
+      <ul>
+        <li>Inhalt: Benutzer-ID, Zweck (<code>reset</code> oder <code>invite</code>) und ein <b>Fingerabdruck des aktuellen Passwort-Hashes</b>.</li>
+        <li>Signiert mit <code>SECRET_KEY</code> (<code>itsdangerous</code>) – nicht fälschbar.</li>
+        <li>Gültig 30 Minuten (Reset) bzw. 72 Stunden (Einladung).</li>
+        <li><b>Einmalig:</b> Nach dem Ändern passt der Fingerabdruck nicht mehr – ganz ohne zusätzliche Datenbanktabelle.</li>
+      </ul>
+      <div class="hinweis"><b>Keine User-Enumeration</b> Die Antwort auf „Passwort vergessen“ ist immer gleich – egal ob die E-Mail existiert. Auch der Login dauert bei unbekannter Adresse gleich lang (Dummy-Hash), damit niemand über die Antwortzeit herausfindet, wer registriert ist.</div>
+      <div class="quiz" data-richtig="0"><h3>🧠 Wissensfrage</h3><p>Warum wird der Reset-Link nach der Benutzung automatisch ungültig?</p>
+        <button>Weil der Token einen Fingerabdruck des alten Passwort-Hashes enthält</button><button>Weil er in der Datenbank gelöscht wird</button><button>Weil E-Mails nur einmal geöffnet werden können</button>
+        <p class="erklärung">Neues Passwort = neuer Hash = anderer Fingerabdruck → der alte Token wird abgelehnt.</p></div>
+      <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://cheatsheetseries.owasp.org/cheatsheets/Forgot_Password_Cheat_Sheet.html" target="_blank" rel="noopener">Forgot Password Cheat Sheet</a><span class="typ">OWASP</span></li>
+        <li><a href="https://itsdangerous.palletsprojects.com/en/stable/" target="_blank" rel="noopener">itsdangerous</a><span class="typ">Pallets</span></li>
+      </ul></div>
+    </article>
+
+    <article id="a-ratelimit" data-gruppe="Sicherheit" data-titel="Rate-Limiting" data-icon="🚦">
+      <h1>Rate-Limiting gegen Brute-Force</h1>
+      <p class="lead">Wer tausende Passwörter durchprobieren will, wird gebremst – zweifach: in Nginx für alle Worker gemeinsam und zusätzlich in Flask.</p>
+      <div class="tabelle-wrap"><table>
+        <tr><th>Endpunkt</th><th>Nginx (pro IP)</th><th>Flask-Limiter (pro IP, pro Worker)</th></tr>
+        <tr><td><code>/api/v1/auth/login</code></td><td>20/min, Spitze 20</td><td>30/min</td></tr>
+        <tr><td><code>/auth/forgot-password</code></td><td>20/min, Spitze 5</td><td>5/min</td></tr>
+        <tr><td><code>/auth/reset-password</code></td><td>20/min, Spitze 5</td><td>10/min</td></tr>
+        <tr><td><code>/auth/csv</code></td><td>–</td><td>10/Stunde</td></tr>
+      </table></div>
+      <div class="hinweis warn"><b>Die echte Client-IP</b> Hinter Nginx sähe die App nur die IP des Nginx-Containers – alle Benutzer teilten sich ein Limit, und die ganze App wäre nach wenigen Klicks gesperrt (genau das war früher der Fall). <code>ProxyFix(x_for=1)</code> übernimmt die echte IP aus <code>X-Forwarded-For</code>. Warum <b>1</b>? Wer mehr Proxys vertraut, erlaubt Clients, sich per gefälschtem Header eine beliebige IP zu geben.</div>
+      <div class="hinweis"><b>Warum keine globalen Limits?</b> Viele Kollegen sitzen hinter derselben Büro-IP (NAT). Ein allgemeines Limit würde sie gegenseitig aussperren. Deshalb gibt es Limits nur an den sensiblen Endpunkten.</div>
+      <div class="quiz" data-richtig="1"><h3>🧠 Wissensfrage</h3><p>Warum reicht Flask-Limiter mit <code>memory://</code> allein nicht?</p>
+        <button>Weil es zu langsam ist</button><button>Weil jeder der 3 Gunicorn-Worker einen eigenen Zähler hat – das Limit wäre effektiv dreimal so hoch</button><button>Weil es kein Python ist</button>
+        <p class="erklärung">Nginx zählt prozessübergreifend. Für gemeinsame Zähler in der App gäbe es <code>RATELIMIT_STORAGE_URI=redis://…</code>.</p></div>
+      <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://nginx.org/en/docs/http/ngx_http_limit_req_module.html" target="_blank" rel="noopener">limit_req</a><span class="typ">nginx</span></li>
+        <li><a href="https://flask-limiter.readthedocs.io/en/stable/" target="_blank" rel="noopener">Flask-Limiter</a><span class="typ">Flask-Limiter</span></li>
+        <li><a href="https://owasp.org/www-community/controls/Blocking_Brute_Force_Attacks" target="_blank" rel="noopener">Brute-Force-Angriffe blockieren</a><span class="typ">OWASP</span></li>
+      </ul></div>
+    </article>
+
+    <article id="a-fehlerbehandlung" data-gruppe="Sicherheit" data-titel="Fehlerbehandlung und Logging" data-icon="🧯">
+      <h1>Fehlerbehandlung und Logging</h1>
+      <p class="lead">Der Client erfährt nie Details eines Fehlers – das Log dagegen alles. So verrät die App Angreifern nichts und das Team kann trotzdem jedes Problem nachvollziehen.</p>
+      <div class="vorher-nachher">
+        <div><span class="etikett schlecht">✗ Vorher</span>
+<pre><code><span class="k">except</span> Exception <span class="k">as</span> e:
+    <span class="k">return</span> <span class="k">None</span>, f<span class="s">"Datenbankfehler: {e}"</span>, <span class="n">500</span>
+<span class="c"># SQL, Tabellen- und Constraint-Namen</span>
+<span class="c"># landeten im Browser</span></code></pre></div>
+        <div><span class="etikett gut">✓ Nachher</span>
+<pre><code><span class="c"># app/errors.py – globaler Handler</span>
+logger.exception(<span class="s">"Unbehandelte Ausnahme …"</span>)
+<span class="k">return</span> jsonify({<span class="s">"error"</span>: <span class="s">"Interner Serverfehler."</span>}), <span class="n">500</span></code></pre></div>
+      </div>
+      <h2>Strukturiertes Logging</h2>
+      <p>In Produktion schreibt <a data-datei="app/logging_config.py">logging_config.py</a> eine JSON-Zeile pro Eintrag nach stdout. Docker sammelt sie ein:</p>
+<pre><code>docker compose logs -f web
+{<span class="s">"ts"</span>: <span class="s">"2026-09-24T20:22:47+00:00"</span>, <span class="s">"level"</span>: <span class="s">"INFO"</span>, <span class="s">"logger"</span>: <span class="s">"app.services.email_service"</span>, <span class="s">"msg"</span>: <span class="s">"…"</span>}</code></pre>
+      <ul>
+        <li><code>print()</code> ist in der App verboten – immer <code>logger = logging.getLogger(__name__)</code>.</li>
+        <li>Im <code>except</code>: <code>logger.exception(…)</code> speichert den kompletten Stacktrace.</li>
+        <li>Platzhalter statt f-Strings: <code>logger.info("Benutzer %s", user_id)</code>.</li>
+      </ul>
+      <div class="quiz" data-richtig="2"><h3>🧠 Wissensfrage</h3><p>Warum ist <code>except Exception: pass</code> gefährlich?</p>
+        <button>Es ist zu langsam</button><button>Es verhindert jeden Fehler</button><button>Der Fehler verschwindet spurlos – niemand merkt, dass etwas nicht funktioniert</button>
+        <p class="erklärung">So fiel früher z. B. nicht auf, wenn die Google-Synchronisation scheiterte. Mindestens loggen!</p></div>
+      <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://cheatsheetseries.owasp.org/cheatsheets/Error_Handling_Cheat_Sheet.html" target="_blank" rel="noopener">Error Handling</a><span class="typ">OWASP</span></li>
+        <li><a href="https://docs.python.org/3/howto/logging.html" target="_blank" rel="noopener">Logging HOWTO</a><span class="typ">Python-Doku</span></li>
+        <li><a href="https://www.w3schools.com/python/python_try_except.asp" target="_blank" rel="noopener">try / except</a><span class="typ">W3Schools</span></li>
+      </ul></div>
+    </article>
+
+    <!-- ============================================================ BETRIEB -->
+    <article id="a-docker" data-gruppe="Betrieb" data-titel="Docker-Stack" data-icon="🐳">
+      <h1>Der Docker-Stack</h1>
+      <p class="lead">Drei Container, ein internes Netzwerk, ein Volume für die Daten. Gestartet wird alles mit <code>docker compose up -d</code>.</p>
+      <figure>
+        <div class="diagramm">
+          <svg viewBox="0 0 900 320" role="group" aria-labelledby="d10t">
+            <title id="d10t">Container, Ports und Volumes</title>
+            <rect x="10" y="10" width="160" height="300" rx="12" class="d-box"/><text x="90" y="36" text-anchor="middle" class="d-text">Host (dein PC)</text>
+            <text x="90" y="120" text-anchor="middle" class="d-mono">:8080</text><text x="90" y="200" text-anchor="middle" class="d-mono">:8443</text>
+            <text x="90" y="280" text-anchor="middle" class="d-klein">./secrets · ./nginx/certs</text>
+            <rect x="210" y="10" width="680" height="300" rx="12" fill="none" class="d-linie d-strich"/><text x="226" y="34" class="d-klein">Docker-Netzwerk „bellmann-calendar_default“</text>
+            <g data-geh="a-nginx" tabindex="0" role="link" aria-label="nginx-Container">
+              <rect x="240" y="100" width="170" height="110" rx="10" class="d-box navy"/><text x="325" y="138" text-anchor="middle" class="d-weiß">bellmann_nginx</text>
+              <text x="325" y="160" text-anchor="middle" class="d-weiß" style="font-weight:400;font-size:12px">nginx:1.27-alpine</text><text x="325" y="182" text-anchor="middle" class="d-weiß" style="font-weight:400;font-size:12px">80 → 301 · 443 TLS</text></g>
+            <g data-geh="a-gunicorn" tabindex="0" role="link" aria-label="web-Container">
+              <rect x="470" y="90" width="190" height="130" rx="10" class="d-box akzent"/><text x="565" y="124" text-anchor="middle" class="d-text">bellmann_web</text>
+              <text x="565" y="146" text-anchor="middle" class="d-klein">Gunicorn + Flask · UID 10001</text><text x="565" y="166" text-anchor="middle" class="d-klein">expose 5000 · HEALTHCHECK</text><text x="565" y="186" text-anchor="middle" class="d-klein">Entrypoint: flask db upgrade</text></g>
+            <g data-geh="a-backup" tabindex="0" role="link" aria-label="db-Container">
+              <rect x="720" y="100" width="150" height="110" rx="10" class="d-box ok"/><text x="795" y="138" text-anchor="middle" class="d-text">bellmann_db</text>
+              <text x="795" y="160" text-anchor="middle" class="d-klein">postgres:16-alpine</text><text x="795" y="182" text-anchor="middle" class="d-klein">expose 5432</text></g>
+            <rect x="720" y="245" width="150" height="44" rx="10" class="d-box warn"/><text x="795" y="272" text-anchor="middle" class="d-klein">Volume postgres_data</text>
+            <line x1="130" y1="115" x2="236" y2="140" class="d-linie akzent" marker-end="url(#pfeil-akzent)"/><line x1="130" y1="195" x2="236" y2="175" class="d-linie akzent" marker-end="url(#pfeil-akzent)"/>
+            <line x1="410" y1="155" x2="466" y2="155" class="d-linie" marker-end="url(#pfeil)"/><line x1="660" y1="155" x2="716" y2="155" class="d-linie" marker-end="url(#pfeil)"/>
+            <line x1="795" y1="210" x2="795" y2="243" class="d-linie" marker-end="url(#pfeil)"/>
+            <line x1="150" y1="275" x2="468" y2="205" class="d-linie d-strich" marker-end="url(#pfeil)"/>
+            <text x="300" y="258" class="d-klein">read-only eingehängt</text>
+          </svg>
+        </div>
+        <figcaption>Abbildung 10 – Nur Nginx veröffentlicht Ports. Die Datenbank ist von außen nicht erreichbar.</figcaption>
+      </figure>
+      <h2>Das Image der Web-App (Multi-Stage-Build)</h2>
+      <ol>
+        <li><b>builder:</b> baut alle Python-Pakete als Wheels (ohne Compiler – alle Pakete gibt es fertig).</li>
+        <li><b>runtime:</b> installiert nur die Wheels und den Code, läuft als unprivilegierter Benutzer <code>app</code> (UID 10001).</li>
+        <li><b>HEALTHCHECK:</b> ruft alle 30 s <code>/health</code> auf – der Container gilt erst als „healthy“, wenn auch die Datenbank antwortet.</li>
+        <li><b>Entrypoint:</b> <code>flask db upgrade</code>, dann Gunicorn als PID 1 (bekommt <code>docker stop</code> direkt).</li>
+      </ol>
+      <div class="quiz" data-richtig="0"><h3>🧠 Wissensfrage</h3><p>Warum läuft der Web-Container nicht als root?</p>
+        <button>Damit ein Angreifer bei einer Lücke im Container keine Root-Rechte hat</button><button>Weil Python root nicht unterstützt</button><button>Wegen der Performance</button>
+        <p class="erklärung">„Principle of least privilege“: jeder Prozess nur mit den Rechten, die er wirklich braucht. Der Code gehört root und ist für <code>app</code> nur lesbar.</p></div>
+      <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://docs.docker.com/build/building/multi-stage/" target="_blank" rel="noopener">Multi-Stage-Builds</a><span class="typ">Docker</span></li>
+        <li><a href="https://docs.docker.com/reference/compose-file/services/#ports" target="_blank" rel="noopener">ports vs. expose</a><span class="typ">Docker</span></li>
+        <li><a href="https://docs.docker.com/reference/dockerfile/#healthcheck" target="_blank" rel="noopener">HEALTHCHECK</a><span class="typ">Docker</span></li>
+      </ul></div>
+    </article>
+
+    <article id="a-gunicorn" data-gruppe="Betrieb" data-titel="Gunicorn und Datenbank-Pool" data-icon="🏎">
+      <h1>Gunicorn und der Datenbank-Pool</h1>
+      <p class="lead">Gunicorn startet 3 Prozesse (Worker) mit je 4 Threads – also 12 gleichzeitige Anfragen. Jeder Worker hat seinen eigenen Pool an Datenbankverbindungen.</p>
+      <figure>
+        <div class="diagramm">
+          <svg viewBox="0 0 900 280" role="img" aria-labelledby="d11t">
+            <title id="d11t">Gunicorn-Worker, Threads und Verbindungspools</title>
+            <rect x="20" y="110" width="140" height="60" rx="10" class="d-box navy"/><text x="90" y="145" text-anchor="middle" class="d-weiß">Master</text>
+            <g>
+              <rect x="220" y="20" width="360" height="70" rx="10" class="d-box akzent"/><text x="236" y="46" class="d-text">Worker 1</text><text x="236" y="70" class="d-klein">Thread ×4</text>
+              <rect x="430" y="32" width="130" height="46" rx="8" class="d-box ok"/><text x="495" y="60" text-anchor="middle" class="d-klein">Pool 5 (+2)</text>
+              <rect x="220" y="105" width="360" height="70" rx="10" class="d-box akzent"/><text x="236" y="131" class="d-text">Worker 2</text><text x="236" y="155" class="d-klein">Thread ×4</text>
+              <rect x="430" y="117" width="130" height="46" rx="8" class="d-box ok"/><text x="495" y="145" text-anchor="middle" class="d-klein">Pool 5 (+2)</text>
+              <rect x="220" y="190" width="360" height="70" rx="10" class="d-box akzent"/><text x="236" y="216" class="d-text">Worker 3</text><text x="236" y="240" class="d-klein">Thread ×4</text>
+              <rect x="430" y="202" width="130" height="46" rx="8" class="d-box ok"/><text x="495" y="230" text-anchor="middle" class="d-klein">Pool 5 (+2)</text>
+            </g>
+            <rect x="700" y="100" width="180" height="80" rx="10" class="d-box ok"/><text x="790" y="136" text-anchor="middle" class="d-text">PostgreSQL</text><text x="790" y="158" text-anchor="middle" class="d-klein">max. 21 von 100</text>
+            <line x1="160" y1="130" x2="216" y2="60" class="d-linie" marker-end="url(#pfeil)"/><line x1="160" y1="140" x2="216" y2="140" class="d-linie" marker-end="url(#pfeil)"/><line x1="160" y1="150" x2="216" y2="222" class="d-linie" marker-end="url(#pfeil)"/>
+            <line x1="580" y1="55" x2="696" y2="125" class="d-linie" marker-end="url(#pfeil)"/><line x1="580" y1="140" x2="696" y2="140" class="d-linie" marker-end="url(#pfeil)"/><line x1="580" y1="225" x2="696" y2="155" class="d-linie" marker-end="url(#pfeil)"/>
+          </svg>
+        </div>
+        <figcaption>Abbildung 11 – 3 × (5 + 2) = höchstens 21 Datenbankverbindungen, weit unter dem PostgreSQL-Standard von 100.</figcaption>
+      </figure>
+      <h2>Warum „gthread“ und nicht „sync“?</h2>
+      <p>Die App wartet meistens: auf die Datenbank, auf Google (0,2–1 s), früher auch auf SMTP. Mit <code>sync</code> und 3 Workern gäbe es nur <b>3</b> gleichzeitige Anfragen – drei langsame Google-Aufrufe und die ganze App steht. Threads geben beim Warten auf I/O das GIL frei, also bringen sie hier echten Gewinn.</p>
+      <div class="tabelle-wrap"><table>
+        <tr><th>Einstellung</th><th>Wert</th><th>Warum</th></tr>
+        <tr><td><code>workers</code> / <code>threads</code></td><td>3 / 4</td><td>12 parallele Anfragen bei geringem Speicherbedarf (per Env anpassbar)</td></tr>
+        <tr><td><code>pool_size</code> + <code>max_overflow</code></td><td>5 + 2</td><td>pool_size ≥ Threads, sonst warten Threads auf Verbindungen</td></tr>
+        <tr><td><code>pool_pre_ping</code></td><td>an</td><td>erkennt tote Verbindungen (z. B. nach DB-Neustart)</td></tr>
+        <tr><td><code>pool_recycle</code></td><td>1800 s</td><td>erneuert Verbindungen, bevor Firewalls sie still kappen</td></tr>
+        <tr><td><code>timeout</code></td><td>60 s</td><td>Nginx wartet 65 s – so bricht Gunicorn zuerst ab</td></tr>
+        <tr><td><code>max_requests</code></td><td>1000 ± 100</td><td>Worker recyceln gegen schleichende Speicherlecks</td></tr>
+      </table></div>
+      <div class="quiz" data-richtig="1"><h3>🧠 Wissensfrage</h3><p>Warum ist <code>preload_app = False</code> wichtig?</p>
+        <button>Damit die App schneller startet</button><button>Damit jeder Worker nach dem Fork seinen eigenen Verbindungspool anlegt – geteilte Sockets würden kaputtgehen</button><button>Weil Flask kein Preload kann</button>
+        <p class="erklärung">Beim Fork würden sonst alle Worker dieselben offenen Datenbank-Sockets erben – das führt zu vermischten Antworten und Fehlern.</p></div>
+      <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://docs.gunicorn.org/design/" target="_blank" rel="noopener">Gunicorn-Design (Worker-Typen)</a><span class="typ">Gunicorn</span></li>
+        <li><a href="https://docs.sqlalchemy.org/en/20/core/pooling.html" target="_blank" rel="noopener">Connection Pooling</a><span class="typ">SQLAlchemy</span></li>
+      </ul></div>
+    </article>
+
+    <article id="a-nginx" data-gruppe="Betrieb" data-titel="Nginx, TLS und Security-Header" data-icon="🔒">
+      <h1>Nginx, TLS und Security-Header</h1>
+      <p class="lead">Nginx liefert die Anwendung nur verschlüsselt aus, setzt Sicherheits-Header für jede Antwort und begrenzt Größe und Dauer von Anfragen.</p>
+      <h2>HTTPS</h2>
+      <ul>
+        <li><code>http://…:8080</code> → 301-Umleitung auf <code>https://…:8443</code>.</li>
+        <li>Nur TLS 1.2 und 1.3. Lokal ein selbstsigniertes Zertifikat (<code>scripts/generate_dev_cert.sh</code>), in Produktion z. B. Let's Encrypt – gleiche Dateinamen unter <code>nginx/certs/</code>.</li>
+        <li><b>HSTS</b> („nur noch HTTPS“) wird für echte Domains gesendet, für <code>localhost</code> bewusst nicht – sonst würde der Browser jeden lokalen Entwicklungsserver auf HTTPS zwingen.</li>
+      </ul>
+      <h2>Security-Header</h2>
+      <div class="tabelle-wrap"><table>
+        <tr><th>Header</th><th>Schützt vor</th></tr>
+        <tr><td><code>Content-Security-Policy</code></td><td>Einschleusen fremder Skripte (XSS) – der Browser führt nur erlaubte Quellen aus</td></tr>
+        <tr><td><code>X-Frame-Options: DENY</code></td><td>Clickjacking (Einbetten in fremde iframes)</td></tr>
+        <tr><td><code>X-Content-Type-Options: nosniff</code></td><td>MIME-Sniffing</td></tr>
+        <tr><td><code>Referrer-Policy</code></td><td>Weitergabe vollständiger URLs an fremde Seiten</td></tr>
+        <tr><td><code>Permissions-Policy</code></td><td>unnötigen Zugriff auf Kamera, Mikrofon, Standort</td></tr>
+        <tr><td><code>Strict-Transport-Security</code></td><td>Herabstufung auf unverschlüsseltes HTTP</td></tr>
+      </table></div>
+      <h2>Die Content-Security-Policy im Detail</h2>
+<pre><code>default-src 'self'; script-src 'self';
+style-src 'self' 'sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU=';
+img-src 'self' data:; font-src 'self' data:; connect-src 'self';
+object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests</code></pre>
+      <div class="tabelle-wrap"><table>
+        <tr><th>Direktive</th><th>Bedeutung</th></tr>
+        <tr><td><code>script-src 'self'</code></td><td>Nur Skriptdateien vom eigenen Server. <b>Kein</b> Inline-JavaScript, keine <code>onclick</code>-Attribute, keine CDNs. Selbst wenn ein Angreifer HTML einschleust, führt der Browser es nicht aus.</td></tr>
+        <tr><td><code>style-src … sha256-47DEQ…</code></td><td>Stylesheets vom eigenen Server. Der Hash gehört zum <b>leeren</b> String: FullCalendar legt ein leeres <code>&lt;style&gt;</code>-Element an und füllt es per <code>insertRule</code> – eingeschleustes CSS bleibt trotzdem blockiert.</td></tr>
+        <tr><td><code>font-src 'self' data:</code></td><td>Schrift „Inter“ selbst gehostet; <code>data:</code> für die eingebettete Icon-Schrift von FullCalendar.</td></tr>
+        <tr><td><code>frame-ancestors 'none'</code></td><td>moderner Ersatz für <code>X-Frame-Options</code> gegen Clickjacking</td></tr>
+      </table></div>
+      <div class="hinweis ok"><b>Vorher → nachher</b> Früher erlaubte die Policy <code>'unsafe-inline'</code> sowie <code>cdn.tailwindcss.com</code> und <code>cdn.jsdelivr.net</code>. Seit dem Redesign vom 25.09.2026 liegt alles JavaScript in Dateien, Tailwind wird beim Build kompiliert und FullCalendar selbst ausgeliefert – dadurch konnte <code>'unsafe-inline'</code> für Skripte komplett entfallen. Ein Test in <a data-datei="tests/test_platform.py">test_platform.py</a> stellt sicher, dass keine Seite wieder Inline-JavaScript enthält.</div>
+      <h2>Kompression und Caching</h2>
+      <p>Nginx komprimiert CSS, JavaScript, JSON und SVG per gzip. Statische Dateien werden mit Inhalts-Hash eingebunden (<code>app.css?v=3fa2c1d0</code>) und dürfen dann ein Jahr gecacht werden – siehe <a href="#a-design">Oberfläche &amp; Designsystem</a>.</p>
+      <h2>Grenzen und Zeitlimits</h2>
+      <p><code>client_max_body_size 2m</code> (passt zum CSV-Import), <code>client_body_timeout 15s</code> gegen „Slowloris“-Angriffe, <code>proxy_read_timeout 65s</code>, <code>server_tokens off</code> (Version wird nicht verraten).</p>
+      <div class="quiz" data-richtig="2"><h3>🧠 Wissensfrage</h3><p>Warum warnt der Browser bei <code>https://localhost:8443</code>?</p>
+        <button>Weil die Verbindung unverschlüsselt ist</button><button>Weil TLS 1.3 zu neu ist</button><button>Weil das Zertifikat selbstsigniert ist – verschlüsselt ist trotzdem</button>
+        <p class="erklärung">Keine bekannte Zertifizierungsstelle hat unterschrieben. Mit einem echten Zertifikat (oder <code>mkcert</code>) verschwindet die Warnung.</p></div>
+      <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://nginx.org/en/docs/http/configuring_https_servers.html" target="_blank" rel="noopener">HTTPS-Server konfigurieren</a><span class="typ">nginx</span></li>
+        <li><a href="https://developer.mozilla.org/de/docs/Web/HTTP/CSP" target="_blank" rel="noopener">Content Security Policy</a><span class="typ">MDN (Deutsch)</span></li>
+        <li><a href="https://ssl-config.mozilla.org/" target="_blank" rel="noopener">SSL-Konfigurationsgenerator</a><span class="typ">Mozilla</span></li>
+        <li><a href="https://securityheaders.com/" target="_blank" rel="noopener">Security-Header prüfen</a><span class="typ">securityheaders.com</span></li>
+      </ul></div>
+    </article>
+
+    <article id="a-backup" data-gruppe="Betrieb" data-titel="Setup, Updates und Backup" data-icon="💾">
+      <h1>Setup, Updates und Backup</h1>
+      <p class="lead">Die drei wichtigsten Abläufe im Betrieb – jeweils mit einem Befehl.</p>
+      <h2>Erstinstallation</h2>
+<pre><code>git clone https://github.com/bellmann-engineering/be-calendar.git
+cd be-calendar
+./setup.sh      <span class="c"># .env mit Zufalls-Secrets, Zertifikat, Container, Rollen, CEO-Zugang</span></code></pre>
+      <h2>Update einspielen</h2>
+<pre><code>git pull
+./scripts/backup_db.sh vor-update
+docker compose up -d --build     <span class="c"># Migrationen laufen beim Start automatisch</span>
+docker compose ps                <span class="c"># web muss "healthy" werden</span></code></pre>
+      <h2>Sicherung und Wiederherstellung</h2>
+<pre><code>./scripts/backup_db.sh [kennzeichnung]      <span class="c"># → ~/bellmann-backups/*.dump (Rechte 600, die letzten 20)</span>
+
+<span class="c"># Wiederherstellen – überschreibt die aktuelle Datenbank!</span>
+docker exec -i bellmann_db sh -c <span class="s">'pg_restore --clean --if-exists -U "$POSTGRES_USER" -d "$POSTGRES_DB"'</span> &lt; DATEI.dump</code></pre>
+      <div class="hinweis"><b>Warum außerhalb des Projekts?</b> Dumps enthalten Passwort-Hashes und Personendaten. Im Projektordner könnten sie versehentlich in Git oder einem Code-Export landen.</div>
+      <div class="hinweis warn"><b>Ein Backup, das nie getestet wurde, ist kein Backup.</b> <code>backup_db.sh</code> prüft jede Sicherung sofort mit <code>pg_restore --list</code>. Probiere die Wiederherstellung trotzdem regelmäßig auf einer Testumgebung aus.</div>
+      <div class="quiz" data-richtig="0"><h3>🧠 Wissensfrage</h3><p>In welcher Reihenfolge spielt man ein Update mit Datenbank-Migration ein?</p>
+        <button>Pull → Backup → Build &amp; Start → Status prüfen</button><button>Build → Pull → Backup</button><button>Backup ist nur einmal im Jahr nötig</button>
+        <p class="erklärung">Die Migration läuft beim Start des Containers – das Backup muss also <i>davor</i> passieren.</p></div>
+      <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://www.postgresql.org/docs/16/app-pgdump.html" target="_blank" rel="noopener">pg_dump</a><span class="typ">PostgreSQL</span></li>
+        <li><a href="https://www.postgresql.org/docs/16/app-pgrestore.html" target="_blank" rel="noopener">pg_restore</a><span class="typ">PostgreSQL</span></li>
+      </ul></div>
+    </article>
+
+    <article id="a-fehler" data-gruppe="Betrieb" data-titel="Fehlerbehebung" data-icon="🩺">
+      <h1>Fehlerbehebung</h1>
+      <p class="lead">Die häufigsten Probleme und wie man sie systematisch findet.</p>
+      <h2>Vorgehen in 4 Schritten</h2>
+      <ol>
+        <li><b>Status:</b> <code>docker compose ps</code> – läuft alles, ist <code>web</code> „healthy“?</li>
+        <li><b>Logs:</b> <code>docker compose logs --tail 50 web</code> – nach <code>ERROR</code> oder <code>Traceback</code> suchen.</li>
+        <li><b>Gesundheit:</b> <code>curl -k https://localhost:8443/health</code></li>
+        <li><b>Browser:</b> F12 → Konsole und Netzwerk-Tab (Statuscodes, Antworten).</li>
+      </ol>
+      <div class="tabelle-wrap"><table>
+        <tr><th>Symptom</th><th>Ursache</th><th>Lösung</th></tr>
+        <tr><td>Nach dem Login wieder auf <code>/login</code></td><td>Secure-Cookie über HTTP</td><td>Über <code>https://…:8443</code> aufrufen oder <code>COOKIE_SECURE=0</code> für reines HTTP</td></tr>
+        <tr><td><code>web</code> wird nicht healthy</td><td>fehlende/kurze Secrets, DB nicht erreichbar, Migration schlägt fehl</td><td>Logs lesen; <code>.env</code> mit <code>.env.example</code> vergleichen</td></tr>
+        <tr><td><code>Can't locate revision …</code></td><td>alembic_version zeigt auf gelöschte Migration</td><td>sichern, <code>flask db stamp bcf52e20a906</code>, <code>flask db upgrade</code></td></tr>
+        <tr><td>429 Too Many Requests</td><td>Rate-Limit ausgelöst</td><td>eine Minute warten</td></tr>
+        <tr><td>Keine E-Mails</td><td>SMTP nicht konfiguriert</td><td><code>SMTP_*</code> in der <code>.env</code></td></tr>
+        <tr><td>401 bei jeder Aktion</td><td>Sitzung abgelaufen oder CSRF-Header fehlt</td><td>neu einloggen; eigene Skripte müssen <code>X-CSRF-TOKEN</code> senden</td></tr>
+        <tr><td>Alter Stand im Browser</td><td>Cache</td><td><kbd>Strg</kbd>+<kbd>F5</kbd></td></tr>
+      </table></div>
+      <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://docs.docker.com/reference/cli/docker/compose/logs/" target="_blank" rel="noopener">docker compose logs</a><span class="typ">Docker</span></li>
+        <li><a href="https://developer.chrome.com/docs/devtools/network" target="_blank" rel="noopener">Netzwerk-Tab der DevTools</a><span class="typ">Chrome</span></li>
+      </ul></div>
+    </article>
+
+    <!-- ============================================================ QUALITÄT -->
+    <article id="a-tests" data-gruppe="Qualität" data-titel="Tests mit pytest" data-icon="✅">
+      <h1>Automatisierte Tests mit pytest</h1>
+      <p class="lead">56 Tests prüfen die API und die Auslieferung der Seiten von außen – gegen eine echte PostgreSQL. Jeder Lauf baut das Schema über <b>alle</b> Migrationen neu auf und testet damit auch diese.</p>
+<pre><code>docker run -d --rm --name bellmann_test_pg -e POSTGRES_PASSWORD=test -e POSTGRES_DB=bellmann_test \
+  -p 127.0.0.1:55433:5432 --tmpfs /var/lib/postgresql/data postgres:16-alpine
+export TEST_DATABASE_URL=postgresql+psycopg://postgres:test@127.0.0.1:55433/bellmann_test
+pytest --cov
+docker rm -f bellmann_test_pg</code></pre>
+      <h2>Was getestet wird</h2>
+      <div class="tabelle-wrap"><table>
+        <tr><th>Datei</th><th>Schwerpunkt</th></tr>
+        <tr><td><a data-datei="tests/test_auth.py">test_auth.py</a></td><td>HttpOnly-Cookies, CSRF, Refresh, sofortige Sperre, Einmal-Reset-Links</td></tr>
+        <tr><td><a data-datei="tests/test_users.py">test_users.py</a></td><td>Rollen-Hierarchie (keine Rechteausweitung), CSV-Import</td></tr>
+        <tr><td><a data-datei="tests/test_events.py">test_events.py</a></td><td>Kollisionen (Regressionstest des großen Bugs), Zeitzonen, Sichtbarkeit, kein N+1</td></tr>
+        <tr><td><a data-datei="tests/test_rsvp.py">test_rsvp.py</a></td><td>Pflichtbegründung, Neu-Zuweisung, genau eine Benachrichtigung</td></tr>
+        <tr><td><a data-datei="tests/test_admin_teams.py">test_admin_teams.py</a></td><td>Rechteentzug, Teams, Benachrichtigungen, Google-Kollision (gemockt)</td></tr>
+        <tr><td><a data-datei="tests/test_platform.py">test_platform.py</a></td><td>Health-Check, Fehler ohne Details, Fail-fast-Konfiguration, kein Inline-JavaScript auf allen Seiten, versionierte Assets mit Cache-Headern</td></tr>
+      </table></div>
+      <h2>Aufbau eines Tests (Arrange – Act – Assert)</h2>
+<pre><code><span class="k">def</span> <span class="n">test_kollision_wird_erkannt</span>(client, make_user, login, csrf):
+    admin = make_user(<span class="s">"ADMIN"</span>); trainer = make_user(<span class="s">"TRAINER"</span>)     <span class="c"># Arrange</span>
+    login(admin)
+    client.post(<span class="s">"/api/v1/events"</span>, json=termin(trainer.id), headers=csrf())
+    antwort = client.post(<span class="s">"/api/v1/events"</span>, json=termin(trainer.id, <span class="s">"10:30"</span>), headers=csrf())  <span class="c"># Act</span>
+    <span class="k">assert</span> antwort.status_code == <span class="n">409</span>                                <span class="c"># Assert</span></code></pre>
+      <div class="quiz" data-richtig="1"><h3>🧠 Wissensfrage</h3><p>Warum laufen die Tests gegen PostgreSQL und nicht gegen das bequemere SQLite?</p>
+        <button>SQLite ist nicht kostenlos</button><button>Weil timestamptz, make_interval &amp; Co. PostgreSQL-spezifisch sind – Tests sollen die echte Umgebung abbilden</button><button>pytest kann kein SQLite</button>
+        <p class="erklärung">Ein Test, der in einer anderen Datenbank grün ist, beweist wenig über die Produktion.</p></div>
+      <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://docs.pytest.org/en/stable/getting-started.html" target="_blank" rel="noopener">pytest – Erste Schritte</a><span class="typ">pytest</span></li>
+        <li><a href="https://docs.pytest.org/en/stable/how-to/fixtures.html" target="_blank" rel="noopener">Fixtures</a><span class="typ">pytest</span></li>
+        <li><a href="https://flask.palletsprojects.com/en/stable/testing/" target="_blank" rel="noopener">Flask-Apps testen</a><span class="typ">Flask</span></li>
+      </ul></div>
+    </article>
+
+    <article id="a-ci" data-gruppe="Qualität" data-titel="CI/CD mit GitHub Actions" data-icon="🔁">
+      <h1>CI/CD mit GitHub Actions</h1>
+      <p class="lead">Bei jedem Push prüft GitHub den Code automatisch. Ein Schritt startet nur, wenn der vorige grün ist – so landet nur geprüfter Code als Image in der Registry.</p>
+      <figure>
+        <div class="diagramm">
+          <svg viewBox="0 0 900 170" role="img" aria-labelledby="d12t">
+            <title id="d12t">CI-Pipeline</title>
+            <g text-anchor="middle">
+              <rect x="10" y="50" width="140" height="70" rx="10" class="d-box akzent"/><text x="80" y="82" class="d-text">Push / PR</text><text x="80" y="102" class="d-klein">GitHub</text>
+              <rect x="190" y="50" width="150" height="70" rx="10" class="d-box"/><text x="265" y="82" class="d-text">lint</text><text x="265" y="102" class="d-klein">ruff + black</text>
+              <rect x="380" y="50" width="170" height="70" rx="10" class="d-box"/><text x="465" y="82" class="d-text">test</text><text x="465" y="102" class="d-klein">pytest + PostgreSQL, ≥ 70 %</text>
+              <rect x="590" y="50" width="130" height="70" rx="10" class="d-box"/><text x="655" y="82" class="d-text">build</text><text x="655" y="102" class="d-klein">Docker-Image</text>
+              <rect x="760" y="50" width="130" height="70" rx="10" class="d-box ok"/><text x="825" y="82" class="d-text">push</text><text x="825" y="102" class="d-klein">nur main / Tags</text>
+            </g>
+            <line x1="150" y1="85" x2="186" y2="85" class="d-linie" marker-end="url(#pfeil)"/><line x1="340" y1="85" x2="376" y2="85" class="d-linie" marker-end="url(#pfeil)"/>
+            <line x1="550" y1="85" x2="586" y2="85" class="d-linie" marker-end="url(#pfeil)"/><line x1="720" y1="85" x2="756" y2="85" class="d-linie" marker-end="url(#pfeil)"/>
+            <text x="450" y="150" text-anchor="middle" class="d-klein">Zusätzlich prüft „PR-Titel“, ob Pull Requests den Conventional Commits folgen.</text>
+          </svg>
+        </div>
+        <figcaption>Abbildung 12 – Die Pipeline aus <a data-datei=".github/workflows/ci.yml">.github/workflows/ci.yml</a>. Images landen in <code>ghcr.io/bellmann-engineering/be-calendar</code>.</figcaption>
+      </figure>
+      <div class="quiz" data-richtig="0"><h3>🧠 Wissensfrage</h3><p>Ein Test schlägt in der CI fehl. Was passiert mit dem Docker-Image?</p>
+        <button>Es wird nicht gebaut und nicht veröffentlicht</button><button>Es wird trotzdem veröffentlicht</button><button>Es wird gelöscht</button>
+        <p class="erklärung"><code>build</code> hängt über <code>needs: test</code> vom Testjob ab.</p></div>
+      <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://docs.github.com/de/actions/about-github-actions/understanding-github-actions" target="_blank" rel="noopener">GitHub Actions verstehen</a><span class="typ">GitHub (Deutsch)</span></li>
+        <li><a href="https://www.conventionalcommits.org/de/v1.0.0/" target="_blank" rel="noopener">Conventional Commits</a><span class="typ">Spezifikation (Deutsch)</span></li>
+      </ul></div>
+    </article>
+
+    <article id="a-regeln" data-gruppe="Qualität" data-titel="Code-Qualität und Projektregeln" data-icon="📐">
+      <h1>Code-Qualität und Projektregeln</h1>
+      <p class="lead">Einheitlicher Stil und feste Regeln machen Code für alle lesbar. Das meiste prüfen Werkzeuge automatisch – vor jedem Commit.</p>
+      <h2>Die Werkzeuge</h2>
+      <div class="tabelle-wrap"><table>
+        <tr><th>Werkzeug</th><th>Aufgabe</th><th>Konfiguration</th></tr>
+        <tr><td>ruff</td><td>Linter: echte Fehler, unsichere Muster (bandit), naive Datumswerte, Type Hints, Import-Reihenfolge</td><td><a data-datei="pyproject.toml">pyproject.toml</a></td></tr>
+        <tr><td>black</td><td>Formatierer: einheitliches Layout, Zeilenlänge 100</td><td><a data-datei="pyproject.toml">pyproject.toml</a></td></tr>
+        <tr><td>pre-commit</td><td>führt beides + YAML-Prüfung + Schlüssel-Erkennung vor jedem Commit aus</td><td><a data-datei=".pre-commit-config.yaml">.pre-commit-config.yaml</a></td></tr>
+      </table></div>
+<pre><code>pip install -r requirements-dev.txt
+pre-commit install         <span class="c"># einmalig</span>
+ruff check . &amp;&amp; black --check .</code></pre>
+      <h2>Die Projektregeln</h2>
+      <div class="tabelle-wrap"><table>
+        <tr><th>Regel</th><th>Warum</th></tr>
+        <tr><td>Kommentare, Meldungen und Doku auf <b>Deutsch</b></td><td>Bellmann Engineering arbeitet auf Deutsch</td></tr>
+        <tr><td>Nie <code>datetime.utcnow()</code>, immer <code>datetime.now(timezone.utc)</code></td><td>eindeutige Zeiten, siehe <a href="#a-zeitzonen">Zeitzonen</a></td></tr>
+        <tr><td>Nie <code>db.create_all()</code> – nur Alembic</td><td>nachvollziehbares, reproduzierbares Schema</td></tr>
+        <tr><td>Zugangsdaten nur in der <code>.env</code></td><td>siehe <a href="#a-secrets">Secrets</a></td></tr>
+        <tr><td>Type Hints in allen Services</td><td>bessere Lesbarkeit und Editor-Unterstützung</td></tr>
+        <tr><td>„Sprechender Code“: jede Datei mit Kopfkommentar (Zweck, Abhängigkeiten, Aufrufer)</td><td>Einarbeitung ohne Rätselraten</td></tr>
+        <tr><td>Conventional Commits (<code>feat:</code>, <code>fix:</code>, <code>docs:</code> …)</td><td>lesbare Historie, automatische Changelogs möglich</td></tr>
+        <tr><td>Abhängigkeiten mit <code>==</code> fest pinnen</td><td>reproduzierbare Builds</td></tr>
+      </table></div>
+      <div class="quiz" data-richtig="2"><h3>🧠 Wissensfrage</h3><p>Welche Commit-Meldung entspricht den Projektregeln?</p>
+        <button><code>fixed stuff</code></button><button><code>Fix: Bug behoben!!!</code></button><button><code>fix(events): Kollisionsprüfung berücksichtigt Pufferzeiten</code></button>
+        <p class="erklärung">Typ, optionaler Bereich in Klammern, Doppelpunkt, dann eine kurze, aussagekräftige Beschreibung.</p></div>
+      <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://docs.astral.sh/ruff/rules/" target="_blank" rel="noopener">Alle ruff-Regeln</a><span class="typ">Ruff</span></li>
+        <li><a href="https://black.readthedocs.io/en/stable/" target="_blank" rel="noopener">Black</a><span class="typ">Black</span></li>
+        <li><a href="https://peps.python.org/pep-0008/" target="_blank" rel="noopener">PEP 8 – Stilrichtlinie</a><span class="typ">Python</span></li>
+        <li><a href="https://pre-commit.com/" target="_blank" rel="noopener">pre-commit</a><span class="typ">pre-commit</span></li>
+      </ul></div>
+    </article>
+
+    <!-- ============================================================ NACHSCHLAGEN -->
+    <article id="a-chronik" data-gruppe="Nachschlagen" data-titel="Audit-Chronik 24.09.2026" data-icon="📜">
+      <h1>Audit-Chronik vom 24.09.2026</h1>
+      <p class="lead">Was bei der Prüfung gefunden und behoben wurde – eine gute Lektion darüber, welche Fehler in echten Projekten vorkommen.</p>
+      <div class="tabelle-wrap"><table>
+        <tr><th>Schwere</th><th>Befund</th><th>Lösung</th></tr>
+        <tr><td><span class="abzeichen">kritisch</span></td><td>Kollisionsprüfung fand nie etwas (<code>not Event.is_deleted</code>)</td><td><code>is_(False)</code>, Prüfung komplett in SQL, Regressionstest</td></tr>
+        <tr><td><span class="abzeichen">kritisch</span></td><td>Secrets in Git und in <code>setup.sh</code>, CEO mit Standardpasswort</td><td>alles rotiert, Verlauf bereinigt, Zufalls-Secrets</td></tr>
+        <tr><td><span class="abzeichen">kritisch</span></td><td>Tabellen/Spalten ohne Migration (Schema-Drift)</td><td>idempotente Migration <code>a7c9e2d4f6b8</code></td></tr>
+        <tr><td><span class="abzeichen">kritisch</span></td><td>Admin konnte sich zum CEO befördern</td><td><code>can_manage_user()</code> + Tests</td></tr>
+        <tr><td><span class="abzeichen">kritisch</span></td><td>Gespeichertes XSS über Ablehnungsgründe, Token im localStorage</td><td>Escaping, HttpOnly-Cookies, CSP</td></tr>
+        <tr><td><span class="abzeichen">kritisch</span></td><td>Rate-Limit teilte sich eine IP (Nginx) → App nach wenigen Klicks gesperrt</td><td>ProxyFix, gezielte Limits, Nginx-limit_req</td></tr>
+        <tr><td><span class="abzeichen">hoch</span></td><td>Passwort-Reset ohne Bestätigung, Passwort im Klartext per Mail</td><td>signierte Einmal-Links</td></tr>
+        <tr><td><span class="abzeichen">hoch</span></td><td>Fehlertexte mit SQL an den Client, kein globaler Error-Handler</td><td><code>app/errors.py</code>, JSON-Logging</td></tr>
+        <tr><td><span class="abzeichen">hoch</span></td><td>Mails in offener Transaktion, doppelte Benachrichtigungen</td><td>After-Commit-Hook, Thread-Pool</td></tr>
+        <tr><td><span class="abzeichen">mittel</span></td><td>N+1-Abfragen, fehlende Indizes, naive Zeitstempel</td><td>joinedload, Indizes, timestamptz</td></tr>
+        <tr><td><span class="abzeichen">mittel</span></td><td>DB-Port offen, Container als root, kein TLS</td><td>expose, UID 10001, HTTPS mit Nginx</td></tr>
+        <tr><td><span class="abzeichen">25.09.</span></td><td>Oberfläche wirkte veraltet, CSP brauchte <code>'unsafe-inline'</code> und CDNs</td><td>Redesign mit Designsystem, Tailwind-Build, selbst gehostetes FullCalendar, strikte CSP, Lighthouse 100</td></tr>
+        <tr><td><span class="abzeichen">niedrig</span></td><td>keine Tests, keine CI, ungepinnte Pakete, <code>print()</code>, spanische Texte</td><td>Tests, GitHub Actions, Pins, Logging, Deutsch</td></tr>
+      </table></div>
+      <div class="hinweis ok"><b>Die wichtigste Lehre</b> Die gefährlichsten Fehler werfen <i>keine</i> Fehlermeldung: Die Kollisionsprüfung „funktionierte“ still falsch, die Secrets lagen still im Verlauf. Deshalb braucht jedes Projekt Tests, die das <b>erwartete Verhalten</b> prüfen – nicht nur, ob der Code läuft.</div>
+    </article>
+
+    <article id="a-glossar" data-gruppe="Nachschlagen" data-titel="Glossar" data-icon="📖">
+      <h1>Glossar</h1>
+      <p class="lead">Die wichtigsten Fachbegriffe kurz erklärt.</p>
+      <div class="tabelle-wrap"><table>
+        <tr><th>Begriff</th><th>Erklärung</th></tr>
+        <tr><td>Alembic</td><td>Werkzeug für versionierte Datenbank-Migrationen (über Flask-Migrate).</td></tr>
+        <tr><td>Application Factory</td><td>Funktion <code>create_app()</code>, die eine konfigurierte Flask-App erzeugt.</td></tr>
+        <tr><td>Audit-Log</td><td>Unveränderliche Historie aller wichtigen Aktionen (wer, was, wann).</td></tr>
+        <tr><td>Blueprint</td><td>Gruppe zusammengehöriger Flask-Routen mit gemeinsamem URL-Präfix.</td></tr>
+        <tr><td>CSRF</td><td>Cross-Site Request Forgery – eine fremde Seite löst Aktionen im Namen des Benutzers aus.</td></tr>
+        <tr><td>CSP</td><td>Content Security Policy – Header, der festlegt, welche Skripte der Browser ausführen darf.</td></tr>
+        <tr><td>Fail-fast</td><td>Bei fehlerhafter Konfiguration sofort abbrechen statt mit unsicheren Standardwerten weiterzulaufen.</td></tr>
+        <tr><td>Fremdschlüssel</td><td>Spalte, die auf den Primärschlüssel einer anderen Tabelle verweist.</td></tr>
+        <tr><td>gthread</td><td>Gunicorn-Worker-Typ mit mehreren Threads pro Prozess.</td></tr>
+        <tr><td>HttpOnly</td><td>Cookie-Attribut: JavaScript kann das Cookie nicht lesen.</td></tr>
+        <tr><td>Idempotent</td><td>Mehrfach ausführbar mit gleichem Ergebnis (z. B. die Migration a7c9e2d4f6b8).</td></tr>
+        <tr><td>Index</td><td>Datenstruktur, mit der die Datenbank Zeilen schnell findet, ohne die ganze Tabelle zu lesen.</td></tr>
+        <tr><td>JWT</td><td>JSON Web Token – signierter Ausweis mit Benutzer-ID und Ablaufzeit.</td></tr>
+        <tr><td>N+1-Problem</td><td>Eine Abfrage für die Liste plus je eine weitere pro Element.</td></tr>
+        <tr><td>ORM</td><td>Object-Relational Mapping – Tabellen als Python-Klassen (SQLAlchemy).</td></tr>
+        <tr><td>Rate-Limiting</td><td>Begrenzung der Anfragen pro Zeit und Client.</td></tr>
+        <tr><td>Reverse Proxy</td><td>Server vor der Anwendung, der Anfragen annimmt und weiterleitet (Nginx).</td></tr>
+        <tr><td>RSVP</td><td>„Répondez s'il vous plaît“ – Rückmeldung auf eine Einladung.</td></tr>
+        <tr><td>Soft-Delete</td><td>Datensatz wird als gelöscht markiert statt physisch entfernt.</td></tr>
+        <tr><td>timestamptz</td><td>PostgreSQL-Zeitstempel mit Zeitzone (intern UTC).</td></tr>
+        <tr><td>TLS</td><td>Verschlüsselung der Verbindung (das „S“ in HTTPS).</td></tr>
+        <tr><td>WSGI</td><td>Schnittstelle zwischen Python-Webanwendung und Webserver (Gunicorn).</td></tr>
+        <tr><td>XSS</td><td>Cross-Site-Scripting – eingeschleustes JavaScript läuft im Browser anderer Benutzer.</td></tr>
+      </table></div>
+    </article>
+
+    <article id="a-quellen" data-gruppe="Nachschlagen" data-titel="Quellensammlung" data-icon="📚">
+      <h1>Quellensammlung</h1>
+      <p class="lead">Die besten Anlaufstellen zum Weiterlernen, nach Thema sortiert.</p>
+      <div class="raster">
+        <div class="karte"><b>Python</b><span><a href="https://www.w3schools.com/python/" target="_blank" rel="noopener">W3Schools Python</a> · <a href="https://docs.python.org/3/tutorial/" target="_blank" rel="noopener">Python-Tutorial (offiziell)</a> · <a href="https://realpython.com/" target="_blank" rel="noopener">Real Python</a></span></div>
+        <div class="karte"><b>Flask</b><span><a href="https://flask.palletsprojects.com/en/stable/" target="_blank" rel="noopener">Flask-Doku</a> · <a href="https://flask-jwt-extended.readthedocs.io/en/stable/" target="_blank" rel="noopener">Flask-JWT-Extended</a></span></div>
+        <div class="karte"><b>Datenbank</b><span><a href="https://www.w3schools.com/sql/" target="_blank" rel="noopener">W3Schools SQL</a> · <a href="https://docs.sqlalchemy.org/en/20/" target="_blank" rel="noopener">SQLAlchemy 2</a> · <a href="https://www.postgresql.org/docs/16/" target="_blank" rel="noopener">PostgreSQL 16</a></span></div>
+        <div class="karte"><b>Web &amp; JavaScript</b><span><a href="https://developer.mozilla.org/de/" target="_blank" rel="noopener">MDN (Deutsch)</a> · <a href="https://www.w3schools.com/js/" target="_blank" rel="noopener">W3Schools JS</a></span></div>
+        <div class="karte"><b>Sicherheit</b><span><a href="https://owasp.org/Top10/de/" target="_blank" rel="noopener">OWASP Top 10 (Deutsch)</a> · <a href="https://cheatsheetseries.owasp.org/" target="_blank" rel="noopener">OWASP Cheat Sheets</a></span></div>
+        <div class="karte"><b>Betrieb</b><span><a href="https://docs.docker.com/" target="_blank" rel="noopener">Docker</a> · <a href="https://nginx.org/en/docs/" target="_blank" rel="noopener">nginx</a> · <a href="https://docs.gunicorn.org/" target="_blank" rel="noopener">Gunicorn</a></span></div>
+        <div class="karte"><b>Qualität</b><span><a href="https://docs.pytest.org/en/stable/" target="_blank" rel="noopener">pytest</a> · <a href="https://docs.astral.sh/ruff/" target="_blank" rel="noopener">Ruff</a> · <a href="https://docs.github.com/de/actions" target="_blank" rel="noopener">GitHub Actions</a></span></div>
+        <div class="karte"><b>Git</b><span><a href="https://git-scm.com/book/de/v2" target="_blank" rel="noopener">Pro Git (Deutsch)</a> · <a href="https://www.conventionalcommits.org/de/v1.0.0/" target="_blank" rel="noopener">Conventional Commits</a></span></div>
+      </div>
+    </article>
+
+  </main>
+</div>
+<script>
+/* =============================================================================
+   Interaktivität der Wissensdatenbank (reines JavaScript, keine Bibliotheken)
+   - Inhaltsverzeichnis aus den <article>-Elementen erzeugen
+   - Navigation über den Adress-Hash (#a-…), Vor/Zurück, Brotkrumen
+   - Volltextsuche mit Hervorhebung (Taste "/")
+   - Wissensfragen, Lernfortschritt (localStorage), Kopieren von Code
+   - Farbschema (Automatisch / Hell / Dunkel) und GitHub-Links für Dateinamen
+   ============================================================================= */
+(() => {
+  "use strict";
+  const REPO = "https://github.com/bellmann-engineering/be-calendar/blob/main/";
+  const $ = (s, el = document) => el.querySelector(s);
+  const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+  const artikel = $$("main article");
+  const nav = $("#inhaltsverzeichnis");
+  const suchfeld = $("#suchfeld");
+  const ergebnisse = $("#suchergebnisse");
+
+  // localStorage kann in privaten Fenstern fehlen -> immer mit try/catch.
+  const speicher = {
+    lesen(k, standard) { try { return JSON.parse(localStorage.getItem(k)) ?? standard; } catch { return standard; } },
+    schreiben(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* egal */ } },
+  };
+  let gelesen = new Set(speicher.lesen("kb-gelesen", []));
+
+  /* ---------- Dateinamen -> GitHub-Links ---------- */
+  $$("a[data-datei]").forEach(a => { a.href = REPO + a.dataset.datei; a.target = "_blank"; a.rel = "noopener"; });
+
+  /* ---------- Inhaltsverzeichnis ---------- */
+  let gruppe = null;
+  artikel.forEach(a => {
+    if (a.dataset.gruppe !== gruppe) {
+      gruppe = a.dataset.gruppe;
+      const h = document.createElement("h2");
+      h.textContent = gruppe;
+      nav.append(h);
+    }
+    const link = document.createElement("a");
+    link.href = "#" + a.id;
+    link.dataset.ziel = a.id;
+    const icon = document.createElement("span");
+    icon.textContent = a.dataset.icon || "•";
+    icon.setAttribute("aria-hidden", "true");
+    const titel = document.createElement("span");
+    titel.textContent = a.dataset.titel;
+    const haken = document.createElement("span");
+    haken.className = "häkchen";
+    haken.textContent = "✓";
+    haken.setAttribute("aria-label", "gelesen");
+    link.append(icon, titel, haken);
+    nav.append(link);
+  });
+
+  /* ---------- Brotkrumen, Aktionen, Vor/Zurück in jeden Artikel ---------- */
+  artikel.forEach((a, i) => {
+    const krumen = document.createElement("p");
+    krumen.className = "brotkrumen";
+    krumen.textContent = `${a.dataset.gruppe} › ${a.dataset.titel}`;
+    a.prepend(krumen);
+
+    const aktionen = document.createElement("div");
+    aktionen.className = "aktionen";
+    const knopf = document.createElement("button");
+    knopf.className = "knopf primär";
+    knopf.type = "button";
+    knopf.dataset.gelesenKnopf = a.id;
+    aktionen.append(knopf);
+    a.append(aktionen);
+
+    const fuß = document.createElement("nav");
+    fuß.className = "fuß";
+    fuß.setAttribute("aria-label", "Blättern");
+    const vorher = artikel[i - 1], nachher = artikel[i + 1];
+    if (vorher) fuß.append(blätterLink(vorher, "← Zurück", ""));
+    if (nachher) fuß.append(blätterLink(nachher, "Weiter →", "weiter"));
+    a.append(fuß);
+  });
+
+  function blätterLink(ziel, text, klasse) {
+    const l = document.createElement("a");
+    l.href = "#" + ziel.id;
+    if (klasse) l.className = klasse;
+    const s = document.createElement("small");
+    s.textContent = text;
+    const t = document.createElement("span");
+    t.textContent = ziel.dataset.titel;
+    l.append(s, t);
+    return l;
+  }
+
+  /* ---------- Fortschritt ---------- */
+  function fortschrittAktualisieren() {
+    const prozent = Math.round((gelesen.size / artikel.length) * 100);
+    $("#fortschrittsbalken").style.width = prozent + "%";
+    $("#fortschrittstext").textContent = `${prozent} %`;
+    $$("nav.inhalt a").forEach(l => l.classList.toggle("gelesen", gelesen.has(l.dataset.ziel)));
+    $$("[data-gelesen-knopf]").forEach(k => {
+      const ist = gelesen.has(k.dataset.gelesenKnopf);
+      k.textContent = ist ? "✓ Gelesen" : "Als gelesen markieren";
+      k.setAttribute("aria-pressed", String(ist));
+    });
+  }
+  document.addEventListener("click", e => {
+    const k = e.target.closest("[data-gelesen-knopf]");
+    if (!k) return;
+    const id = k.dataset.gelesenKnopf;
+    gelesen.has(id) ? gelesen.delete(id) : gelesen.add(id);
+    speicher.schreiben("kb-gelesen", [...gelesen]);
+    fortschrittAktualisieren();
+  });
+
+  /* ---------- Navigation über den Hash ---------- */
+  // fokus=false: beim Tippen in der Suche darf der Fokus NICHT aus dem Suchfeld springen.
+  function zeigen(fokus = true) {
+    const id = decodeURIComponent(location.hash.slice(1)) || "a-start";
+    const ziel = document.getElementById(id);
+    if (!ziel || ziel.tagName !== "ARTICLE") { location.hash = "#a-start"; return; }
+    ergebnisse.classList.remove("aktiv");
+    artikel.forEach(a => a.classList.toggle("aktiv", a === ziel));
+    $$("nav.inhalt a").forEach(l => {
+      if (l.dataset.ziel === id) l.setAttribute("aria-current", "page"); else l.removeAttribute("aria-current");
+    });
+    document.title = `${ziel.dataset.titel} – Bellmann Calendar KB`;
+    nav.classList.remove("offen");
+    $("#menü").setAttribute("aria-expanded", "false");
+    if (fokus) {
+      window.scrollTo({ top: 0 });
+      $("#hauptinhalt").focus({ preventScroll: true });
+    }
+  }
+  window.addEventListener("hashchange", () => zeigen());
+
+  /* ---------- Diagramm-Kästen anklickbar (Maus + Tastatur) ---------- */
+  document.addEventListener("click", e => {
+    const g = e.target.closest("[data-geh]");
+    if (g) location.hash = "#" + g.dataset.geh;
+  });
+  document.addEventListener("keydown", e => {
+    const g = e.target.closest && e.target.closest("[data-geh]");
+    if (g && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); location.hash = "#" + g.dataset.geh; }
+  });
+
+  /* ---------- Wissensfragen ---------- */
+  $$(".quiz").forEach(q => {
+    const richtig = Number(q.dataset.richtig);
+    $$("button", q).forEach((b, i) => {
+      b.type = "button";
+      b.addEventListener("click", () => {
+        $$("button", q).forEach((x, j) => { if (j === richtig) x.dataset.ergebnis = "richtig"; });
+        b.dataset.ergebnis = i === richtig ? "richtig" : "falsch";
+        q.classList.add("beantwortet");
+      });
+    });
+  });
+
+  /* ---------- Code kopieren ---------- */
+  $$("pre").forEach(pre => {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "kopieren";
+    b.textContent = "Kopieren";
+    b.setAttribute("aria-label", "Code kopieren");
+    b.addEventListener("click", async () => {
+      try { await navigator.clipboard.writeText(pre.querySelector("code")?.innerText ?? pre.innerText); b.textContent = "✓ Kopiert"; }
+      catch { b.textContent = "Nicht möglich"; }
+      setTimeout(() => (b.textContent = "Kopieren"), 1500);
+    });
+    pre.append(b);
+  });
+
+  /* ---------- Suche ---------- */
+  const index = artikel.map(a => ({
+    id: a.id, titel: a.dataset.titel, gruppe: a.dataset.gruppe,
+    text: a.textContent.replace(/\s+/g, " ").trim(),
+  }));
+  function hervorheben(text, begriff) {
+    // Sicher: erst als Text in einen Knoten, dann Treffer in <mark> – keine HTML-Einschleusung.
+    const frag = document.createDocumentFragment();
+    const lower = text.toLowerCase(), b = begriff.toLowerCase();
+    let pos = 0, treffer;
+    while ((treffer = lower.indexOf(b, pos)) !== -1) {
+      frag.append(text.slice(pos, treffer));
+      const m = document.createElement("mark");
+      m.textContent = text.slice(treffer, treffer + b.length);
+      frag.append(m);
+      pos = treffer + b.length;
+    }
+    frag.append(text.slice(pos));
+    return frag;
+  }
+  function suchen(begriff) {
+    begriff = begriff.trim();
+    if (begriff.length < 2) { zeigen(false); return; }
+    const b = begriff.toLowerCase();
+    const liste = index
+      .map(e => ({ ...e, punkte: (e.titel.toLowerCase().includes(b) ? 10 : 0) + e.text.toLowerCase().split(b).length - 1 }))
+      .filter(e => e.punkte > 0)
+      .sort((x, y) => y.punkte - x.punkte);
+    ergebnisse.replaceChildren();
+    const kopf = document.createElement("h1");
+    kopf.textContent = `${liste.length} Treffer für „${begriff}“`;
+    ergebnisse.append(kopf);
+    liste.forEach(e => {
+      const a = document.createElement("a");
+      a.href = "#" + e.id;
+      const t = document.createElement("b");
+      t.append(hervorheben(e.titel, begriff));
+      const g = document.createElement("small");
+      g.textContent = e.gruppe;
+      const stelle = e.text.toLowerCase().indexOf(b);
+      const auszug = document.createElement("span");
+      if (stelle >= 0) auszug.append("… ", hervorheben(e.text.slice(Math.max(0, stelle - 70), stelle + 110), begriff), " …");
+      a.append(g, t, document.createElement("br"), auszug);
+      a.addEventListener("click", () => { suchfeld.value = ""; });
+      ergebnisse.append(a);
+    });
+    artikel.forEach(a => a.classList.remove("aktiv"));
+    ergebnisse.classList.add("aktiv");
+  }
+  suchfeld.addEventListener("input", () => suchen(suchfeld.value));
+  suchfeld.addEventListener("keydown", e => {
+    if (e.key === "Enter") { const erster = $("a", ergebnisse); if (erster) { suchfeld.value = ""; location.hash = erster.getAttribute("href"); } }
+    if (e.key === "Escape") { suchfeld.value = ""; zeigen(); suchfeld.blur(); }
+  });
+  document.addEventListener("keydown", e => {
+    if (e.key === "/" && document.activeElement !== suchfeld && !/INPUT|TEXTAREA/.test(document.activeElement.tagName)) {
+      e.preventDefault(); suchfeld.focus();
+    }
+  });
+
+  /* ---------- Menü (mobil) ---------- */
+  $("#menü").addEventListener("click", () => {
+    const offen = nav.classList.toggle("offen");
+    $("#menü").setAttribute("aria-expanded", String(offen));
+  });
+
+  /* ---------- Farbschema ---------- */
+  const themen = ["auto", "hell", "dunkel"];
+  const beschriftung = { auto: "◐ Auto", hell: "☀ Hell", dunkel: "☾ Dunkel" };
+  let thema = speicher.lesen("kb-thema", "auto");
+  function themaSetzen() {
+    if (thema === "auto") document.documentElement.removeAttribute("data-theme");
+    else document.documentElement.dataset.theme = thema;
+    $("#thema").textContent = beschriftung[thema];
+    $("#thema").setAttribute("aria-label", `Farbschema: ${beschriftung[thema]} – klicken zum Wechseln`);
+  }
+  $("#thema").addEventListener("click", () => {
+    thema = themen[(themen.indexOf(thema) + 1) % themen.length];
+    speicher.schreiben("kb-thema", thema);
+    themaSetzen();
+  });
+
+  themaSetzen();
+  fortschrittAktualisieren();
+  zeigen();
+})();
+</script>
+</body>
+</html>
