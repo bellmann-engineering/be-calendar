@@ -3,8 +3,8 @@
 Datei: app/templates/dashboard.html
 ---------------------------------------------------------------------
 Zweck:
-  Hauptseite nach dem Login: Begrüßung, Kennzahlen (heute, nächste
-  14 Tage, nächster Termin) und der
+  Hauptseite nach dem Login: Begrüßung, Agenda (heute / als Nächstes,
+  inkl. Google-Termine und Kunden-Logos) und der
   Kalender (FullCalendar) mit allen Terminen, die der eingeloggte
   Benutzer sehen darf. Dazu zwei Dialoge:
     1. "event-modal"         → Termin anlegen / bearbeiten
@@ -54,29 +54,26 @@ Sichtbarkeit:
         </button>
     </div>
 
-    {# ---------- Kennzahlen (befüllt dashboard.js::loadUpcoming) ---------- #}
-    <section aria-label="Übersicht" class="mb-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-3">
-        <div class="stat">
-            <div class="stat-icon bg-accent-soft text-accent">{{ icon('calendar') }}</div>
-            <div>
-                <p class="stat-label">Heute</p>
-                <p class="stat-value" id="stat-today"><span class="skeleton inline-block h-6 w-10 align-middle"></span></p>
+    {# ---------- Agenda: was steht heute und als Nächstes an (dashboard.js::loadUpcoming) ----------
+       Enthält App-Termine UND Google-Termine; folgt dem gewählten Mitarbeiter-Tab. #}
+    <section aria-label="Überblick" class="mb-6 grid gap-4 lg:grid-cols-2">
+        <div class="card p-4 sm:p-5">
+            <div class="flex items-baseline justify-between gap-3 px-2">
+                <h2 class="card-title">Heute</h2>
+                <p id="agenda-today-date" class="text-xs text-fg-muted"></p>
             </div>
+            <ul id="agenda-today" class="mt-2" aria-busy="true">
+                <li class="skeleton m-2 h-5 w-3/4"></li><li class="skeleton m-2 h-5 w-1/2"></li>
+            </ul>
         </div>
-        <div class="stat">
-            <div class="stat-icon bg-violet-soft text-violet">{{ icon('sparkles') }}</div>
-            <div>
-                <p class="stat-label">Nächste 14 Tage</p>
-                <p class="stat-value" id="stat-upcoming"><span class="skeleton inline-block h-6 w-10 align-middle"></span></p>
+        <div class="card p-4 sm:p-5">
+            <div class="flex items-baseline justify-between gap-3 px-2">
+                <h2 class="card-title">Als Nächstes</h2>
+                <p class="text-xs text-fg-muted">nächste 14 Tage</p>
             </div>
-        </div>
-        <div class="stat col-span-2 lg:col-span-1">
-            <div class="stat-icon bg-success-soft text-success">{{ icon('clock') }}</div>
-            <div class="min-w-0">
-                <p class="stat-label">Nächster Termin</p>
-                <p class="truncate text-[0.9375rem] font-semibold text-fg" id="stat-next-title"><span class="skeleton inline-block h-5 w-40 align-middle"></span></p>
-                <p class="truncate text-xs text-fg-muted" id="stat-next-time"></p>
-            </div>
+            <ul id="agenda-next" class="mt-1" aria-busy="true">
+                <li class="skeleton m-2 h-5 w-2/3"></li><li class="skeleton m-2 h-5 w-3/4"></li>
+            </ul>
         </div>
     </section>
 

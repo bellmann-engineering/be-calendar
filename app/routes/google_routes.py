@@ -26,6 +26,7 @@ from app import db
 from app.decorators.auth import role_required
 from app.models import Event, RoleEnum, User
 from app.services.calendar_service import GoogleApiFehler, GoogleCalendarService
+from app.services.customer_service import CustomerTagger
 from app.services.google_oauth_service import GoogleOAuthService
 from app.utils.time import parse_iso_datetime
 
@@ -159,6 +160,8 @@ def events():
     )
     termine, fehler = google.list_events([u.google_calendar_id for u in benutzer], start, ende)
 
+    # Kunde im Titel erkennen, z. B. "(GFN)" -> Logo/Tag am Termin.
+    tagger = CustomerTagger()
     # Von der App übertragene Termine auslassen – auch ältere ohne Markierung in Google.
     eigene = {
         gid
@@ -172,7 +175,9 @@ def events():
                 "connected": True,
                 "events": {
                     str(u.id): [
-                        t for t in termine.get(u.google_calendar_id, []) if t["id"] not in eigene
+                        {**t, "tag": tagger.for_title(t["title"])}
+                        for t in termine.get(u.google_calendar_id, [])
+                        if t["id"] not in eigene
                     ]
                     for u in benutzer
                 },

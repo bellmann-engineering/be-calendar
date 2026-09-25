@@ -18,6 +18,7 @@ from sqlalchemy.orm import joinedload
 from app import db
 from app.decorators.auth import role_required
 from app.models import AuditLog, Event, User
+from app.services.customer_service import CustomerTagger
 from app.services.event_service import EventService
 from app.utils.time import isoformat_utc
 
@@ -26,11 +27,13 @@ event_bp = Blueprint("events", __name__, url_prefix="/api/v1/events")
 DEFAULT_COLOR = "#2B6CB0"
 
 
-def serialize_event(event: Event) -> dict:
+def serialize_event(event: Event, tagger: CustomerTagger | None = None) -> dict:
     """Einheitliche JSON-Darstellung eines Termins (für Liste, Anlegen, Ändern).
 
     ``event.customer`` wurde in der Liste per joinedload vorab geladen -> kein Extra-SQL.
+    ``tag``: Kunde für das kleine Logo am Termin (siehe CustomerTagger), sonst null.
     """
+    tagger = tagger or CustomerTagger()
     color = DEFAULT_COLOR
     if event.customer is not None and event.customer.color_hex:
         color = event.customer.color_hex
@@ -45,6 +48,7 @@ def serialize_event(event: Event) -> dict:
         "is_all_day": event.is_all_day,
         "customer_id": event.customer_id,
         "color": color,
+        "tag": tagger.for_event(event.customer_id, event.title),
     }
 
 
@@ -82,7 +86,8 @@ def list_events():
     if error_message:
         return jsonify({"error": error_message}), status_code
 
-    return jsonify([serialize_event(e) for e in events]), 200
+    tagger = CustomerTagger()  # alle Kunden EINMAL laden, nicht pro Termin
+    return jsonify([serialize_event(e, tagger) for e in events]), 200
 
 
 @event_bp.route("/<int:event_id>", methods=["PUT"])

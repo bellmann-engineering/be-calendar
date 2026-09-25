@@ -102,20 +102,6 @@ function formatEventRange(start, end, allDay) {
 }
 
 /**
- * Kurzform für den "Nächster Termin"-Block: "Heute, 14:00", "Morgen, 09:30" oder Datum.
- * @param {Date} date
- * @returns {string}
- */
-function formatUpcoming(date) {
-    const today = new Date();
-    const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
-    let day = FMT_DAY_SHORT.format(date);
-    if (date.toDateString() === today.toDateString()) day = "Heute";
-    else if (date.toDateString() === tomorrow.toDateString()) day = "Morgen";
-    return `${day}, ${FMT_TIME.format(date)} Uhr`;
-}
-
-/**
  * Begrüßung je nach Tageszeit.
  * @returns {string}
  */
@@ -169,39 +155,161 @@ async function loadCustomers() {
 /* Kennzahlen                                                         */
 /* ------------------------------------------------------------------ */
 
+/** Wie viele Einträge "Als Nächstes" höchstens zeigt. */
+const AGENDA_NEXT_LIMIT = 8;
+
+const FMT_AGENDA_DAY = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "numeric", month: "numeric" });
+
 /**
- * Lädt die Termine von heute 00:00 bis in 14 Tagen und aktualisiert die
- * Kennzahlen.
- * Spricht mit: GET /api/v1/events?start=...&end=...
+ * Datum aus der API/FullCalendar: "2026-10-05" (ganztägig) als LOKALE Mitternacht –
+ * new Date("2026-10-05") wäre UTC und in Deutschland schon 02:00.
+ * @param {string} value
+ * @returns {Date}
+ */
+function parseCalendarDate(value) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || "");
+    return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : new Date(value);
+}
+
+/**
+ * Lädt die Agenda: alles von heute bis in 14 Tagen – App-Termine und Google-Termine,
+ * für den gewählten Tab (Mitarbeiter) bzw. den eigenen Kalender.
+ * Spricht mit: GET /api/v1/events und GET /api/v1/google/events
  */
 async function loadUpcoming() {
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const endOfToday = new Date(startOfToday.getTime() + 86400000);
-    const horizon = new Date(startOfToday.getTime() + 14 * 86400000);
+    const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+    const horizon = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 15);
+    document.getElementById("agenda-today-date").textContent = FMT_DAY_SHORT.format(now);
+    const userId = selectedUserId; // Tab kann während des Ladens wechseln
     try {
         const url = `/api/v1/events?start=${encodeURIComponent(startOfToday.toISOString())}&end=${encodeURIComponent(horizon.toISOString())}`;
-        const res = await apiFetch(url);
+        const [res, google] = await Promise.all([
+            apiFetch(url),
+            fetchGoogleEvents(startOfToday.toISOString(), horizon.toISOString(), userId),
+        ]);
         if (!res.ok) throw new Error("Fehler beim Laden");
-        const events = (await readJson(res)) || [];
-        const list = (Array.isArray(events) ? events : [])
-            .map(e => ({ ...e, start: new Date(e.start_time), end: new Date(e.end_time) }))
-            .sort((a, b) => a.start - b.start);
-
-        const todayCount = list.filter(e => e.start < endOfToday && e.end > startOfToday).length;
-        document.getElementById("stat-today").textContent = String(todayCount);
-        document.getElementById("stat-upcoming").textContent = String(list.length);
-
-        const next = list.find(e => e.start > now);
-        document.getElementById("stat-next-title").textContent = next ? next.title : "Keine anstehenden Termine";
-        document.getElementById("stat-next-time").textContent = next ? formatUpcoming(next.start) : "in den nächsten 14 Tagen";
+        if (userId !== selectedUserId) return; // veraltet – der neue Tab lädt selbst
+        const appEvents = (await readJson(res)) || [];
+        const items = [
+            ...(Array.isArray(appEvents) ? appEvents : [])
+                .filter(e => userId === null || e.assigned_to_id === userId)
+                .map(e => ({
+                    source: "app", id: e.id, title: e.title, tag: e.tag, allDay: Boolean(e.is_all_day),
+                    start: new Date(e.start_time), end: new Date(e.end_time), assignee: e.assigned_to_id,
+                })),
+            ...google.events.map(e => ({
+                source: "google", title: e.title, tag: e.extendedProps.tag, allDay: e.allDay,
+                start: parseCalendarDate(e.start), end: parseCalendarDate(e.end), htmlLink: e.extendedProps.htmlLink,
+            })),
+        ];
+        // Heute: alles, was heute stattfindet (auch mehrtägige, die früher begonnen haben).
+        const today = items
+            .filter(i => i.start < endOfToday && i.end > startOfToday)
+            .sort((a, b) => (b.allDay - a.allDay) || (a.start - b.start));
+        const next = items
+            .filter(i => i.start >= endOfToday && i.start < horizon)
+            .sort((a, b) => (a.start - b.start) || (b.allDay - a.allDay));
+        renderAgenda(today, next, now);
     } catch (err) {
-        ["stat-today", "stat-upcoming"].forEach(id => { document.getElementById(id).textContent = "–"; });
-        document.getElementById("stat-next-title").textContent = "Konnte nicht geladen werden";
+        ["agenda-today", "agenda-next"].forEach(id => {
+            const list = document.getElementById(id);
+            list.replaceChildren(h("li", { class: "px-2 py-1 text-sm text-fg-muted", text: "Konnte nicht geladen werden." }));
+            list.removeAttribute("aria-busy");
+        });
     }
 }
 
-/** Kalender UND Kennzahlen neu laden (nach jeder Änderung). */
+/**
+ * Zeitangabe eines Agenda-Eintrags: "14:00–14:30", "ganztägig" oder "bis 25.10.".
+ * @param {object} item
+ * @param {Date} day - Tag, für den der Eintrag angezeigt wird.
+ * @returns {string}
+ */
+function agendaTime(item, day) {
+    if (item.allDay) {
+        const lastDay = new Date(item.end.getTime() - 1); // Ende ist exklusiv
+        const multi = lastDay.toDateString() !== item.start.toDateString();
+        return multi && lastDay.toDateString() !== day.toDateString()
+            ? `bis ${lastDay.getDate()}.${lastDay.getMonth() + 1}.`
+            : "ganztägig";
+    }
+    return `${FMT_TIME.format(item.start)}–${FMT_TIME.format(item.end)}`;
+}
+
+/**
+ * Ein Agenda-Eintrag als Button: Klick springt im Kalender zu diesem Tag
+ * (Google-Termine: öffnet sie in Google).
+ * @param {object} item
+ * @param {Date} day
+ * @param {Date} now
+ * @returns {HTMLLIElement}
+ */
+function agendaItem(item, day, now) {
+    const past = !item.allDay && item.end < now;
+    const running = !item.allDay && item.start <= now && item.end > now;
+    const assignee = selectedUserId === null && isPlanner() && item.assignee
+        ? (tabUsers.get(item.assignee) ? `${tabUsers.get(item.assignee).first_name} ${tabUsers.get(item.assignee).last_name}` : trainerNames.get(String(item.assignee)))
+        : null;
+    const meta = [assignee, item.source === "google" ? "Google Kalender" : null, running ? "läuft gerade" : null].filter(Boolean).join(" · ");
+    const button = h("button", {
+        type: "button", class: `agenda-item ${past ? "opacity-55" : ""}`,
+        on: {
+            click: () => {
+                if (item.source === "google" && item.htmlLink && isSafeHttpUrl(item.htmlLink)) {
+                    window.open(item.htmlLink, "_blank", "noopener");
+                    return;
+                }
+                calendar?.gotoDate(item.start);
+                document.getElementById("calendar-container").scrollIntoView({ behavior: "smooth", block: "start" });
+            },
+        },
+    },
+        h("span", { class: "agenda-time", text: agendaTime(item, day) }),
+        h("span", { class: "min-w-0 flex-1" },
+            h("span", { class: `block truncate text-sm ${running ? "font-semibold text-accent" : "font-medium text-fg"}` },
+                customerBadge(item.tag), item.title),
+            meta ? h("span", { class: "block truncate text-xs text-fg-muted", text: meta }) : null,
+        ),
+    );
+    return h("li", {}, button);
+}
+
+/**
+ * Zeichnet "Heute" und "Als Nächstes" (nach Tagen gruppiert).
+ * @param {object[]} today
+ * @param {object[]} next
+ * @param {Date} now
+ */
+function renderAgenda(today, next, now) {
+    const empty = text => h("li", { class: "px-2 py-1 text-sm text-fg-muted", text });
+    const todayList = document.getElementById("agenda-today");
+    todayList.replaceChildren(...(today.length
+        ? today.map(i => agendaItem(i, now, now))
+        : [empty("Heute stehen keine Termine an.")]));
+
+    const nextList = document.getElementById("agenda-next");
+    const shown = next.slice(0, AGENDA_NEXT_LIMIT);
+    const rows = [];
+    let lastDay = "";
+    shown.forEach(i => {
+        const day = i.start.toDateString();
+        if (day !== lastDay) {
+            const tomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toDateString();
+            rows.push(h("li", { class: "agenda-day", text: day === tomorrow ? `Morgen · ${FMT_AGENDA_DAY.format(i.start)}` : FMT_AGENDA_DAY.format(i.start) }));
+            lastDay = day;
+        }
+        rows.push(agendaItem(i, i.start, now));
+    });
+    if (next.length > shown.length) {
+        rows.push(empty(`… und ${next.length - shown.length} weitere – siehe Kalender.`));
+    }
+    nextList.replaceChildren(...(rows.length ? rows : [empty("In den nächsten 14 Tagen keine weiteren Termine.")]));
+    [todayList, nextList].forEach(list => list.removeAttribute("aria-busy"));
+}
+
+/** Kalender UND Agenda neu laden (nach jeder Änderung). */
 function refreshAll() {
     if (calendar) calendar.refetchEvents();
     loadUpcoming();
@@ -363,6 +471,7 @@ function renderCalendar(container) {
         },
         eventDidMount: info => {
             if (info.event.extendedProps.source === "google") decorateGoogleEvent(info);
+            decorateCustomerTag(info);
         },
         // Beim Drehen/Vergrößern des Fensters zwischen Liste und Wochenraster wechseln.
         windowResize: () => {
@@ -529,7 +638,10 @@ function selectCalendarTab(userId, { initial = false } = {}) {
     else url.searchParams.set("mitarbeiter", String(userId));
     history.replaceState(history.state, "", url.pathname + url.search + url.hash);
 
-    if (!initial && calendar) calendar.refetchEvents();
+    if (!initial && calendar) {
+        calendar.refetchEvents();
+        loadUpcoming(); // Agenda folgt dem Tab
+    }
 }
 
 /**
@@ -554,6 +666,7 @@ function toCalendarEvent(e) {
             meeting_link: e.meeting_link,
             customer_id: e.customer_id,
             is_all_day: e.is_all_day,
+            tag: e.tag, // Kunde für das kleine Logo (decorateCustomerTag)
         },
     };
 }

@@ -32,3 +32,6 @@ requests==2.34.2                   # Token-Widerruf und Kontoadresse bei Google 
 google-api-python-client==2.118.0
 google-auth-httplib2==0.2.0
 google-auth-oauthlib==1.2.0
+
+# --- Bilder ---
+Pillow==12.3.0                     # Kunden-Logos: prüfen, verkleinern, neu als PNG kodieren

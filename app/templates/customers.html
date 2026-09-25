@@ -5,7 +5,8 @@ Datei: app/templates/customers.html
 Zweck:
   Verwaltung externer Kunden/Projekte (nur CEO und ADMIN). Jeder Kunde
   hat eine Farbe; Termine mit diesem Kunden erscheinen im Kalender in
-  dieser Farbe.
+  dieser Farbe. Optional: Logo und Kürzel – steht ein Kürzel in Klammern
+  im Termintitel, z. B. "Schulung (GFN)", erscheint das Logo am Termin.
 
 Logik: js/pages/customers.js (Endpunkte siehe dort).
 Abhängigkeiten: base.html, _macros.html (icon, skeleton_rows).
@@ -30,7 +31,7 @@ Sicherheit:
     <div>
         <p class="eyebrow">Verwaltung</p>
         <h1 class="page-title mt-1">Kunden &amp; Projekte</h1>
-        <p class="page-subtitle">Externe Kunden verwalten und ihnen eine Farbe für den Kalender zuweisen.</p>
+        <p class="page-subtitle">Kunden mit Farbe, Logo und Kürzeln – das Logo erscheint an allen Terminen, in deren Titel ein Kürzel in Klammern steht.</p>
     </div>
     <button type="button" id="open-customer-btn" class="btn btn-primary">{{ icon('plus') }}Kunde anlegen</button>
 </div>
@@ -49,6 +50,7 @@ Sicherheit:
         <thead>
             <tr>
                 <th scope="col">Kunde / Projekt</th>
+                <th scope="col">Kürzel im Titel</th>
                 <th scope="col">E-Mail</th>
                 <th scope="col">Kalenderfarbe</th>
                 <th scope="col" class="text-right"><span class="sr-only">Aktionen</span></th>
@@ -56,7 +58,7 @@ Sicherheit:
         </thead>
         {# Zeilen erzeugt customers.js::renderCustomers() #}
         <tbody id="c-tbody" aria-busy="true">
-            {{ skeleton_rows(4, 4) }}
+            {{ skeleton_rows(4, 5) }}
         </tbody>
     </table>
 </section>
@@ -77,6 +79,29 @@ Sicherheit:
             <div>
                 <label class="label" for="c-email">E-Mail <span class="label-optional">(optional)</span></label>
                 <input type="email" id="c-email" maxlength="150" autocomplete="email" class="input">
+            </div>
+            <div>
+                <label class="label" for="c-codes">Kürzel im Termintitel <span class="label-optional">(optional)</span></label>
+                <input type="text" id="c-codes" maxlength="255" autocomplete="off" spellcheck="false" class="input" placeholder="z. B. GFN oder Comcave, CC" aria-describedby="c-codes-hint">
+                <p id="c-codes-hint" class="hint">Mehrere mit Komma trennen. Steht eines davon (oder der Name) in Klammern im Titel – z. B. „Schulung (GFN)“ oder „(Comcave/CC)“ –, erscheint das Logo am Termin.</p>
+            </div>
+            <div>
+                <span class="label" id="c-logo-label">Logo <span class="label-optional">(optional)</span></span>
+                <div class="flex items-center gap-3">
+                    {# Vorschau: vorhandenes Logo oder die gewählte Datei (Objekt-URL) #}
+                    <span class="flex h-12 w-20 shrink-0 items-center justify-center rounded-lg border border-line bg-white">
+                        <img id="c-logo-preview" alt="" class="max-h-10 max-w-18 object-contain" hidden>
+                        <span id="c-logo-empty" class="text-xs text-fg-subtle">kein Logo</span>
+                    </span>
+                    <div class="flex flex-wrap gap-2">
+                        <label class="btn btn-secondary btn-sm cursor-pointer">
+                            {{ icon('upload') }}Bild wählen
+                            <input type="file" id="c-logo" accept="image/png,image/jpeg,image/webp,image/gif" class="sr-only" aria-labelledby="c-logo-label">
+                        </label>
+                        <button type="button" id="c-logo-remove" class="btn btn-soft-danger btn-sm" hidden>{{ icon('trash') }}Entfernen</button>
+                    </div>
+                </div>
+                <p class="hint">PNG, JPEG, WebP oder GIF, max. 2 MB – wird automatisch verkleinert.</p>
             </div>
             <fieldset>
                 <legend class="label">Kalenderfarbe</legend>

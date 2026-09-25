@@ -342,6 +342,29 @@ def test_google_termine_parallel_und_ganztaegig(client, make_user, login, fake_g
     assert zu_lang.status_code == 400
 
 
+def test_google_termine_bekommen_kunden_tag(client, make_user, login, csrf, fake_google):
+    ceo = make_user("CEO")
+    anna = make_user("TRAINER", google_calendar_id="anna@gmail.com")
+    login(ceo)
+    client.post(
+        "/api/v1/customers",
+        json={"name": "GFN", "color_hex": "#0F766E", "short_codes": "GFN"},
+        headers=csrf(),
+    )
+    fake_google.termine = {
+        "anna@gmail.com": [
+            _g("s1", "2026-11-02", "2026-11-03", "LF-VT3b (GFN)", ganztaegig=True),
+            _g("s2", "2026-11-02", "2026-11-03", "Urlaub", ganztaegig=True),
+        ]
+    }
+    daten = client.get(
+        "/api/v1/google/events", query_string={**_TAG, "user_ids": str(anna.id)}
+    ).get_json()
+    tags = {t["title"]: t["tag"] for t in daten["events"][str(anna.id)]}
+    assert tags["LF-VT3b (GFN)"]["label"] == "GFN"
+    assert tags["Urlaub"] is None
+
+
 def test_von_der_app_uebertragene_termine_erscheinen_nicht_doppelt(
     client, make_user, login, csrf, fake_google
 ):

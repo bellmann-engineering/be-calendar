@@ -90,6 +90,7 @@ function makeEventSource(selectId, color, side) {
                 .map(e => ({
                     id: e.id, title: e.title, start: e.start_time, end: e.end_time, allDay: Boolean(e.is_all_day),
                     backgroundColor: color, borderColor: color, textColor: readableTextColor(color),
+                    extendedProps: { tag: e.tag },
                 }));
             counts[side].events = events.length;
             renderCount(side);
@@ -205,6 +206,7 @@ document.addEventListener("DOMContentLoaded", async () => {
         },
         eventDidMount: info => {
             if (info.event.extendedProps.source === "google") decorateGoogleEvent(info);
+            decorateCustomerTag(info); // Kunden-Logo vor dem Titel
         },
     };
     calendarA = new FullCalendar.Calendar(document.getElementById("calendar-a"), {

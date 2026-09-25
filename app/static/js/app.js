@@ -442,6 +442,43 @@ function toUtcIso(value, isEnd) {
 /* Google-Kalender: Termine anzeigen                                  */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Kleines Kunden-Logo (oder Kürzel-Tag) zu einem Termin.
+ * `tag` liefert der Server (CustomerTagger): Kunde aus dem Termin bzw. aus dem Titel,
+ * z. B. "Schulung (GFN)" oder "(Comcave/CC)".
+ * Ohne Logo – oder wenn das Bild nicht lädt – ein Tag mit dem Kürzel in Kundenfarbe.
+ *
+ * @param {?{name: string, label: string, color: ?string, logo_url: ?string}} tag
+ * @returns {?HTMLElement}
+ */
+function customerBadge(tag) {
+    if (!tag) return null;
+    const textTag = () => {
+        const el = h("span", { class: "bc-customer-tag", text: tag.label || tag.name, title: tag.name });
+        if (isValidHexColor(tag.color)) {
+            el.style.backgroundColor = tag.color;
+            el.style.color = readableTextColor(tag.color);
+        }
+        return el;
+    };
+    if (!tag.logo_url) return textTag();
+    // logo_url kommt vom Server (inkl. Pfad-Präfix) – als Bild-URL, nie als HTML.
+    const img = h("img", { class: "bc-customer-logo", src: tag.logo_url, alt: tag.name, title: tag.name, decoding: "async" });
+    img.addEventListener("error", () => img.replaceWith(textTag()), { once: true });
+    return img;
+}
+
+/**
+ * eventDidMount-Hilfe: setzt das Kunden-Logo vor den Titel eines Termins
+ * (Raster-, Wochen- und Listenansicht).
+ * @param {object} info - eventDidMount-Info von FullCalendar.
+ */
+function decorateCustomerTag(info) {
+    const badge = customerBadge(info.event.extendedProps.tag);
+    const title = info.el.querySelector(".fc-event-title, .fc-list-event-title a, .fc-list-event-title");
+    if (badge && title) title.prepend(badge);
+}
+
 /** CSS-Klasse der Termine aus Google (frontend/app.css). */
 const GOOGLE_EVENT_CLASS = "bc-google-event";
 
@@ -484,7 +521,7 @@ async function fetchGoogleEvents(startStr, endStr, userId) {
                 editable: false,
                 classNames: [GOOGLE_EVENT_CLASS],
                 // source: zum Erkennen in eventClick/eventDidMount
-                extendedProps: { source: "google", htmlLink: e.html_link, location: e.location },
+                extendedProps: { source: "google", htmlLink: e.html_link, location: e.location, tag: e.tag },
             }));
         return { events, error: errors[0] || null };
     } catch (err) {

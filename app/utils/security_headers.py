@@ -23,10 +23,12 @@ from flask import Flask, Response, request
 #                         'unsafe-inline', eingeschleustes CSS wird weiter blockiert.
 #   font-src   data:   -> FullCalendar bettet seine Pfeil-Icons als Daten-URL-Schrift ein.
 #   img-src    data:   -> Auswahlpfeil der Selectboxen (SVG als Daten-URL im CSS).
+#   img-src    blob:   -> Vorschau eines gewählten Kunden-Logos vor dem Hochladen
+#                         (URL.createObjectURL, nur im eigenen Browser erzeugt).
 CONTENT_SECURITY_POLICY = (
     "default-src 'self'; script-src 'self'; "
     "style-src 'self' 'sha256-47DEQpj8HBSa+/TImW+5JCeuQeRkm5NMpJWZG3hSuFU='; "
-    "img-src 'self' data:; font-src 'self' data:; connect-src 'self'; object-src 'none'; "
+    "img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; "
     "base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests"
 )
 
