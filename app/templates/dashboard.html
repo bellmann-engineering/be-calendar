@@ -46,7 +46,8 @@ Sichtbarkeit:
         <div>
             <p id="dash-date" class="eyebrow"></p>
             <h1 class="page-title mt-1">Kalender</h1>
-            <p id="dash-subtitle" class="page-subtitle">Deine Termine und Einsätze auf einen Blick.</p>
+            {# Nur befüllt, wenn ein Planer den Kalender eines Mitarbeiters ansieht (dashboard.js::selectCalendarTab) #}
+            <p id="dash-subtitle" class="page-subtitle" hidden></p>
         </div>
         {# Nur für CEO/ADMIN/TEAM_LEADER sichtbar (dashboard.js entfernt hidden) #}
         <button type="button" id="open-modal-btn" class="btn btn-primary" hidden>

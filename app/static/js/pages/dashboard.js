@@ -697,9 +697,9 @@ function selectCalendarTab(userId, { initial = false } = {}) {
     document.getElementById("calendar-container").setAttribute("aria-labelledby", activeId);
 
     const user = userId !== null ? tabUsers.get(userId) : null;
-    document.getElementById("dash-subtitle").textContent = user
-        ? `Kalender von ${user.first_name} ${user.last_name} – Termine aus der App und aus Google.`
-        : "Alle Termine und Einsätze auf einen Blick.";
+    const subtitle = document.getElementById("dash-subtitle");
+    subtitle.hidden = !user;
+    subtitle.textContent = user ? `Kalender von ${user.first_name} ${user.last_name} – Termine aus der App und aus Google.` : "";
 
     const url = new URL(window.location.href);
     if (userId === null) url.searchParams.delete("mitarbeiter");
