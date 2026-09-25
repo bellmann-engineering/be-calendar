@@ -370,5 +370,8 @@ class UserService:
             f"Lege hier dein Passwort fest (Link 72 Stunden gültig):\n{url}\n"
         )
         EmailService.queue_email(
-            user.email, "Dein Zugang zum Kalender der Bellmann Engineering GmbH", text_body, html_body
+            user.email,
+            "Dein Zugang zum Kalender der Bellmann Engineering GmbH",
+            text_body,
+            html_body,
         )
