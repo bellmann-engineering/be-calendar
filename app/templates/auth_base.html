@@ -11,7 +11,7 @@ Zweck:
     - {% block auth_form %}  → Formular/Inhalt der rechten Seite
     - {% block title %} und {% block scripts %} wie in base.html
 
-Abhängigkeiten: base.html, _macros.html (icon), favicon.svg (Signet).
+Abhängigkeiten: base.html, _macros.html (icon), brand/logo*.png (Firmenlogo).
 Hinweis: Das Signet ist ein eigenes Kalender-Symbol, kein Firmenlogo.
 =====================================================================
 #}
@@ -23,9 +23,8 @@ Hinweis: Das Signet ist ein eigenes Kalender-Symbol, kein Firmenlogo.
 <div class="grid min-h-dvh lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
     {# ---------- Marken-Panel (nur große Bildschirme) ---------- #}
     <aside class="auth-pattern relative hidden flex-col justify-between overflow-hidden bg-linear-to-br from-brand-950 via-brand-900 to-brand-700 p-12 text-white lg:flex" aria-label="Über Bellmann Engineering GmbH">
-        <div class="flex items-center gap-3">
-            <img src="{{ asset_url('favicon.svg') }}" alt="" width="40" height="40" class="size-10 rounded-xl ring-1 ring-white/20">
-            <span class="text-lg font-semibold tracking-tight">Bellmann <span class="font-normal text-white/65">Engineering GmbH</span></span>
+        <div>
+            <img src="{{ asset_url('brand/logo-hell.png') }}" alt="Bellmann Engineering GmbH" width="234" height="56" class="h-14 w-auto">
         </div>
 
         <div class="max-w-lg">
@@ -53,11 +52,11 @@ Hinweis: Das Signet ist ein eigenes Kalender-Symbol, kein Firmenlogo.
     {# ---------- Formularbereich ---------- #}
     <div class="flex items-center justify-center px-5 py-12 sm:px-8">
         <div class="w-full max-w-sm">
-            {# Signet auch auf kleinen Bildschirmen zeigen #}
-            <div class="mb-10 flex items-center gap-2.5 lg:hidden">
-                <img src="{{ asset_url('favicon.svg') }}" alt="" width="36" height="36" class="size-9 rounded-xl">
-                <span class="text-base font-semibold tracking-tight">Bellmann <span class="font-normal text-fg-muted">Engineering GmbH</span></span>
-            </div>
+            {# Logo auch auf kleinen Bildschirmen; im Dunkelmodus die helle Variante #}
+            <picture class="mb-10 block lg:hidden">
+                <source srcset="{{ asset_url('brand/logo-hell.png') }}" media="(prefers-color-scheme: dark)">
+                <img src="{{ asset_url('brand/logo.png') }}" alt="Bellmann Engineering GmbH" width="184" height="44" class="h-11 w-auto">
+            </picture>
             {% block auth_form %}{% endblock %}
         </div>
     </div>

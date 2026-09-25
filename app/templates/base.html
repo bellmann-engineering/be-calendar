@@ -61,7 +61,10 @@ Performance:
     <meta name="color-scheme" content="light dark">
     {# URL-Präfix (z. B. "/kalender" auf dem Server, lokal leer) für app.js::appUrl() #}
     <meta name="app-base" content="{{ request.script_root }}">
-    <link rel="icon" href="{{ asset_url('favicon.svg') }}" type="image/svg+xml">
+    {# Firmenlogo "B" (app/static/brand/, erzeugt aus Seafile/Bellmann-Engineering/Logo) #}
+    <link rel="icon" href="{{ asset_url('brand/favicon-64.png') }}" type="image/png" sizes="64x64">
+    <link rel="icon" href="{{ asset_url('brand/favicon.ico') }}" sizes="16x16 32x32 48x48">
+    <link rel="apple-touch-icon" href="{{ asset_url('brand/apple-touch-icon.png') }}">
     {# Schrift früh anfordern, damit der Text nicht sichtbar "springt" #}
     <link rel="preload" href="{{ font_url }}" as="font" type="font/woff2" crossorigin>
     <link rel="stylesheet" href="{{ asset_url('dist/app.css') }}">
@@ -84,9 +87,9 @@ Performance:
                 {{ icon('menu') }}
             </button>
 
-            <a href="{{ url_for('calendar_ui.dashboard') }}" class="mr-4 flex items-center gap-2.5 rounded-lg" aria-label="Bellmann Eng. – zur Startseite">
-                <img src="{{ asset_url('favicon.svg') }}" alt="" width="32" height="32" class="size-8 rounded-lg ring-1 ring-white/15">
-                <span class="text-[0.9375rem] font-semibold tracking-tight">Bellmann <span class="font-normal text-white/65">Eng.</span></span>
+            {# Firmenlogo in heller Variante (Schrift weiß) für die dunkle Kopfzeile #}
+            <a href="{{ url_for('calendar_ui.dashboard') }}" class="mr-4 flex shrink-0 items-center rounded-lg">
+                <img src="{{ asset_url('brand/logo-hell.png') }}" alt="Bellmann Engineering GmbH – zur Startseite" width="167" height="40" class="h-10 w-auto">
             </a>
 
             <nav aria-label="Hauptnavigation" class="hidden md:block">
