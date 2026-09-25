@@ -24,7 +24,8 @@ class FakeGoogle:
 
     def __init__(self) -> None:
         self.aufrufe: list[tuple] = []
-        self.busy: dict[str, list] = {}
+        self.termine: dict[str, list] = {}
+        self.fehler: dict[str, str] = {}
         self._zaehler = 0
 
     def insert(self, calendar_id, title, *_args, **_kw):
@@ -40,8 +41,11 @@ class FakeGoogle:
         self.aufrufe.append(("delete", calendar_id, event_id))
         return True
 
-    def busy_map(self, ids, *_args):
-        return {i: self.busy.get(i, []) for i in ids}
+    def list_events(self, ids, *_args):
+        return (
+            {i: self.termine.get(i, []) for i in ids if i not in self.fehler},
+            {i: self.fehler[i] for i in ids if i in self.fehler},
+        )
 
 
 @pytest.fixture()
@@ -52,7 +56,7 @@ def fake_google(monkeypatch):
     monkeypatch.setattr(cls, "insert_event", fake.insert)
     monkeypatch.setattr(cls, "update_event", fake.update)
     monkeypatch.setattr(cls, "delete_event", fake.delete)
-    monkeypatch.setattr(cls, "get_busy_map", fake.busy_map)
+    monkeypatch.setattr(cls, "list_events", fake.list_events)
     monkeypatch.setattr(
         cls,
         "list_calendars",
@@ -299,54 +303,124 @@ def test_ohne_kalender_kein_google_aufruf(client, make_user, login, csrf, fake_g
     assert fake_google.aufrufe == []
 
 
-# ------------------------------------------------------------------ Belegt-Anzeige
-def test_busy_respektiert_sichtbarkeit(client, make_user, login, fake_google):
+# ------------------------------------------------------------------ Google-Termine anzeigen
+def _g(gid, start, ende, titel="Termin", ganztaegig=False):
+    return {
+        "id": gid,
+        "title": titel,
+        "start": start,
+        "end": ende,
+        "all_day": ganztaegig,
+        "location": None,
+        "html_link": None,
+    }
+
+
+_TAG = {"start": "2026-11-02T00:00:00Z", "end": "2026-11-03T00:00:00Z"}
+
+
+def test_google_termine_respektieren_sichtbarkeit(client, make_user, login, fake_google):
     anna = make_user("TRAINER", google_calendar_id="anna@gmail.com")
     ben = make_user("TRAINER", google_calendar_id="ben@gmail.com")
-    fake_google.busy = {
-        "anna@gmail.com": [{"start": "2026-11-02T08:00:00Z", "end": "2026-11-02T09:00:00Z"}],
-        "ben@gmail.com": [{"start": "2026-11-02T10:00:00Z", "end": "2026-11-02T11:00:00Z"}],
+    fake_google.termine = {
+        "anna@gmail.com": [_g("a1", "2026-11-02T08:00:00Z", "2026-11-02T09:00:00Z")],
+        "ben@gmail.com": [_g("b1", "2026-11-02T10:00:00Z", "2026-11-02T11:00:00Z")],
     }
     login(anna)
     daten = client.get(
-        "/api/v1/google/busy",
-        query_string={
-            "start": "2026-11-02T00:00:00Z",
-            "end": "2026-11-03T00:00:00Z",
-            "user_ids": f"{anna.id},{ben.id}",
-        },
+        "/api/v1/google/events", query_string={**_TAG, "user_ids": f"{anna.id},{ben.id}"}
     ).get_json()
-    # Ein Trainer sieht nur seine eigenen Belegt-Zeiten, nicht die von Ben.
-    assert list(daten["busy"].keys()) == [str(anna.id)]
+    # Ein Trainer sieht nur seinen eigenen Google-Kalender, nicht den von Ben.
+    assert list(daten["events"].keys()) == [str(anna.id)]
 
 
-def test_busy_fuer_ceo_und_zeitraum_grenze(client, make_user, login, fake_google):
+def test_google_termine_parallel_und_ganztaegig(client, make_user, login, fake_google):
+    """Mehrere ganztägige und gleichzeitige Termine kommen vollständig mit Titel an."""
     ceo = make_user("CEO")
     anna = make_user("TRAINER", google_calendar_id="anna@gmail.com")
-    fake_google.busy = {
-        "anna@gmail.com": [{"start": "2026-11-02T08:00:00Z", "end": "2026-11-02T09:00:00Z"}]
+    fake_google.termine = {
+        "anna@gmail.com": [
+            _g("s1", "2026-11-02", "2026-11-04", "Schulung A", ganztaegig=True),
+            _g("s2", "2026-11-02", "2026-11-03", "Schulung B", ganztaegig=True),
+            _g("t1", "2026-11-02T08:00:00Z", "2026-11-02T09:00:00Z", "Call"),
+            _g("t2", "2026-11-02T08:30:00Z", "2026-11-02T09:30:00Z", "Review"),
+        ]
     }
     login(ceo)
     daten = client.get(
-        "/api/v1/google/busy",
-        query_string={
-            "start": "2026-11-02T00:00:00Z",
-            "end": "2026-11-03T00:00:00Z",
-            "user_ids": str(anna.id),
-        },
+        "/api/v1/google/events", query_string={**_TAG, "user_ids": str(anna.id)}
     ).get_json()
-    assert daten["connected"] is True and len(daten["busy"][str(anna.id)]) == 1
+    assert daten["connected"] is True
+    titel = [t["title"] for t in daten["events"][str(anna.id)]]
+    assert titel == ["Schulung A", "Schulung B", "Call", "Review"]
     zu_lang = client.get(
-        "/api/v1/google/busy",
+        "/api/v1/google/events",
         query_string={"start": "2026-01-01T00:00:00Z", "end": "2026-06-01T00:00:00Z"},
     )
     assert zu_lang.status_code == 400
 
 
-def test_busy_ohne_google_verbindung(client, make_user, login):
-    login(make_user("TRAINER"))
+def test_von_der_app_uebertragene_termine_erscheinen_nicht_doppelt(
+    client, make_user, login, csrf, fake_google
+):
+    ceo = make_user("CEO")
+    anna = make_user("TRAINER", google_calendar_id="anna@gmail.com")
+    login(ceo)
+    # Die Attrappe vergibt beim Übertragen die Google-ID "g1".
+    client.post("/api/v1/events", json=_termin(anna.id), headers=csrf())
+    fake_google.termine = {
+        "anna@gmail.com": [
+            _g("g1", "2026-11-02T08:00:00Z", "2026-11-02T09:00:00Z", "App-Kopie"),
+            _g("x1", "2026-11-02T12:00:00Z", "2026-11-02T13:00:00Z", "Eigener Termin"),
+        ]
+    }
     daten = client.get(
-        "/api/v1/google/busy",
-        query_string={"start": "2026-11-02T00:00:00Z", "end": "2026-11-03T00:00:00Z"},
+        "/api/v1/google/events", query_string={**_TAG, "user_ids": str(anna.id)}
     ).get_json()
-    assert daten == {"connected": False, "busy": {}}
+    assert [t["title"] for t in daten["events"][str(anna.id)]] == ["Eigener Termin"]
+
+
+def test_fehlender_lesezugriff_wird_gemeldet(client, make_user, login, fake_google):
+    anna = make_user("TRAINER", google_calendar_id="anna@gmail.com")
+    fake_google.fehler = {"anna@gmail.com": "Kein Lesezugriff auf den Google-Kalender."}
+    login(anna)
+    daten = client.get("/api/v1/google/events", query_string=_TAG).get_json()
+    assert daten["events"] == {str(anna.id): []}
+    assert "Lesezugriff" in daten["errors"][str(anna.id)]
+
+
+def test_google_termine_ohne_verbindung(client, make_user, login):
+    login(make_user("TRAINER"))
+    daten = client.get("/api/v1/google/events", query_string=_TAG).get_json()
+    assert daten == {"connected": False, "events": {}, "errors": {}}
+
+
+def test_umwandlung_von_google_terminen():
+    """Ganztägig (auch "Frei") bleibt drin; abgesagte und App-Kopien fallen raus."""
+    umwandeln = calendar_service._termin_aus_google
+    ganztags = umwandeln(
+        {
+            "id": "1",
+            "summary": "Schulung",
+            "transparency": "transparent",
+            "start": {"date": "2026-11-09"},
+            "end": {"date": "2026-11-14"},
+        }
+    )
+    assert ganztags["all_day"] is True and ganztags["end"] == "2026-11-14"
+    ohne_titel = umwandeln(
+        {
+            "id": "2",
+            "start": {"dateTime": "2026-11-02T14:00:00+01:00"},
+            "end": {"dateTime": "2026-11-02T14:30:00+01:00"},
+        }
+    )
+    assert ohne_titel["title"] == "(Ohne Titel)" and ohne_titel["all_day"] is False
+    assert umwandeln({"id": "3", "status": "cancelled"}) is None
+    app_kopie = {
+        "id": "4",
+        "start": {"dateTime": "2026-11-02T14:00:00Z"},
+        "end": {"dateTime": "2026-11-02T15:00:00Z"},
+        "extendedProperties": {"private": {calendar_service.APP_MARKER_KEY: "1"}},
+    }
+    assert umwandeln(app_kopie) is None

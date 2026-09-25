@@ -142,9 +142,9 @@ class BaseConfig:
     GOOGLE_OAUTH_REDIRECT_URI = os.getenv(
         "GOOGLE_OAUTH_REDIRECT_URI", f"{APP_BASE_URL}/api/v1/google/oauth/callback"
     )
-    # Wie lange Frei/Belegt-Antworten von Google zwischengespeichert werden (Sekunden).
+    # Wie lange gelesene Google-Termine zwischengespeichert werden (Sekunden).
     # Spart API-Aufrufe, wenn mehrere Personen gleichzeitig den Kalender ansehen.
-    GOOGLE_BUSY_CACHE_SECONDS = int(os.getenv("GOOGLE_BUSY_CACHE_SECONDS", 60))
+    GOOGLE_EVENTS_CACHE_SECONDS = int(os.getenv("GOOGLE_EVENTS_CACHE_SECONDS", 60))
 
     # --- Single Sign-on über Authelia (Traefik forwardAuth) --------------------------------
     # Auf dem Server steht Traefik mit Authelia vor der App. Nach erfolgreicher Anmeldung
@@ -226,7 +226,7 @@ class TestingConfig(BaseConfig):
     GOOGLE_OAUTH_CLIENT_ID = "test-client-id.apps.googleusercontent.com"
     GOOGLE_OAUTH_CLIENT_SECRET = "test-client-secret"  # noqa: S105 - nur Testwert
     GOOGLE_OAUTH_REDIRECT_URI = "http://localhost/api/v1/google/oauth/callback"
-    GOOGLE_BUSY_CACHE_SECONDS = 0
+    GOOGLE_EVENTS_CACHE_SECONDS = 0
     RATELIMIT_ENABLED = False
     MAIL_ASYNC = False
     # Kleiner Pool reicht für Tests; NullPool wäre auch möglich.

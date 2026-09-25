@@ -6,9 +6,8 @@ Was macht diese Datei?
                                (für die Zuordnung zu Mitarbeitern).
     * ``check_calendar()``   – "Verbindung prüfen": Kommt die App an diesen Kalender heran,
                                und mit welchen Rechten?
-    * ``get_busy_times()`` / ``get_busy_map()``
-                             – Frei/Belegt-Zeiten eines oder vieler Kalender (Kollisions-
-                               prüfung und graue "Belegt"-Blöcke in der Oberfläche).
+    * ``list_events()``      – Termine eines oder vieler Kalender (mit Titel) zur Anzeige
+                               im Kalender der App (GET /api/v1/google/events).
     * ``insert_event()`` / ``update_event()`` / ``delete_event()``
                              – Termine in den Google-Kalender eines Mitarbeiters spiegeln
                                (genutzt von app/services/google_sync_service.py).
@@ -33,16 +32,16 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 
 from flask import current_app
 
-from app.utils.time import isoformat_utc, utc_now
+from app.utils.time import isoformat_utc
 
 logger = logging.getLogger(__name__)
 
 # Berechtigungen, die beim Verbinden angefragt werden (siehe google_oauth_service.py):
-#   calendar.readonly -> Kalenderliste + Frei/Belegt lesen
+#   calendar.readonly -> Kalenderliste + Termine lesen
 #   calendar.events   -> Termine in Kalender schreiben, auf die das Konto Schreibrechte hat
 OAUTH_SCOPES = [
     "openid",
@@ -54,26 +53,57 @@ TOKEN_URI = "https://oauth2.googleapis.com/token"  # noqa: S105 - öffentliche U
 # Timeout für HTTP-Aufrufe an Google. Ohne Timeout könnte ein hängender Aufruf einen
 # Gunicorn-Thread blockieren, bis Gunicorn den ganzen Worker abschießt.
 _HTTP_TIMEOUT_SECONDS = 10
-# Die Free/Busy-API akzeptiert höchstens 50 Kalender pro Anfrage.
-_FREEBUSY_MAX = 50
+# Höchstens 4 Seiten à 250 Termine pro Kalender und Abruf (Schutz vor Endlosschleifen).
+_MAX_EVENT_PAGES = 4
+# Markierung für Termine, die die App selbst in Google anlegt (siehe _event_body): Beim
+# Lesen werden sie ausgelassen, sonst stünden sie doppelt im Kalender.
+APP_MARKER_KEY = "bellmann_app"
 
 _thread_local = threading.local()
 _credentials_cache: dict[str, object] = {}
 _credentials_lock = threading.Lock()
-_busy_cache: dict[tuple, tuple[float, dict]] = {}
-_busy_lock = threading.Lock()
+_events_cache: dict[tuple, tuple[float, tuple]] = {}
+_events_lock = threading.Lock()
 
 # Übersetzung der Google-Rechte für Meldungen an den Benutzer.
 ROLLEN_DE = {
     "owner": "Besitzer",
     "writer": "Bearbeiten",
     "reader": "Nur lesen",
-    "freeBusyReader": "Nur Frei/Belegt",
+    "freeBusyReader": "Nur Frei/Belegt (reicht nicht zum Anzeigen)",
 }
 
 
 class GoogleApiFehler(Exception):
     """Google war nicht erreichbar oder hat die Anfrage abgelehnt (Details im Log)."""
+
+
+def _termin_aus_google(eintrag: dict) -> dict | None:
+    """Google-Termin -> schlanke Darstellung für das Frontend (oder None = auslassen).
+
+    Ganztägig: Google liefert ``date`` (Ende exklusiv, wie FullCalendar), sonst
+    ``dateTime`` mit Zeitzone.
+    """
+    if eintrag.get("status") == "cancelled":
+        return None
+    privat = (eintrag.get("extendedProperties") or {}).get("private") or {}
+    if privat.get(APP_MARKER_KEY):
+        return None  # von der App selbst übertragen
+    beginn, ende = eintrag.get("start") or {}, eintrag.get("end") or {}
+    ganztaegig = "date" in beginn
+    start = beginn.get("date") if ganztaegig else beginn.get("dateTime")
+    stop = ende.get("date") if ganztaegig else ende.get("dateTime")
+    if not start or not stop:
+        return None
+    return {
+        "id": eintrag.get("id"),
+        "title": eintrag.get("summary") or "(Ohne Titel)",
+        "start": start,
+        "end": stop,
+        "all_day": ganztaegig,
+        "location": eintrag.get("location") or None,
+        "html_link": eintrag.get("htmlLink") or None,
+    }
 
 
 def _oauth_credentials() -> tuple[str, object] | None:
@@ -166,8 +196,8 @@ class GoogleCalendarService:
             while True:
                 antwort = (
                     self.service.calendarList()
-                    .list(pageToken=seite, minAccessRole="freeBusyReader", showHidden=False)
-                    .execute()
+                    # "reader": Nur Kalender, deren Termine die App auch anzeigen kann.
+                    .list(pageToken=seite, minAccessRole="reader", showHidden=False).execute()
                 )
                 for eintrag in antwort.get("items", []):
                     kalender.append(
@@ -198,87 +228,112 @@ class GoogleCalendarService:
         try:
             eintrag = self.service.calendarList().get(calendarId=calendar_id).execute()
             rolle = eintrag.get("accessRole")
-        except Exception:  # noqa: BLE001 - nicht in der Liste -> unten per Free/Busy testen
-            logger.info("Kalender %s nicht in der Kalenderliste – prüfe Frei/Belegt", calendar_id)
+        except Exception:  # noqa: BLE001 - nicht in der Liste -> unten direkt testen
+            logger.info("Kalender %s nicht in der Kalenderliste – prüfe Lesezugriff", calendar_id)
         try:
-            # Minimaler Zeitraum (1 Minute) – es geht nur darum, ob Google Zugriff gewährt.
-            jetzt = utc_now()
-            body = {
-                "timeMin": isoformat_utc(jetzt),
-                "timeMax": isoformat_utc(jetzt + timedelta(minutes=1)),
-                "items": [{"id": calendar_id}],
-            }
-            antwort = self.service.freebusy().query(body=body).execute()
-            fehler = antwort.get("calendars", {}).get(calendar_id, {}).get("errors")
-        except Exception:  # noqa: BLE001
-            logger.warning("Frei/Belegt-Prüfung für %s fehlgeschlagen", calendar_id, exc_info=True)
+            # Ein einziger Termin reicht: Es geht nur darum, ob Google Lesezugriff gewährt.
+            self.service.events().list(calendarId=calendar_id, maxResults=1).execute()
+        except Exception as exc:  # noqa: BLE001
+            status = getattr(getattr(exc, "resp", None), "status", None)
+            if status in (403, 404):
+                return (
+                    False,
+                    rolle,
+                    "Kein Lesezugriff auf diesen Kalender. Er muss mit dem verbundenen "
+                    "Google-Konto geteilt sein – mindestens mit „Alle Termindetails sehen“.",
+                )
+            logger.warning("Zugriffsprüfung für %s fehlgeschlagen", calendar_id, exc_info=True)
             return (
                 False,
                 rolle,
                 "Google ist gerade nicht erreichbar. Bitte später erneut versuchen.",
             )
-        if fehler:
-            return (
-                False,
-                rolle,
-                "Kein Zugriff auf diesen Kalender. Er muss mit dem verbundenen Google-Konto "
-                "geteilt sein.",
-            )
-        rolle = rolle or "freeBusyReader"
+        rolle = rolle or "reader"
         text = f"Verbindung in Ordnung – Rechte: {ROLLEN_DE.get(rolle, rolle)}."
         if rolle not in {"owner", "writer"}:
-            text += " Termine können angezeigt, aber nicht in diesen Kalender übertragen werden."
+            text += (
+                " Termine werden angezeigt, aber App-Termine nicht in diesen Kalender übertragen."
+            )
         return True, rolle, text
 
-    # ------------------------------------------------------------------ Frei/Belegt
-    def get_busy_times(
-        self, calendar_id: str, time_min: datetime, time_max: datetime
-    ) -> list[dict[str, str]]:
-        """Belegte Zeitblöcke eines Kalenders – leer bei Fehler/ohne Google."""
-        return self.get_busy_map([calendar_id], time_min, time_max).get(calendar_id, [])
-
-    def get_busy_map(
+    # ------------------------------------------------------------------ Termine lesen
+    def list_events(
         self, calendar_ids: list[str], time_min: datetime, time_max: datetime
-    ) -> dict[str, list[dict[str, str]]]:
-        """Belegte Zeitblöcke vieler Kalender in möglichst wenigen Anfragen (je 50).
+    ) -> tuple[dict[str, list[dict]], dict[str, str]]:
+        """Termine mehrerer Kalender im Zeitraum – zur Anzeige im Kalender der App.
 
-        Ergebnis wird kurz zwischengespeichert (GOOGLE_BUSY_CACHE_SECONDS), damit mehrere
+        Alle Einträge kommen mit: ganztägige (auch wenn sie in Google als "Frei"
+        markiert sind), mehrtägige und mehrere gleichzeitig. Termine, die die App selbst
+        in den Kalender übertragen hat, lässt der Aufrufer weg (sonst doppelt).
+
+        Returns:
+            (Termine je Kalender-ID, Fehlermeldung je Kalender-ID ohne Lesezugriff)
+
+        Kurz zwischengespeichert (GOOGLE_EVENTS_CACHE_SECONDS), damit mehrere
         gleichzeitige Kalenderansichten Google nicht mehrfach fragen.
         """
         ids = sorted({c for c in calendar_ids if c})
         if not self.service or not ids:
-            return {}
-        ttl = current_app.config.get("GOOGLE_BUSY_CACHE_SECONDS", 60)
+            return {}, {}
+        ttl = current_app.config.get("GOOGLE_EVENTS_CACHE_SECONDS", 60)
         cache_key = (self.quelle, tuple(ids), isoformat_utc(time_min), isoformat_utc(time_max))
         if ttl:
-            with _busy_lock:
-                treffer = _busy_cache.get(cache_key)
+            with _events_lock:
+                treffer = _events_cache.get(cache_key)
                 if treffer and treffer[0] > time.monotonic():
                     return treffer[1]
-        ergebnis: dict[str, list[dict[str, str]]] = {}
-        for i in range(0, len(ids), _FREEBUSY_MAX):
-            teil = ids[i : i + _FREEBUSY_MAX]
+        termine: dict[str, list[dict]] = {}
+        fehler: dict[str, str] = {}
+        for cal_id in ids:
             try:
-                body = {
-                    "timeMin": isoformat_utc(time_min),
-                    "timeMax": isoformat_utc(time_max),
-                    "items": [{"id": c} for c in teil],
-                }
-                antwort = self.service.freebusy().query(body=body).execute()
-            except Exception:  # noqa: BLE001 - Google darf die Terminplanung nie blockieren
-                logger.exception("Frei/Belegt-Abfrage bei Google fehlgeschlagen")
-                continue
-            for cal_id, daten in antwort.get("calendars", {}).items():
-                if daten.get("errors"):
-                    logger.info("Kein Frei/Belegt-Zugriff auf %s: %s", cal_id, daten["errors"])
-                    continue
-                ergebnis[cal_id] = daten.get("busy", [])
+                termine[cal_id] = self._events_of_calendar(cal_id, time_min, time_max)
+            except Exception as exc:  # noqa: BLE001 - Google darf den Kalender nie blockieren
+                status = getattr(getattr(exc, "resp", None), "status", None)
+                if status in (403, 404):
+                    logger.info("Kein Lesezugriff auf Google-Kalender %s (%s)", cal_id, status)
+                    fehler[cal_id] = (
+                        "Kein Lesezugriff auf den Google-Kalender (mindestens "
+                        "„Alle Termindetails sehen“ nötig)."
+                    )
+                else:
+                    logger.warning("Termine aus %s nicht abrufbar", cal_id, exc_info=True)
+                    fehler[cal_id] = "Google ist gerade nicht erreichbar."
+        ergebnis = (termine, fehler)
         if ttl:
-            with _busy_lock:
-                if len(_busy_cache) > 500:  # Speicher begrenzen
-                    _busy_cache.clear()
-                _busy_cache[cache_key] = (time.monotonic() + ttl, ergebnis)
+            with _events_lock:
+                if len(_events_cache) > 500:  # Speicher begrenzen
+                    _events_cache.clear()
+                _events_cache[cache_key] = (time.monotonic() + ttl, ergebnis)
         return ergebnis
+
+    def _events_of_calendar(
+        self, calendar_id: str, time_min: datetime, time_max: datetime
+    ) -> list[dict]:
+        """Alle Termine eines Kalenders (Serien aufgelöst, abgesagte ausgenommen)."""
+        termine: list[dict] = []
+        seite = None
+        for _ in range(_MAX_EVENT_PAGES):
+            antwort = (
+                self.service.events()
+                .list(
+                    calendarId=calendar_id,
+                    timeMin=isoformat_utc(time_min),
+                    timeMax=isoformat_utc(time_max),
+                    singleEvents=True,  # Serientermine als einzelne Vorkommen
+                    orderBy="startTime",
+                    maxResults=250,
+                    pageToken=seite,
+                )
+                .execute()
+            )
+            for eintrag in antwort.get("items", []):
+                termin = _termin_aus_google(eintrag)
+                if termin:
+                    termine.append(termin)
+            seite = antwort.get("nextPageToken")
+            if not seite:
+                break
+        return termine
 
     # ------------------------------------------------------------------ Termine spiegeln
     @staticmethod
@@ -290,6 +345,8 @@ class GoogleCalendarService:
             "description": description or "Automatisch erstellt via Bellmann Eng.",
             "start": {"dateTime": isoformat_utc(start_time), "timeZone": "UTC"},
             "end": {"dateTime": isoformat_utc(end_time), "timeZone": "UTC"},
+            # Erkennungszeichen: Beim Lesen (list_events) werden diese Termine ausgelassen.
+            "extendedProperties": {"private": {APP_MARKER_KEY: "1"}},
         }
 
     def insert_event(
@@ -359,10 +416,10 @@ class GoogleCalendarService:
 
 
 def cache_leeren() -> None:
-    """Vergisst gespeicherte Zugangsdaten und Frei/Belegt-Antworten (nach Verbinden/Trennen)."""
+    """Vergisst gespeicherte Zugangsdaten und gelesene Termine (nach Verbinden/Trennen)."""
     with _credentials_lock:
         _credentials_cache.clear()
-    with _busy_lock:
-        _busy_cache.clear()
+    with _events_lock:
+        _events_cache.clear()
     if hasattr(_thread_local, "eintrag"):
         del _thread_local.eintrag

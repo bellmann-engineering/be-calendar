@@ -10,7 +10,7 @@ Zweck:
 Logik: js/pages/compare.js
   GET /api/v1/auth                       → Mitarbeiterliste (nur aktive)
   GET /api/v1/events?start=...&end=...   → Termine des gewählten Tages
-  GET /api/v1/google/busy?...            → private Belegt-Zeiten aus Google
+  GET /api/v1/google/events?...          → Termine aus dem Google-Kalender
 
 WARUM wird die Mitarbeiterliste per JavaScript geladen?
   Früher hat der Server die Liste direkt ins HTML gerendert – ohne
@@ -102,12 +102,12 @@ Abhängigkeiten: base.html, _macros.html, FullCalendar (selbst gehostet,
             <div id="calendar-b" class="p-3"></div>
         </div>
     </div>
-    {# Legende – der Eintrag "Belegt (Google)" erscheint nur, wenn es solche Blöcke gibt (compare.js) #}
+    {# Legende – der Google-Eintrag erscheint nur, wenn es Google-Termine gibt (compare.js) #}
     <div class="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-fg-muted">
         <span class="font-medium text-fg">Legende:</span>
         <span class="inline-flex items-center gap-2"><span class="size-2.5 rounded-full bg-brand-600" aria-hidden="true"></span>Termine Mitarbeiter A</span>
         <span class="inline-flex items-center gap-2"><span class="size-2.5 rounded-full bg-[#0f766e]" aria-hidden="true"></span>Termine Mitarbeiter B</span>
-        <span id="busy-legend" class="inline-flex items-center gap-2" hidden><span class="bc-google-busy h-2.5 w-4 rounded-sm border border-line-strong" aria-hidden="true"></span>Belegt (Google) – privater Termin, ohne Details</span>
+        <span id="google-legend" class="inline-flex items-center gap-2" hidden><span class="bc-google-event h-2.5 w-4 rounded-sm" aria-hidden="true"></span>Aus Google Kalender (Klick öffnet Google)</span>
     </div>
 </section>
 {% endblock %}

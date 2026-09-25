@@ -1,6 +1,6 @@
 # Kalendersystem der Bellmann Engineering GmbH
 
-Kalender- und Einsatzplanung für **Bellmann Engineering**: Termine anlegen und Mitarbeitern zuweisen, Rückmeldungen (RSVP) mit Pflichtbegründung, automatische Kollisionserkennung inkl. Pufferzeiten und privatem Google-Kalender, Rollen- und Teamrechte sowie ein lückenloses Audit-Log.
+Kalender- und Einsatzplanung für **Bellmann Engineering**: Termine anlegen und Mitarbeitern zuweisen, Rückmeldungen (RSVP) mit Pflichtbegründung, Anbindung an die Google-Kalender der Mitarbeiter (Termine anzeigen und übertragen), Rollen- und Teamrechte sowie ein lückenloses Audit-Log.
 
 > **⚠️ Wichtiger Hinweis (24.09.2026): Der Git-Verlauf wurde bereinigt.**
 > Alte Commits enthielten Zugangsdaten (`.env`, Passwörter in `setup.sh`). Der Verlauf wurde neu geschrieben und alle betroffenen Secrets wurden rotiert.
@@ -153,9 +153,10 @@ Ein CEO/Admin verbindet **einmalig sein Google-Konto**. Danach stehen alle Kalen
 
 | Funktion | Voraussetzung (Freigabe des Mitarbeiter-Kalenders für das verbundene Konto) |
 |---|---|
-| Kollisionsprüfung gegen private Termine | mind. „Nur Frei/Belegt sehen“ |
-| Graue „Belegt“-Blöcke im Kalender und in der Vergleichsansicht (nur Zeiten, **keine Titel**) | mind. „Nur Frei/Belegt sehen“ |
+| Termine des zugeordneten Google-Kalenders im Kalender und in der Vergleichsansicht anzeigen – mit Titel, auch ganztägige und mehrere gleichzeitige (Klick öffnet den Termin in Google) | mind. „Alle Termindetails sehen“ |
 | Termine automatisch übertragen: anlegen, verschieben, bei Neu-Zuweisung umziehen, bei Absage/Löschen entfernen | „Änderungen an Terminen vornehmen“ |
+
+Es gibt **keine Kollisionsprüfung**: Termine dürfen sich überschneiden, ein Mitarbeiter kann am selben Tag mehrere ganztägige und stundenweise Termine haben – der Kalender zeigt alle nebeneinander. Termine, die die App selbst in Google überträgt, erscheinen nicht doppelt.
 
 **Einrichtung (einmalig, ca. 10 Minuten – durch den Inhaber des Google-Kontos)**
 
@@ -165,7 +166,7 @@ Ein CEO/Admin verbindet **einmalig sein Google-Konto**. Danach stehen alle Kalen
    > Im Status „Test“ laufen die Zugänge nach **7 Tagen** ab und müssten ständig neu verbunden werden. Beim Verbinden zeigt Google für nicht geprüfte Apps einen Warnhinweis – über „Erweitert → Weiter zu Bellmann Engineering GmbH“ bestätigen. Für die interne Nutzung ist keine Google-Prüfung nötig.
 4. *Clients → Client erstellen*: Typ **Webanwendung**, unter *Autorisierte Weiterleitungs-URIs* exakt eintragen:
    `https://localhost:8443/api/v1/google/oauth/callback`
-   (später zusätzlich die echte Adresse, z. B. `https://kalender.bellmann-engineering.com/api/v1/google/oauth/callback`).
+   (auf dem Server zusätzlich `https://intern.bellmann-engineering.com/kalender/api/v1/google/oauth/callback`).
 5. Client-ID und Clientschlüssel in die `.env` eintragen und neu starten:
    ```
    GOOGLE_OAUTH_CLIENT_ID=123456-abc.apps.googleusercontent.com
@@ -315,7 +316,7 @@ Im Container: `docker exec bellmann_web flask db check`.
 
 | Rolle | Darf |
 |---|---|
-| **CEO** | alles, inkl. Terminüberbuchung (`override_conflict=true`) und Anlegen von Admins |
+| **CEO** | alles, inkl. Anlegen von Admins |
 | **ADMIN** | Benutzer (nur TRAINER/TEAM_LEADER), Kunden, alle Termine, Audit-Log |
 | **TEAM_LEADER** | Termine für Mitglieder des **eigenen** Teams anlegen, ändern, neu zuweisen |
 | **TRAINER** | eigene Termine sehen und Einladungen bestätigen/ablehnen (Ablehnung mit Begründung) |

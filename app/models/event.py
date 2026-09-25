@@ -9,9 +9,8 @@ Beziehungen:
     * 1:n ``event_rsvps`` und ``audit_logs`` (definiert in den jeweiligen Models)
 
 Zeiten:
-    ``start_time``/``end_time`` sind ``timestamptz`` (UTC). Die Pufferzeiten
-    ``buffer_before_mins``/``buffer_after_mins`` verlängern den belegten Zeitraum für die
-    Kollisionsprüfung (Anfahrt, Vorbereitung) – siehe EventService.check_conflict().
+    ``start_time``/``end_time`` sind ``timestamptz`` (UTC). Termine eines Mitarbeiters
+    dürfen sich überschneiden (keine Kollisionsprüfung).
 
 Löschen:
     Termine werden nur "soft" gelöscht (``is_deleted=True`` + ``deleted_at``), damit das
@@ -27,8 +26,8 @@ class Event(db.Model):
 
     __tablename__ = "events"
     __table_args__ = (
-        # Zusammengesetzter Index exakt für die häufigste/teuerste Abfrage:
-        # check_conflict() sucht "aktive Termine von Mitarbeiter X im Zeitraum Y".
+        # Zusammengesetzter Index für "aktive Termine von Mitarbeiter X im Zeitraum Y"
+        # (Terminliste eines Trainers, Vergleichsansicht).
         # Reihenfolge = Filterreihenfolge (Gleichheit zuerst, Bereich zuletzt).
         db.Index("ix_events_assignee_active_start", "assigned_to_id", "is_deleted", "start_time"),
     )
@@ -62,8 +61,6 @@ class Event(db.Model):
 
     start_time = db.Column(db.DateTime(timezone=True), nullable=False, index=True)
     end_time = db.Column(db.DateTime(timezone=True), nullable=False, index=True)
-    buffer_before_mins = db.Column(db.Integer, default=0)
-    buffer_after_mins = db.Column(db.Integer, default=0)
 
     created_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False, index=True)
     assigned_to_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True, index=True)

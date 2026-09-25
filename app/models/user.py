@@ -32,7 +32,8 @@ class User(db.Model):
     # Deaktivierte Benutzer können sich nicht anmelden; ihre Tokens werden sofort
     # ungültig, weil app/security.py::load_user is_active bei jedem Request prüft.
     is_active = db.Column(db.Boolean, default=True)
-    # Optional: Kalender-ID (meist die Google-Mail) für Frei/Belegt-Abgleich.
+    # Optional: zugeordneter Google-Kalender. Seine Termine erscheinen im Kalender der App,
+    # App-Termine des Mitarbeiters werden dorthin übertragen.
     google_calendar_id = db.Column(db.String(255), nullable=True)
     # timezone=True -> PostgreSQL-Typ "timestamptz" (siehe app/utils/time.py).
     created_at = db.Column(db.DateTime(timezone=True), default=utc_now)

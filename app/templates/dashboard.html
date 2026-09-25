@@ -18,7 +18,7 @@ Wer steuert diese Seite?
 Welche Backend-Endpunkte werden (über dashboard.js) genutzt?
   GET/POST/PUT/DELETE /api/v1/events, PUT /api/v1/events/<id>/rsvp,
   GET /api/v1/auth/trainers, GET /api/v1/customers,
-  GET /api/v1/google/busy (eigene private Belegt-Zeiten, Hintergrundblöcke)
+  GET /api/v1/google/events (Termine aus dem eigenen Google-Kalender, nur lesend)
 
 Abhängigkeiten:
   FullCalendar 6 (selbst gehostet: dist/vendor/fullcalendar.min.js,
@@ -98,9 +98,11 @@ Sichtbarkeit:
             <span class="inline-flex items-center gap-2"><span class="size-2.5 rounded-full bg-brand-600"></span>Termin (Farbe = Kunde)</span>
             <span class="inline-flex items-center gap-2"><span class="size-2.5 rounded-full bg-[#dc2626]"></span>Abgelehnt – neu zuweisen (gestreift)</span>
             <span class="inline-flex items-center gap-2"><span class="h-0.5 w-4 bg-danger"></span>Aktuelle Uhrzeit</span>
-            {# Nur sichtbar, wenn Google verbunden ist und der Benutzer private Belegt-Zeiten hat (dashboard.js::loadGoogleBusy) #}
-            <span id="busy-legend" class="inline-flex items-center gap-2" hidden><span class="bc-google-busy h-2.5 w-4 rounded-sm border border-line-strong" aria-hidden="true"></span>Privat belegt (Google)</span>
+            {# Nur sichtbar, wenn es Termine aus dem eigenen Google-Kalender gibt (dashboard.js::loadGoogleEvents) #}
+            <span id="google-legend" class="inline-flex items-center gap-2" hidden><span class="bc-google-event h-2.5 w-4 rounded-sm" aria-hidden="true"></span>Aus Google Kalender (Klick öffnet Google)</span>
         </div>
+        {# z. B. fehlender Lesezugriff auf den zugeordneten Kalender #}
+        <p id="google-error" class="mt-2 text-xs text-warning" role="status" hidden></p>
     </section>
 </div>
 
@@ -110,7 +112,6 @@ Sichtbarkeit:
         <div class="dialog-header">
             <div>
                 <h2 id="event-modal-title" class="dialog-title">Neuen Termin anlegen</h2>
-                <p class="mt-0.5 text-sm text-fg-muted">Kollisionen mit anderen Terminen werden automatisch geprüft.</p>
             </div>
             <button type="button" class="btn-icon -mt-1 -mr-2" data-close-dialog aria-label="Dialog schließen">{{ icon('x') }}</button>
         </div>

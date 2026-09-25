@@ -12,13 +12,13 @@
  *                                            werden angeboten; TL sieht nur
  *                                            sein eigenes Team)
  *   GET /api/v1/events?start=...&end=...   → Termine im sichtbaren Zeitraum
- *   GET /api/v1/google/busy?start=...&end=...&user_ids=<id>
- *                                          → private Belegt-Zeiten aus Google
- *                                            (grau gestreifte Hintergrundblöcke)
+ *   GET /api/v1/google/events?start=...&end=...&user_ids=<id>
+ *                                          → Termine aus dem Google-Kalender
+ *                                            des Mitarbeiters (nur lesend)
  *
  * Abhängigkeiten:
  *   FullCalendar (global), app.js (apiFetch, readJson, toDateLocal,
- *   fetchGoogleBusyEvents),
+ *   fetchGoogleEvents, openGoogleEvent, decorateGoogleEvent),
  *   ui.js (initials, showFormError, hideFormError, toast, readableTextColor).
  * =====================================================================
  */
@@ -35,11 +35,11 @@ let calendarB = null;
 const employeesById = new Map();
 
 /**
- * Anzahl Termine und Google-Belegt-Blöcke je Spalte ("a"/"b").
+ * Anzahl App-Termine und Google-Termine je Spalte ("a"/"b").
  * Beide Event-Quellen laden unabhängig voneinander; renderCount() baut
  * daraus die Zeile unter dem Namen, sobald eine Quelle fertig ist.
  */
-const counts = { a: { events: 0, busy: 0 }, b: { events: 0, busy: 0 } };
+const counts = { a: { events: 0, google: 0, googleError: null }, b: { events: 0, google: 0, googleError: null } };
 
 /** Formatierer für die Tagesüberschrift. */
 const FMT_COMPARE_DAY = new Intl.DateTimeFormat("de-DE", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
@@ -102,38 +102,40 @@ function makeEventSource(selectId, color, side) {
 }
 
 /**
- * Erzeugt die zweite Event-Quelle eines Kalenders: Belegt-Zeiten aus dem
- * Google-Kalender des gewählten Mitarbeiters (nur Zeiträume, keine Titel).
- * Fehler oder "nicht verbunden" ergeben einfach keine Blöcke.
- * Spricht mit: GET /api/v1/google/busy (über app.js::fetchGoogleBusyEvents)
+ * Erzeugt die zweite Event-Quelle eines Kalenders: Termine aus dem
+ * Google-Kalender des gewählten Mitarbeiters (mit Titel, nur lesend).
+ * "Nicht verbunden" ergibt einfach keine Termine.
+ * Spricht mit: GET /api/v1/google/events (über app.js::fetchGoogleEvents)
  *
  * @param {string} selectId - ID des Auswahlfelds ("trainer-a"/"trainer-b").
  * @param {string} side - Spalte "a" oder "b" (für die Anzahl im Kopf).
  * @returns {Function} FullCalendar-kompatible Event-Quelle.
  */
-function makeBusySource(selectId, side) {
+function makeGoogleSource(selectId, side) {
     return async function (fetchInfo, successCallback) {
         const employeeId = document.getElementById(selectId).value;
-        const blocks = employeeId ? await fetchGoogleBusyEvents(fetchInfo.startStr, fetchInfo.endStr, employeeId) : [];
-        counts[side].busy = blocks.length;
+        const { events, error } = employeeId
+            ? await fetchGoogleEvents(fetchInfo.startStr, fetchInfo.endStr, employeeId)
+            : { events: [], error: null };
+        counts[side].google = events.length;
+        counts[side].googleError = error;
         renderCount(side);
-        // Legenden-Eintrag nur zeigen, wenn mindestens eine Spalte Blöcke hat.
-        document.getElementById("busy-legend").hidden = counts.a.busy + counts.b.busy === 0;
-        successCallback(blocks);
+        // Legenden-Eintrag nur zeigen, wenn mindestens eine Spalte Google-Termine hat.
+        document.getElementById("google-legend").hidden = counts.a.google + counts.b.google === 0;
+        successCallback(events);
     };
 }
 
 /**
  * Schreibt die Zeile unter dem Namen einer Spalte, z. B.
- * "2 Termine · 1 Zeitraum privat belegt (Google)".
- * "ganztägig verfügbar" nur, wenn es weder Termine noch Belegt-Zeiten gibt.
+ * "2 Termine · 3 aus Google Kalender".
  * @param {string} side - "a" oder "b".
  */
 function renderCount(side) {
-    const { events, busy } = counts[side];
+    const { events, google, googleError } = counts[side];
     let text = events === 0 ? "Keine Termine" : (events === 1 ? "1 Termin" : `${events} Termine`);
-    if (busy > 0) text += ` · ${busy === 1 ? "1 Zeitraum" : `${busy} Zeiträume`} privat belegt (Google)`;
-    else if (events === 0) text += " – ganztägig verfügbar";
+    if (google > 0) text += ` · ${google} aus Google Kalender`;
+    if (googleError) text += ` · Google: ${googleError}`;
     document.getElementById(`count-${side}`).textContent = text;
 }
 
@@ -193,14 +195,25 @@ document.addEventListener("DOMContentLoaded", async () => {
         eventTimeFormat: { hour: "2-digit", minute: "2-digit" },
         nowIndicator: true,
         height: "auto",
+        // Mehrere ganztägige und gleichzeitige Termine: alle sichtbar, nebeneinander.
+        dayMaxEvents: false,
+        slotEventOverlap: false,
+        eventClick: info => {
+            if (info.event.extendedProps.source !== "google") return;
+            info.jsEvent.preventDefault();
+            openGoogleEvent(info.event);
+        },
+        eventDidMount: info => {
+            if (info.event.extendedProps.source === "google") decorateGoogleEvent(info);
+        },
     };
     calendarA = new FullCalendar.Calendar(document.getElementById("calendar-a"), {
         ...commonConfig,
-        eventSources: [makeEventSource("trainer-a", COLOR_A, "a"), makeBusySource("trainer-a", "a")],
+        eventSources: [makeEventSource("trainer-a", COLOR_A, "a"), makeGoogleSource("trainer-a", "a")],
     });
     calendarB = new FullCalendar.Calendar(document.getElementById("calendar-b"), {
         ...commonConfig,
-        eventSources: [makeEventSource("trainer-b", COLOR_B, "b"), makeBusySource("trainer-b", "b")],
+        eventSources: [makeEventSource("trainer-b", COLOR_B, "b"), makeGoogleSource("trainer-b", "b")],
     });
 
     document.getElementById("compare-form").addEventListener("submit", (e) => {

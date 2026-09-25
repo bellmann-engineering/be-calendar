@@ -1,8 +1,5 @@
 """
-Tests für Termine: Kollisionserkennung (Regression!), Zeitzonen, Sichtbarkeit, N+1.
-
-Der wichtigste Test hier ist ``test_kollision_wird_erkannt``: Durch den Bug
-``not Event.is_deleted`` wurde früher NIE eine Kollision gefunden.
+Tests für Termine: Überschneidungen erlaubt, Zeitzonen, Sichtbarkeit, N+1.
 """
 
 from contextlib import contextmanager
@@ -37,86 +34,41 @@ def count_queries():
         sa_event.remove(db.engine, "before_cursor_execute", _before)
 
 
-def test_kollision_wird_erkannt(client, make_user, login, csrf):
+def test_ueberschneidungen_sind_erlaubt(client, make_user, login, csrf):
+    """Keine Kollisionsprüfung: mehrere ganztägige und stundenweise Termine am selben Tag."""
     admin = make_user("ADMIN")
     trainer = make_user("TRAINER")
     login(admin)
-    first = client.post("/api/v1/events", json=_event_payload(trainer.id), headers=csrf())
-    assert first.status_code == 201
-
-    overlapping = client.post(
-        "/api/v1/events",
-        json=_event_payload(
+    payloads = [
+        _event_payload(trainer.id),
+        _event_payload(
             trainer.id, start="2026-10-01T10:30:00+02:00", end="2026-10-01T12:00:00+02:00"
         ),
-        headers=csrf(),
-    )
-    assert overlapping.status_code == 409
-    assert "Kollision" in overlapping.get_json()["message"]
-
-
-def test_puffer_verursachen_kollision(client, make_user, login, csrf):
-    admin = make_user("ADMIN")
-    trainer = make_user("TRAINER")
-    login(admin)
-    client.post("/api/v1/events", json=_event_payload(trainer.id), headers=csrf())
-    # Startet 10 min nach Ende -> kollidiert wegen 15 min Puffer (Standard).
-    close = client.post(
-        "/api/v1/events",
-        json=_event_payload(
-            trainer.id, start="2026-10-01T11:10:00+02:00", end="2026-10-01T12:00:00+02:00"
+        _event_payload(
+            trainer.id,
+            start="2026-10-01T00:00:00+02:00",
+            end="2026-10-02T00:00:00+02:00",
+            is_all_day=True,
         ),
-        headers=csrf(),
-    )
-    assert close.status_code == 409
-    # 45 min nach Ende -> frei (15 + 15 min Puffer = 30 min Abstand nötig).
-    free = client.post(
-        "/api/v1/events",
-        json=_event_payload(
-            trainer.id, start="2026-10-01T11:45:00+02:00", end="2026-10-01T12:30:00+02:00"
+        _event_payload(
+            trainer.id,
+            start="2026-10-01T00:00:00+02:00",
+            end="2026-10-02T00:00:00+02:00",
+            is_all_day=True,
         ),
-        headers=csrf(),
-    )
-    assert free.status_code == 201
+    ]
+    for payload in payloads:
+        assert client.post("/api/v1/events", json=payload, headers=csrf()).status_code == 201
 
-
-def test_geloeschte_termine_kollidieren_nicht(client, make_user, login, csrf):
-    admin = make_user("ADMIN")
-    trainer = make_user("TRAINER")
-    login(admin)
-    created = client.post(
-        "/api/v1/events", json=_event_payload(trainer.id), headers=csrf()
+    created = client.get(
+        "/api/v1/events",
+        query_string={"start": "2026-10-01T00:00:00+02:00", "end": "2026-10-02T00:00:00+02:00"},
     ).get_json()
-    assert (
-        client.delete(f"/api/v1/events/{created['event']['id']}", headers=csrf()).status_code == 200
-    )
-    again = client.post("/api/v1/events", json=_event_payload(trainer.id), headers=csrf())
-    assert again.status_code == 201
-
-
-def test_ceo_override_nur_mit_bestaetigung(client, make_user, login, csrf):
-    ceo = make_user("CEO")
-    trainer = make_user("TRAINER")
-    login(ceo)
-    client.post("/api/v1/events", json=_event_payload(trainer.id), headers=csrf())
-    without = client.post("/api/v1/events", json=_event_payload(trainer.id), headers=csrf())
-    assert without.status_code == 409
-    with_flag = client.post(
-        "/api/v1/events", json=_event_payload(trainer.id, override_conflict=True), headers=csrf()
-    )
-    assert with_flag.status_code == 201
-
-
-def test_update_ignoriert_eigenen_termin_bei_kollision(client, make_user, login, csrf):
-    admin = make_user("ADMIN")
-    trainer = make_user("TRAINER")
-    login(admin)
-    created = client.post(
-        "/api/v1/events", json=_event_payload(trainer.id), headers=csrf()
-    ).get_json()
+    assert len(created) == 4
+    # Verschieben auf einen belegten Zeitraum ist ebenfalls erlaubt.
     moved = client.put(
-        f"/api/v1/events/{created['event']['id']}",
-        json={"end_time": "2026-10-01T11:30:00+02:00"},
+        f"/api/v1/events/{created[0]['id']}",
+        json={"start_time": "2026-10-01T10:45:00+02:00", "end_time": "2026-10-01T11:15:00+02:00"},
         headers=csrf(),
     )
     assert moved.status_code == 200
@@ -212,6 +164,9 @@ def test_benachrichtigung_und_mail_erst_nach_commit(client, make_user, login, cs
     login(admin)
     client.post("/api/v1/events", json=_event_payload(trainer.id), headers=csrf())
     assert sent_mails == [(trainer.email, "[Bellmann Eng.] Neuer Termin zugewiesen")]
-    # Kollision -> nichts gespeichert -> keine weitere Mail.
-    client.post("/api/v1/events", json=_event_payload(trainer.id), headers=csrf())
+    # Ungültige Daten (unbekannter Kunde) -> nichts gespeichert -> keine weitere Mail.
+    rejected = client.post(
+        "/api/v1/events", json=_event_payload(trainer.id, customer_id=99999), headers=csrf()
+    )
+    assert rejected.status_code == 400
     assert len(sent_mails) == 1

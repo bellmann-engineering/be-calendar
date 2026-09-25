@@ -135,25 +135,3 @@ def test_kunde_loeschen_behaelt_termine(client, make_user, login, csrf):
     db.session.expire_all()
     assert db.session.get(Customer, customer_id) is None
     assert db.session.get(Event, event_id).customer_id is None
-
-
-def test_privater_google_termin_blockiert(client, make_user, login, csrf, monkeypatch):
-    admin = make_user("ADMIN")
-    trainer = make_user("TRAINER", google_calendar_id="trainer@example.com")
-    monkeypatch.setattr(
-        "app.services.calendar_service.GoogleCalendarService.get_busy_times",
-        lambda self, *_args: [{"start": "2026-10-08T07:00:00Z", "end": "2026-10-08T09:00:00Z"}],
-    )
-    login(admin)
-    response = client.post(
-        "/api/v1/events",
-        json={
-            "title": "Kollidiert privat",
-            "start_time": "2026-10-08T09:00:00+02:00",
-            "end_time": "2026-10-08T10:00:00+02:00",
-            "assigned_to_id": trainer.id,
-        },
-        headers=csrf(),
-    )
-    assert response.status_code == 409
-    assert "Google" in response.get_json()["message"]

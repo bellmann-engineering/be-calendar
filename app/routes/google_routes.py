@@ -7,7 +7,7 @@ HTTP-Endpunkte der Google-Kalender-Anbindung (/api/v1/google/...).
     POST /disconnect         Verbindung trennen + Token bei Google widerrufen    (CEO, ADMIN)
     GET  /calendars          alle Kalender des verbundenen Kontos                (CEO, ADMIN)
     POST /calendars/check    "Verbindung prüfen" für eine Kalender-ID            (CEO, ADMIN)
-    GET  /busy               Belegt-Zeiten zur Anzeige im Kalender               (angemeldet)
+    GET  /events             Termine aus den Google-Kalendern der Mitarbeiter    (angemeldet)
 
 * Der Callback kann kein Login-Cookie prüfen: Die JWT-Cookies sind SameSite=Strict und
   werden bei der Weiterleitung von google.com nicht mitgeschickt. Geschützt ist er über den
@@ -22,15 +22,16 @@ from datetime import timedelta
 from flask import Blueprint, jsonify, redirect, request, url_for
 from flask_jwt_extended import current_user, jwt_required
 
+from app import db
 from app.decorators.auth import role_required
-from app.models import RoleEnum, User
+from app.models import Event, RoleEnum, User
 from app.services.calendar_service import GoogleApiFehler, GoogleCalendarService
 from app.services.google_oauth_service import GoogleOAuthService
 from app.utils.time import parse_iso_datetime
 
 google_bp = Blueprint("google", __name__, url_prefix="/api/v1/google")
 
-# Größter erlaubter Zeitraum für /busy (schützt das Google-Kontingent).
+# Größter erlaubter Zeitraum für /events (schützt das Google-Kontingent).
 _MAX_ZEITRAUM = timedelta(days=62)
 
 
@@ -103,7 +104,7 @@ def check_calendar():
 
 
 def _sichtbare_benutzer_ids(angefragt: list[int]) -> set[int]:
-    """Wessen Belegt-Zeiten darf der eingeloggte Benutzer sehen?
+    """Wessen Google-Termine darf der eingeloggte Benutzer sehen?
 
     Gleiche Regeln wie bei den Terminen: Trainer nur sich selbst, Teamleitung das eigene
     Team (und sich selbst), CEO/ADMIN alle.
@@ -122,10 +123,16 @@ def _sichtbare_benutzer_ids(angefragt: list[int]) -> set[int]:
     return set(angefragt) & erlaubt
 
 
-@google_bp.route("/busy", methods=["GET"])
+@google_bp.route("/events", methods=["GET"])
 @jwt_required()
-def busy():
-    """Belegt-Zeiten aus Google für Mitarbeiter (nur Zeiten, keine Titel – Privatsphäre)."""
+def events():
+    """Termine aus dem zugeordneten Google-Kalender von Mitarbeitern (nur lesend).
+
+    Query: start, end (ISO-8601, max. 62 Tage), optional user_ids=1,2 (Standard: man selbst).
+    Antwort: {connected, events: {"<user_id>": [...]}, errors: {"<user_id>": "..."}}
+    Termine, die die App selbst in Google übertragen hat, fehlen bewusst – sie stehen
+    schon als App-Termin im Kalender.
+    """
     try:
         start = parse_iso_datetime(request.args.get("start"))
         ende = parse_iso_datetime(request.args.get("end"))
@@ -142,7 +149,7 @@ def busy():
 
     google = GoogleCalendarService()
     if not google.verfuegbar:
-        return jsonify({"connected": False, "busy": {}}), 200
+        return jsonify({"connected": False, "events": {}, "errors": {}}), 200
 
     ids = _sichtbare_benutzer_ids(angefragt)
     benutzer = (
@@ -150,12 +157,30 @@ def busy():
         if ids
         else []
     )
-    belegt = google.get_busy_map([u.google_calendar_id for u in benutzer], start, ende)
+    termine, fehler = google.list_events([u.google_calendar_id for u in benutzer], start, ende)
+
+    # Von der App übertragene Termine auslassen – auch ältere ohne Markierung in Google.
+    eigene = {
+        gid
+        for (gid,) in db.session.query(Event.google_event_id).filter(
+            Event.google_event_id.isnot(None)
+        )
+    }
     return (
         jsonify(
             {
                 "connected": True,
-                "busy": {str(u.id): belegt.get(u.google_calendar_id, []) for u in benutzer},
+                "events": {
+                    str(u.id): [
+                        t for t in termine.get(u.google_calendar_id, []) if t["id"] not in eigene
+                    ]
+                    for u in benutzer
+                },
+                "errors": {
+                    str(u.id): fehler[u.google_calendar_id]
+                    for u in benutzer
+                    if u.google_calendar_id in fehler
+                },
             }
         ),
         200,

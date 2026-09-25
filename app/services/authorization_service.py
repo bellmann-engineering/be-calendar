@@ -123,26 +123,3 @@ class AuthorizationService:
         if event.assigned_to is None or event.assigned_to.team_id != actor.team_id:
             return False, "Dieser Termin gehört nicht zum eigenen Team."
         return True, None
-
-    @staticmethod
-    def can_override_conflict(actor: User, requested_override: bool) -> tuple[bool, str | None]:
-        """Prüft die explizite CEO-Freigabe für eine kollidierende Überbuchung.
-
-        Args:
-            actor: Eingeloggter Benutzer, der die Überbuchung auslösen möchte.
-            requested_override: Vom Client gesetzte, bewusste Bestätigung.
-
-        Returns:
-            Ein Tupel mit Erlaubnis und einer deutschen Fehlermeldung bei Ablehnung.
-        """
-        if actor.role.name != RoleEnum.CEO.value:
-            return (
-                False,
-                "Eine Terminüberbuchung darf ausschließlich durch den CEO freigegeben werden.",
-            )
-        if not requested_override:
-            return (
-                False,
-                "Die CEO-Überbuchung muss mit override_conflict=true ausdrücklich bestätigt werden.",
-            )
-        return True, None

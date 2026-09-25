@@ -18,8 +18,8 @@
  *                              (window.currentUserPromise)
  *        - isSafeHttpUrl(), isValidHexColor(), toDatetimeLocal(),
  *          toDateLocal(), toUtcIso(), roleLabel(), roleBadgeClass()
- *        - fetchGoogleBusyEvents() → Belegt-Zeiten aus Google als
- *                              FullCalendar-Hintergrundblöcke (Kalender, Vergleich)
+ *        - fetchGoogleEvents() → Termine aus dem Google-Kalender als
+ *                              FullCalendar-Events (Kalender, Vergleich)
  *   2. Die App-Kopfzeile: rollenabhängige Navigation, mobiles Menü,
  *      Benutzermenü mit Abmelden, Benachrichtigungs-Glocke.
  *   3. Sitzungsschutz: Auf geschützten Seiten ohne Login → /login.
@@ -33,7 +33,7 @@
  *   POST /api/v1/auth/refresh       → neues Access-Token per Refresh-Cookie
  *   POST /api/v1/auth/logout        → Cookies löschen
  *   GET  /api/v1/auth/me            → Daten des eingeloggten Benutzers
- *   GET  /api/v1/google/busy        → Belegt-Zeiten aus Google (fetchGoogleBusyEvents)
+ *   GET  /api/v1/google/events      → Termine aus Google (fetchGoogleEvents)
  *   GET  /api/v1/notifications      → In-App-Benachrichtigungen
  *   PUT  /api/v1/notifications/<id>/read
  *
@@ -439,53 +439,76 @@ function toUtcIso(value, isEnd) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Google-Kalender: Belegt-Zeiten                                     */
+/* Google-Kalender: Termine anzeigen                                  */
 /* ------------------------------------------------------------------ */
 
-/** CSS-Klasse der Belegt-Blöcke (grau gestreift, siehe frontend/app.css). */
-const GOOGLE_BUSY_CLASS = "bc-google-busy";
+/** CSS-Klasse der Termine aus Google (frontend/app.css). */
+const GOOGLE_EVENT_CLASS = "bc-google-event";
 
 /**
- * Lädt die Belegt-Zeiten aus Google für einen Zeitraum und liefert sie als
- * FullCalendar-Hintergrundereignisse (display: "background").
- * Spricht mit: GET /api/v1/google/busy?start=...&end=...[&user_ids=...]
- *   → {connected, busy: {"<user_id>": [{start, end}, ...]}}
+ * Holt die Termine aus dem zugeordneten Google-Kalender und liefert sie als
+ * FullCalendar-Events (nur lesend, eigene Optik, mit Titel). Ganztägige und
+ * mehrtägige Einträge kommen genauso mit wie mehrere gleichzeitige.
+ * Spricht mit: GET /api/v1/google/events?start=...&end=...[&user_ids=...]
+ *   → {connected, events: {"<user_id>": [{id, title, start, end, all_day, location, html_link}]},
+ *      errors: {"<user_id>": "Kein Lesezugriff ..."}}
  *
- * Fehlertolerant: Ist Google nicht verbunden, hat der Benutzer keinen
- * Kalender oder schlägt der Abruf fehl, kommt einfach eine leere Liste
- * zurück – die Belegt-Anzeige ist eine Zusatzinformation und darf den
- * Kalender nie blockieren.
+ * Fehlertolerant: Ist Google nicht verbunden oder schlägt der Abruf fehl,
+ * gibt es einfach keine Google-Termine – der Kalender der App läuft weiter.
  *
  * @param {string} startStr - Beginn (ISO, z. B. fetchInfo.startStr).
  * @param {string} endStr - Ende (ISO).
- * @param {number|string} [userId] - Mitarbeiter; ohne = nur der eingeloggte Benutzer.
- * @param {string} [title="Belegt (Google)"] - Beschriftung der Blöcke.
- * @returns {Promise<object[]>}
+ * @param {number|string} [userId] - Mitarbeiter; ohne = der eingeloggte Benutzer.
+ * @returns {Promise<{events: object[], error: ?string}>}
  */
-async function fetchGoogleBusyEvents(startStr, endStr, userId, title = "Belegt (Google)") {
+async function fetchGoogleEvents(startStr, endStr, userId) {
     // encodeURIComponent: Die Zeiten enthalten "+02:00" – ein nacktes "+" wäre in der URL ein Leerzeichen.
-    let url = `/api/v1/google/busy?start=${encodeURIComponent(startStr)}&end=${encodeURIComponent(endStr)}`;
+    let url = `/api/v1/google/events?start=${encodeURIComponent(startStr)}&end=${encodeURIComponent(endStr)}`;
     if (userId !== undefined && userId !== null && userId !== "") url += `&user_ids=${encodeURIComponent(userId)}`;
     try {
         const res = await apiFetch(url);
-        if (!res.ok) return [];
+        if (!res.ok) return { events: [], error: null };
         const data = await readJson(res);
-        if (!data.connected || !data.busy || typeof data.busy !== "object") return [];
+        if (!data.connected || !data.events || typeof data.events !== "object") return { events: [], error: null };
         // Ohne userId liefert der Server nur den eingeloggten Benutzer → alle Einträge nehmen.
-        const lists = userId ? [data.busy[String(userId)]] : Object.values(data.busy);
-        return lists.flat()
-            .filter(b => b && b.start && b.end)
-            .map(b => ({
-                start: b.start,
-                end: b.end,
-                title,
-                display: "background",
-                classNames: [GOOGLE_BUSY_CLASS],
-                extendedProps: { googleBusy: true }, // zum Erkennen in eventClick/eventDidMount
+        const lists = userId ? [data.events[String(userId)]] : Object.values(data.events);
+        const errors = data.errors && typeof data.errors === "object" ? Object.values(data.errors) : [];
+        const events = lists.flat()
+            .filter(e => e && e.start && e.end)
+            .map(e => ({
+                id: `google-${e.id}`,
+                title: e.title || "(Ohne Titel)",
+                start: e.start,
+                end: e.end,
+                allDay: Boolean(e.all_day),
+                editable: false,
+                classNames: [GOOGLE_EVENT_CLASS],
+                // source: zum Erkennen in eventClick/eventDidMount
+                extendedProps: { source: "google", htmlLink: e.html_link, location: e.location },
             }));
+        return { events, error: errors[0] || null };
     } catch (err) {
-        return []; // Netzwerkfehler: ohne Belegt-Blöcke weiterarbeiten
+        return { events: [], error: null }; // Netzwerkfehler: ohne Google-Termine weiterarbeiten
     }
+}
+
+/**
+ * Klick auf einen Google-Termin: im Google Kalender öffnen (neuer Tab).
+ * Nur http(s)-Links, noopener: Die fremde Seite bekommt keinen Zugriff auf diese.
+ * @param {object} event - FullCalendar-Event mit extendedProps.source === "google".
+ */
+function openGoogleEvent(event) {
+    const link = event.extendedProps.htmlLink;
+    if (link && isSafeHttpUrl(link)) window.open(link, "_blank", "noopener");
+}
+
+/**
+ * Tooltip für Google-Termine (Titel + Ort), da lange Titel abgeschnitten werden.
+ * @param {object} info - eventDidMount-Info von FullCalendar.
+ */
+function decorateGoogleEvent(info) {
+    const { location } = info.event.extendedProps;
+    info.el.title = `${info.event.title}${location ? ` – ${location}` : ""} (Google Kalender)`;
 }
 
 /* ------------------------------------------------------------------ */

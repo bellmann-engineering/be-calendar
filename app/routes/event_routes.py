@@ -43,8 +43,6 @@ def serialize_event(event: Event, rejection_reason: str | None = None) -> dict:
         "assigned_to_id": event.assigned_to_id,
         "meeting_link": event.meeting_link,
         "reallocation_required": event.reallocation_required,
-        "buffer_before_mins": event.buffer_before_mins,
-        "buffer_after_mins": event.buffer_after_mins,
         "is_all_day": event.is_all_day,
         "customer_id": event.customer_id,
         "color": color,

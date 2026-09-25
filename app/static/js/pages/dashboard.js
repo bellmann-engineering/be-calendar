@@ -19,14 +19,14 @@
  *   PUT    /api/v1/events/<id>/rsvp           → Zusage/Absage (Trainer)
  *   GET    /api/v1/auth/trainers              → Mitarbeiter für Zuweisungen
  *   GET    /api/v1/customers                  → Kunden (Farben, Formular)
- *   GET    /api/v1/google/busy?start=...&end=... → eigene private Belegt-Zeiten
+ *   GET    /api/v1/google/events?start=...&end=... → Termine aus dem eigenen Google-Kalender
  *                                               aus Google (Hintergrundblöcke)
  *
  * Abhängigkeiten:
  *   - FullCalendar 6 (global "FullCalendar", dist/vendor/fullcalendar.min.js)
  *   - app.js (apiFetch, readJson, getCurrentUser, toUtcIso, toDatetimeLocal,
  *     toDateLocal, isSafeHttpUrl, isValidHexColor, DEFAULT_EVENT_COLOR,
- *     PLANNER_ROLES, fetchGoogleBusyEvents)
+ *     PLANNER_ROLES, fetchGoogleEvents, openGoogleEvent, decorateGoogleEvent)
  *   - ui.js (h, icon, toast, confirmDialog, openDialog, closeDialog,
  *     setBusy, showFormError, hideFormError, readableTextColor)
  *
@@ -288,12 +288,20 @@ function renderCalendar(container) {
         eventInteractive: true,
         height: "auto",
         expandRows: true,
-        dayMaxEvents: true,
-        // Zwei Quellen: 1. Termine aus der App, 2. eigene Belegt-Zeiten aus Google.
-        eventSources: [loadCalendarEvents, loadGoogleBusy],
+        // Alle Termine zeigen, nie "+2 weitere": An einem Tag kann es mehrere ganztägige
+        // und stundenweise Termine geben – alle müssen sichtbar sein.
+        dayMaxEvents: false,
+        // Gleichzeitige Termine NEBENeinander statt überlappend (sonst verdeckt).
+        slotEventOverlap: false,
+        // Zwei Quellen: 1. Termine aus der App, 2. Termine aus dem eigenen Google-Kalender.
+        eventSources: [loadCalendarEvents, loadGoogleEvents],
         eventClick: info => {
-            // Hintergrundblöcke (Google belegt) haben keine Details.
-            if (info.event.extendedProps.googleBusy) return;
+            // Google-Termine gehören nicht der App → im Google Kalender öffnen.
+            if (info.event.extendedProps.source === "google") {
+                info.jsEvent.preventDefault();
+                openGoogleEvent(info.event);
+                return;
+            }
             openEventDetails(info.event);
         },
         // Klick auf eine freie Stelle: Planer legen direkt dort einen Termin an.
@@ -304,6 +312,7 @@ function renderCalendar(container) {
             openCreateForm(start);
         },
         eventDidMount: info => {
+            if (info.event.extendedProps.source === "google") { decorateGoogleEvent(info); return; }
             // Abgelehnte Termine zusätzlich gestreift (erkennbar auch ohne Farbsehen).
             if (info.event.extendedProps.reallocation_required) info.el.classList.add("bc-needs-reassign");
         },
@@ -343,19 +352,21 @@ async function loadCalendarEvents(fetchInfo, successCallback, failureCallback) {
 }
 
 /**
- * Event-Quelle 2: eigene private Belegt-Zeiten aus Google (nur Zeiträume,
- * keine Titel) als grau gestreifte Hintergrundblöcke. Ohne Verbindung,
- * ohne zugeordneten Kalender oder bei Fehlern: keine Blöcke, kein Toast.
- * Der Legenden-Eintrag erscheint nur, wenn es Blöcke gibt.
- * Spricht mit: GET /api/v1/google/busy (über app.js::fetchGoogleBusyEvents)
+ * Event-Quelle 2: Termine aus dem eigenen zugeordneten Google-Kalender (mit
+ * Titel, nur lesend). Ohne Verbindung oder ohne zugeordneten Kalender: keine
+ * Termine, kein Toast. Fehlt der Lesezugriff, steht ein Hinweis in der Legende.
+ * Spricht mit: GET /api/v1/google/events (über app.js::fetchGoogleEvents)
  * @param {object} fetchInfo - Zeitraum von FullCalendar.
  * @param {Function} successCallback
  */
-async function loadGoogleBusy(fetchInfo, successCallback) {
-    const blocks = await fetchGoogleBusyEvents(fetchInfo.startStr, fetchInfo.endStr, null, "Privat belegt (Google)");
+async function loadGoogleEvents(fetchInfo, successCallback) {
+    const { events, error } = await fetchGoogleEvents(fetchInfo.startStr, fetchInfo.endStr);
     // Einmal sichtbar, bleibt der Eintrag stehen (sonst "springt" die Legende beim Blättern).
-    if (blocks.length) document.getElementById("busy-legend").hidden = false;
-    successCallback(blocks);
+    if (events.length) document.getElementById("google-legend").hidden = false;
+    const hint = document.getElementById("google-error");
+    hint.textContent = error ? `Google-Kalender: ${error}` : "";
+    hint.hidden = !error;
+    successCallback(events);
 }
 
 /**
@@ -720,7 +731,7 @@ function setupEventForm() {
                 toast(editingId ? "Termin aktualisiert." : "Termin angelegt.");
                 refreshAll();
             } else {
-                // z. B. 409 "Kollision ..." – der Server liefert eine verständliche Meldung.
+                // Der Server liefert eine verständliche Meldung (z. B. 403 fehlende Rechte).
                 showFormError("event-error", data.message || data.error || "Fehler beim Speichern.");
             }
         } catch (err) {

@@ -85,7 +85,7 @@ const GOOGLE_ACCESS_ROLES = {
     owner: "Besitzer",
     writer: "Bearbeiten",
     reader: "Nur lesen",
-    freeBusyReader: "Nur Frei/Belegt",
+    freeBusyReader: "Nur Frei/Belegt – reicht nicht",
 };
 
 /** Formatierer für "verbunden seit" (z. B. "25.09.2026, 14:05"). */
@@ -736,7 +736,7 @@ async function reloadGoogleCalendars(btn) {
 async function disconnectGoogle() {
     const ok = await confirmDialog({
         title: "Google-Verbindung trennen?",
-        message: "Danach werden keine Termine mehr in Google-Kalender übertragen und keine Belegt-Zeiten mehr angezeigt. Die bei den Mitarbeitern hinterlegten Kalender-IDs bleiben gespeichert.",
+        message: "Danach werden keine Termine mehr in Google-Kalender übertragen und keine Google-Termine mehr im Kalender angezeigt. Die bei den Mitarbeitern hinterlegten Kalender-IDs bleiben gespeichert.",
         confirmText: "Verbindung trennen",
     });
     if (!ok) return;

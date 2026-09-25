@@ -1,5 +1,5 @@
 """
-Termin-Logik: anlegen, ändern, soft-löschen, auflisten, Kollisionen erkennen.
+Termin-Logik: anlegen, ändern, soft-löschen, auflisten.
 
 Wer benutzt sie?
     ``app/routes/event_routes.py`` (Endpunkte unter /api/v1/events).
@@ -7,21 +7,17 @@ Wer benutzt sie?
 Womit spricht sie?
     * PostgreSQL: Tabellen ``events``, ``event_rsvps``, ``users``, ``customers``, ``audit_logs``
     * NotificationService (In-App + E-Mail an den zugewiesenen Mitarbeiter)
-    * GoogleCalendarService (Frei/Belegt prüfen) und google_sync_service (Termin in den
-      Google-Kalender des Mitarbeiters spiegeln, ändern, umziehen, löschen)
+    * google_sync_service (Termin in den Google-Kalender des Mitarbeiters spiegeln,
+      ändern, umziehen, löschen)
 
 Wovon hängt sie ab?
     AuthorizationService (wer darf was), app/utils/time.py (UTC-Umrechnung).
 
-Kollisionsprüfung in einem Satz:
-    Zwei Termine kollidieren, wenn sich ihre um die Pufferzeiten VERLÄNGERTEN Zeiträume
-    überschneiden:  A.start - A.puffer_vorher < B.ende + B.puffer_nachher
-                UND A.ende + A.puffer_nachher > B.start - B.puffer_vorher
+Überschneidungen sind ausdrücklich erlaubt: Ein Mitarbeiter kann am selben Tag mehrere
+ganztägige und stundenweise Termine haben. Es gibt keine Kollisionsprüfung.
 """
 
 import logging
-from dataclasses import dataclass
-from datetime import datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import joinedload
@@ -46,47 +42,14 @@ logger = logging.getLogger(__name__)
 # Rückgabetyp vieler Methoden: (Termin oder None, Fehlermeldung oder None, HTTP-Status)
 EventResult = tuple[Event | None, str | None, int]
 
-DEFAULT_BUFFER_MINS = 15
 MAX_TITLE_LENGTH = 200
 MAX_LINK_LENGTH = 500
-
-
-@dataclass(frozen=True)
-class Conflict:
-    """Beschreibt eine gefundene Kollision.
-
-    ``id`` ist None, wenn die Kollision aus dem privaten Google-Kalender stammt
-    (dort gibt es keinen Termin in unserer Datenbank).
-    """
-
-    id: int | None
-    title: str
 
 
 class EventService:
     """Geschäftslogik rund um Kalendertermine."""
 
     # ------------------------------------------------------------------ Validierung
-    @staticmethod
-    def validate_buffers(buffer_before: object, buffer_after: object, role_name: str) -> str | None:
-        """Prüft die Pufferzeiten. Gibt eine Fehlermeldung zurück oder None, wenn OK.
-
-        Regeln: ganze Zahlen, nicht negativ; Nicht-CEOs nur 15–30 Minuten.
-        """
-        # bool ist in Python eine Unterklasse von int (True == 1) -> explizit ausschließen.
-        if any(
-            isinstance(value, bool) or not isinstance(value, int)
-            for value in (buffer_before, buffer_after)
-        ):
-            return "Pufferzeiten müssen ganze Zahlen sein."
-        if buffer_before < 0 or buffer_after < 0:
-            return "Pufferzeiten dürfen keine negativen Werte enthalten."
-        if role_name != RoleEnum.CEO.value and not (
-            15 <= buffer_before <= 30 and 15 <= buffer_after <= 30
-        ):
-            return "Für Nicht-CEOs müssen Pufferzeiten zwischen 15 und 30 Minuten liegen."
-        return None
-
     @staticmethod
     def _validate_optional_fields(data: dict) -> str | None:
         """Prüft Typen/Längen der optionalen Felder (Titel, Link, Kunde, Ganztägig)."""
@@ -114,86 +77,6 @@ class EventService:
             return "is_all_day muss true oder false sein."
         return None
 
-    # ------------------------------------------------------------------ Kollision
-    @staticmethod
-    def check_conflict(
-        assigned_to_id: int | None,
-        start_time: datetime,
-        end_time: datetime,
-        buffer_before: int = 0,
-        buffer_after: int = 0,
-        exclude_event_id: int | None = None,
-    ) -> Conflict | None:
-        """Sucht eine Kollision für den Mitarbeiter im angegebenen Zeitraum.
-
-        1. Datenbank: Die komplette Überschneidungsbedingung (inkl. der Puffer der
-           BESTEHENDEN Termine) läuft als SQL in PostgreSQL. Früher wurden alle Termine
-           des Mitarbeiters geladen und in Python gefiltert – und wegen
-           ``not Event.is_deleted`` (Python-``not`` statt SQL) nie ein Treffer gefunden.
-        2. Google Calendar: Nur wenn in der DB nichts kollidiert und der Mitarbeiter eine
-           ``google_calendar_id`` hinterlegt hat.
-
-        Returns:
-            Ein ``Conflict`` oder None, wenn der Zeitraum frei ist.
-        """
-        if not assigned_to_id:
-            return None
-
-        new_effective_start = start_time - timedelta(minutes=buffer_before)
-        new_effective_end = end_time + timedelta(minutes=buffer_after)
-
-        # make_interval(mins => n) erzeugt in PostgreSQL ein Intervall von n Minuten.
-        existing_before = func.make_interval(
-            0, 0, 0, 0, 0, func.coalesce(Event.buffer_before_mins, 0)
-        )
-        existing_after = func.make_interval(
-            0, 0, 0, 0, 0, func.coalesce(Event.buffer_after_mins, 0)
-        )
-
-        stmt = (
-            select(Event.id, Event.title)
-            .where(
-                Event.assigned_to_id == assigned_to_id,
-                # .is_(False) erzeugt "is_deleted IS false" in SQL. Ein Python-"not" würde
-                # hier sofort zu False ausgewertet und die ganze Bedingung zerstören.
-                Event.is_deleted.is_(False),
-                (Event.start_time - existing_before) < new_effective_end,
-                (Event.end_time + existing_after) > new_effective_start,
-            )
-            .order_by(Event.start_time)
-            .limit(1)
-        )
-        if exclude_event_id:
-            stmt = stmt.where(Event.id != exclude_event_id)
-
-        row = db.session.execute(stmt).first()
-        if row is not None:
-            return Conflict(id=row.id, title=row.title)
-
-        return EventService._check_google_conflict(
-            assigned_to_id, new_effective_start, new_effective_end
-        )
-
-    @staticmethod
-    def _check_google_conflict(
-        assigned_to_id: int, effective_start: datetime, effective_end: datetime
-    ) -> Conflict | None:
-        """Fragt den privaten Google-Kalender (Free/Busy) des Mitarbeiters ab."""
-        user = db.session.get(User, assigned_to_id)
-        if not user or not user.google_calendar_id:
-            return None
-
-        from app.services.calendar_service import GoogleCalendarService
-
-        busy_times = GoogleCalendarService().get_busy_times(
-            user.google_calendar_id, effective_start, effective_end
-        )
-        # Free/Busy liefert nur Blöcke, die den angefragten Zeitraum schneiden -> jeder
-        # Eintrag ist eine Kollision.
-        if busy_times:
-            return Conflict(id=None, title="Privater Termin (Google Kalender)")
-        return None
-
     # ------------------------------------------------------------------ Anlegen
     @staticmethod
     def create_event(data: dict, creator_id: int) -> EventResult:
@@ -201,7 +84,7 @@ class EventService:
 
         Args:
             data: JSON-Body (title, start_time, end_time, optional assigned_to_id,
-                buffer_*_mins, customer_id, meeting_link, is_all_day, override_conflict).
+                customer_id, meeting_link, is_all_day).
             creator_id: ID des eingeloggten Benutzers.
         """
         try:
@@ -222,12 +105,6 @@ class EventService:
         if field_error:
             return None, field_error, 400
 
-        buffer_before = data.get("buffer_before_mins", DEFAULT_BUFFER_MINS)
-        buffer_after = data.get("buffer_after_mins", DEFAULT_BUFFER_MINS)
-        buffer_error = EventService.validate_buffers(buffer_before, buffer_after, creator.role.name)
-        if buffer_error:
-            return None, buffer_error, 400
-
         assigned_to_id = data.get("assigned_to_id")
         assigned_user = None
         if assigned_to_id is not None:
@@ -243,28 +120,11 @@ class EventService:
         if not allowed:
             return None, authorization_error, 403
 
-        conflict = EventService.check_conflict(
-            assigned_to_id, start_time, end_time, buffer_before, buffer_after
-        )
-        is_override = False
-        if conflict:
-            is_override, override_error = AuthorizationService.can_override_conflict(
-                creator, data.get("override_conflict") is True
-            )
-            if not is_override:
-                return (
-                    None,
-                    f"Kollision mit bestehendem Termin: '{conflict.title}'. {override_error}",
-                    409,
-                )
-
         new_event = Event(
             title=data["title"].strip(),
             description=data.get("description") or "",
             start_time=start_time,
             end_time=end_time,
-            buffer_before_mins=buffer_before,
-            buffer_after_mins=buffer_after,
             created_by_id=creator_id,
             assigned_to_id=assigned_to_id,
             is_all_day=data.get("is_all_day", False),
@@ -302,19 +162,6 @@ class EventService:
                 },
             )
         )
-        if is_override:
-            db.session.add(
-                AuditLog(
-                    event_id=new_event.id,
-                    user_id=creator_id,
-                    action="CEO_OVERRIDE_CONFLICT",
-                    details_json={
-                        "conflicting_event_id": conflict.id,
-                        "conflicting_event_title": conflict.title,
-                        "override_confirmed": True,
-                    },
-                )
-            )
         db.session.commit()
 
         # Nach dem Commit: Kopie im Google-Kalender des Mitarbeiters anlegen.
@@ -386,14 +233,6 @@ class EventService:
         if field_error:
             return None, field_error, 400
 
-        buffer_before = data.get(
-            "buffer_before_mins", event.buffer_before_mins or DEFAULT_BUFFER_MINS
-        )
-        buffer_after = data.get("buffer_after_mins", event.buffer_after_mins or DEFAULT_BUFFER_MINS)
-        buffer_error = EventService.validate_buffers(buffer_before, buffer_after, actor.role.name)
-        if buffer_error:
-            return None, buffer_error, 400
-
         assigned_to_id = data.get("assigned_to_id", event.assigned_to_id)
         if assigned_to_id is not None:
             if isinstance(assigned_to_id, bool) or not isinstance(assigned_to_id, int):
@@ -409,26 +248,6 @@ class EventService:
         elif actor.role.name == RoleEnum.TEAM_LEADER.value:
             return None, "Teamleitungen dürfen keinen Termin ohne Teammitglied freigeben.", 403
 
-        conflict = EventService.check_conflict(
-            assigned_to_id,
-            start_time,
-            end_time,
-            buffer_before,
-            buffer_after,
-            exclude_event_id=event.id,
-        )
-        is_override = False
-        if conflict:
-            is_override, override_error = AuthorizationService.can_override_conflict(
-                actor, data.get("override_conflict") is True
-            )
-            if not is_override:
-                return (
-                    None,
-                    f"Kollision mit bestehendem Termin: '{conflict.title}'. {override_error}",
-                    409,
-                )
-
         previous_values = EventService._audit_snapshot(event)
         assignment_changed = assigned_to_id != event.assigned_to_id
 
@@ -438,8 +257,6 @@ class EventService:
             event.description = data.get("description")
         event.start_time = start_time
         event.end_time = end_time
-        event.buffer_before_mins = buffer_before
-        event.buffer_after_mins = buffer_after
         event.assigned_to_id = assigned_to_id
         if "is_all_day" in data:
             event.is_all_day = data["is_all_day"]
@@ -475,12 +292,10 @@ class EventService:
             AuditLog(
                 event_id=event.id,
                 user_id=user_id,
-                action="CEO_OVERRIDE_UPDATE" if is_override else "UPDATE_EVENT",
+                action="UPDATE_EVENT",
                 details_json={
                     "previous": previous_values,
                     "new": EventService._audit_snapshot(event),
-                    "conflict_overridden": is_override,
-                    "conflicting_event_id": conflict.id if conflict else None,
                 },
             )
         )
@@ -497,8 +312,6 @@ class EventService:
             "start_time": isoformat_utc(event.start_time),
             "end_time": isoformat_utc(event.end_time),
             "assigned_to_id": event.assigned_to_id,
-            "buffer_before_mins": event.buffer_before_mins,
-            "buffer_after_mins": event.buffer_after_mins,
             "reallocation_required": event.reallocation_required,
         }
 

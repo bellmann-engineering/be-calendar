@@ -849,41 +849,25 @@
     );
 }
 
-/* Private Belegt-Zeiten aus Google (Hintergrundblöcke + Legende): grau gestreift,
-   damit sie klar als "nicht verfügbar, ohne Details" erkennbar sind – auch ohne
-   Farbsehen. Nur Tokens → passt sich dem Dunkelmodus automatisch an. */
-.bc-google-busy,
-.fc .fc-bg-event.bc-google-busy {
-    background-color: color-mix(in srgb, var(--bc-fg-subtle) 14%, transparent);
-    background-image: repeating-linear-gradient(
-        135deg,
-        color-mix(in srgb, var(--bc-fg-subtle) 30%, transparent) 0 3px,
-        transparent 3px 9px
-    );
+/* Termine aus dem Google-Kalender (nur lesend): heller Grund + gestrichelter Rand,
+   damit sie klar von den App-Terminen (Kundenfarbe, voll) zu unterscheiden sind –
+   auch ohne Farbsehen. Nur Tokens → passt sich dem Dunkelmodus automatisch an. */
+.bc-google-event,
+.fc .fc-event.bc-google-event {
+    background-color: color-mix(in srgb, var(--bc-accent) 12%, var(--bc-surface));
+    border: 1px dashed color-mix(in srgb, var(--bc-accent) 60%, transparent);
 }
 
-/* FullCalendar setzt für Hintergrundereignisse per "background"-Kurzschreibweise
-   eine grüne Standardfarbe + opacity 0.3. Deshalb steht die Regel oben zusätzlich
-   mit ".fc .fc-bg-event" (gleiche Spezifität wie FullCalendar, später geladen). */
-.fc .fc-bg-event.bc-google-busy {
-    opacity: 1;
-    cursor: default;
-    box-shadow: none;
-    border-radius: 0;
-    border-left: 3px solid var(--bc-line-strong);
+.fc .fc-event.bc-google-event,
+.fc .fc-event.bc-google-event .fc-event-main,
+.fc .fc-event.bc-google-event .fc-event-time,
+.fc .fc-event.bc-google-event .fc-event-title {
+    color: var(--bc-fg);
 }
 
-.fc .fc-bg-event.bc-google-busy:hover {
-    filter: none;
-    box-shadow: none;
-}
-
-.fc .fc-bg-event.bc-google-busy .fc-event-title {
-    margin: 0.25rem 0.4rem;
-    font-size: 0.6875rem;
-    font-style: normal;
-    font-weight: 600;
-    color: var(--bc-fg-muted);
+/* Listenansicht (mobil): Punkt in Akzentfarbe statt Kundenfarbe. */
+.fc .fc-list-event.bc-google-event .fc-list-event-dot {
+    border-color: var(--bc-accent);
 }
 
 .fc .fc-timegrid-now-indicator-line {
