@@ -1,6 +1,6 @@
 # Kalendersystem der Bellmann Engineering GmbH
 
-Kalender- und Einsatzplanung für **Bellmann Engineering**: Termine anlegen und Mitarbeitern verbindlich zuweisen, Kalender einzelner Mitarbeiter für Planer, Kunden mit Logo (erscheint am Termin, wenn z. B. „(GFN)“ im Titel steht), Anbindung an die Google-Kalender der Mitarbeiter (Termine anzeigen und übertragen), Rollen- und Teamrechte sowie ein lückenloses Audit-Log.
+Kalender- und Einsatzplanung für **Bellmann Engineering**: Termine anlegen und Mitarbeitern verbindlich zuweisen, Kalender einzelner Mitarbeiter für Planer, Kunden mit Logo (erscheint am Termin, wenn z. B. „(GFN)“ im Titel steht), Benachrichtigung bei neuen Google-Terminen, Anbindung an die Google-Kalender der Mitarbeiter (Termine anzeigen und übertragen), Rollen- und Teamrechte sowie ein lückenloses Audit-Log.
 
 > **⚠️ Wichtiger Hinweis (24.09.2026): Der Git-Verlauf wurde bereinigt.**
 > Alte Commits enthielten Zugangsdaten (`.env`, Passwörter in `setup.sh`). Der Verlauf wurde neu geschrieben und alle betroffenen Secrets wurden rotiert.
@@ -121,6 +121,7 @@ Alle Einstellungen kommen aus der Datei `.env` (nicht in Git). Die Vorlage mit E
 | `SMTP_*`, `MAIL_DEFAULT_SENDER` | E-Mail-Versand, siehe unten |
 | `DEV_USER_EMAIL`, `DEV_USER_PASSWORD` | Erster CEO-Zugang (`seed_dev.py`) |
 | `GUNICORN_WORKERS`, `GUNICORN_THREADS` | Dimensionierung des WSGI-Servers (`gunicorn.conf.py`) |
+| `GOOGLE_WATCH_INTERVAL_SECONDS` | Wie oft je Mitarbeiter höchstens auf neue Google-Termine geprüft wird (Glocke), Standard 180 |
 
 Neues Secret erzeugen: `python -c "import secrets; print(secrets.token_urlsafe(48))"`
 

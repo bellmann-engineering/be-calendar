@@ -91,7 +91,7 @@ Sichtbarkeit:
             <span class="inline-flex items-center gap-2"><span class="size-2.5 rounded-full bg-brand-600"></span>Termin (Farbe = Kunde)</span>
             <span class="inline-flex items-center gap-2"><span class="h-0.5 w-4 bg-danger"></span>Aktuelle Uhrzeit</span>
             {# Nur sichtbar, wenn es Termine aus dem eigenen Google-Kalender gibt (dashboard.js::loadGoogleEvents) #}
-            <span id="google-legend" class="inline-flex items-center gap-2" hidden><span class="bc-google-event h-2.5 w-4 rounded-sm" aria-hidden="true"></span>Aus Google Kalender (Klick öffnet Google)</span>
+            <span id="google-legend" class="inline-flex items-center gap-2" hidden><span class="bc-google-event h-2.5 w-4 rounded-sm" aria-hidden="true"></span>Aus Google Kalender (Klick zeigt Details)</span>
         </div>
         {# z. B. fehlender Lesezugriff auf den zugeordneten Kalender #}
         <p id="google-error" class="mt-2 text-xs text-warning" role="status" hidden></p>
@@ -198,6 +198,11 @@ Sichtbarkeit:
         <a id="detail-link" target="_blank" rel="noopener noreferrer" class="btn btn-secondary mt-5 w-full" hidden>
             {{ icon('video') }}Online-Meeting beitreten{{ icon('external', 'size-3.5 opacity-60') }}
         </a>
+        {# Beschreibung (Links darin klickbar – dashboard.js via app.js::linkify, nie als HTML) #}
+        <section id="detail-description-block" class="mt-5" hidden>
+            <h3 class="text-sm font-semibold text-fg">Beschreibung</h3>
+            <div id="detail-description" class="mt-1.5 max-h-72 overflow-y-auto rounded-lg bg-surface-2 px-3.5 py-3 text-sm leading-relaxed break-words whitespace-pre-line text-fg"></div>
+        </section>
 
     </div>
 

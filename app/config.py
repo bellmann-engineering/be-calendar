@@ -145,6 +145,8 @@ class BaseConfig:
     # Wie lange gelesene Google-Termine zwischengespeichert werden (Sekunden).
     # Spart API-Aufrufe, wenn mehrere Personen gleichzeitig den Kalender ansehen.
     GOOGLE_EVENTS_CACHE_SECONDS = int(os.getenv("GOOGLE_EVENTS_CACHE_SECONDS", 60))
+    # Wie oft pro Mitarbeiter höchstens auf NEUE Google-Termine geprüft wird (Glocke).
+    GOOGLE_WATCH_INTERVAL_SECONDS = int(os.getenv("GOOGLE_WATCH_INTERVAL_SECONDS", 180))
 
     # --- Single Sign-on über Authelia (Traefik forwardAuth) --------------------------------
     # Auf dem Server steht Traefik mit Authelia vor der App. Nach erfolgreicher Anmeldung
@@ -227,6 +229,7 @@ class TestingConfig(BaseConfig):
     GOOGLE_OAUTH_CLIENT_SECRET = "test-client-secret"  # noqa: S105 - nur Testwert
     GOOGLE_OAUTH_REDIRECT_URI = "http://localhost/api/v1/google/oauth/callback"
     GOOGLE_EVENTS_CACHE_SECONDS = 0
+    GOOGLE_WATCH_INTERVAL_SECONDS = 0
     RATELIMIT_ENABLED = False
     MAIL_ASYNC = False
     # Kleiner Pool reicht für Tests; NullPool wäre auch möglich.

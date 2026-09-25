@@ -34,8 +34,12 @@ class Notification(db.Model):
 
     title = db.Column(db.String(150), nullable=False)
     message = db.Column(db.Text, nullable=False)
-    # Maschinenlesbarer Typ, z. B. 'REALLOCATION_REQUIRED', 'EVENT_ASSIGNED'.
+    # Maschinenlesbarer Typ, z. B. 'EVENT_ASSIGNED', 'GOOGLE_EVENT_NEW'.
     type = db.Column(db.String(50), nullable=False)
+
+    # Tag des betroffenen Termins (Ortszeit): Klick in der Glocke springt im Kalender
+    # in diese Woche. Leer bei Meldungen ohne Termin.
+    target_date = db.Column(db.Date, nullable=True)
 
     is_read = db.Column(db.Boolean, default=False, nullable=False, index=True)
     created_at = db.Column(db.DateTime(timezone=True), default=utc_now, nullable=False)

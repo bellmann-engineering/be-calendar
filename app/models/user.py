@@ -35,6 +35,10 @@ class User(db.Model):
     # Optional: zugeordneter Google-Kalender. Seine Termine erscheinen im Kalender der App,
     # App-Termine des Mitarbeiters werden dorthin übertragen.
     google_calendar_id = db.Column(db.String(255), nullable=True)
+    # Abgleich "neue Google-Termine -> Glocke" (app/services/google_watch_service.py):
+    # für welchen Kalender die gesehenen Termine gelten und wann zuletzt geprüft wurde.
+    google_watch_calendar_id = db.Column(db.String(255), nullable=True)
+    google_watch_checked_at = db.Column(db.DateTime(timezone=True), nullable=True)
     # timezone=True -> PostgreSQL-Typ "timestamptz" (siehe app/utils/time.py).
     created_at = db.Column(db.DateTime(timezone=True), default=utc_now)
 

@@ -12,6 +12,7 @@ from flask import Blueprint, jsonify
 from flask_jwt_extended import current_user, jwt_required
 
 from app.models import Notification
+from app.services.google_watch_service import GoogleWatchService
 from app.services.notification_service import NotificationService
 from app.utils.time import isoformat_utc
 
@@ -31,13 +32,20 @@ def _serialize_notification(notification: Notification) -> dict:
         "type": notification.type,
         "is_read": notification.is_read,
         "created_at": isoformat_utc(notification.created_at),
+        # "2026-10-05" – Klick in der Glocke springt im Kalender in diese Woche.
+        "target_date": notification.target_date.isoformat() if notification.target_date else None,
     }
 
 
 @notification_bp.route("", methods=["GET"])
 @jwt_required()
 def get_notifications():
-    """Liefert alle Benachrichtigungen des eingeloggten Benutzers."""
+    """Liefert alle Benachrichtigungen des eingeloggten Benutzers.
+
+    Vorher: kurzer Abgleich mit dem eigenen Google-Kalender – neue Termine werden zu
+    Benachrichtigungen (höchstens alle paar Minuten, siehe GoogleWatchService).
+    """
+    GoogleWatchService.check_user(current_user.id)
     notifications = NotificationService.get_user_notifications(current_user.id)
     return jsonify({"notifications": [_serialize_notification(n) for n in notifications]}), 200
 

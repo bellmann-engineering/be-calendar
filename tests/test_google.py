@@ -429,3 +429,88 @@ def test_umwandlung_von_google_terminen():
         "extendedProperties": {"private": {calendar_service.APP_MARKER_KEY: "1"}},
     }
     assert umwandeln(app_kopie) is None
+
+
+# ------------------------------------------------------------------ Glocke: neue Google-Termine
+def _glocke(client):
+    return client.get("/api/v1/notifications").get_json()["notifications"]
+
+
+def test_neue_google_termine_erscheinen_in_der_glocke(client, make_user, login, fake_google):
+    anna = make_user("TRAINER", google_calendar_id="anna@gmail.com")
+    fake_google.termine = {
+        "anna@gmail.com": [_g("alt", "2026-11-02T08:00:00Z", "2026-11-02T09:00:00Z", "Bestand")]
+    }
+    login(anna)
+    # Erster Abgleich: nur merken, keine Flut an Meldungen beim Einrichten.
+    assert _glocke(client) == []
+
+    neu = _g("neu1", "2026-11-05T13:00:00Z", "2026-11-05T14:00:00Z", "Kundentermin (GFN)")
+    serie_1 = {
+        **_g("w_1", "2026-11-06T13:00:00Z", "2026-11-06T13:30:00Z", "Weekly"),
+        "series_id": "w",
+    }
+    serie_2 = {
+        **_g("w_2", "2026-11-13T13:00:00Z", "2026-11-13T13:30:00Z", "Weekly"),
+        "series_id": "w",
+    }
+    fake_google.termine["anna@gmail.com"] += [neu, serie_1, serie_2]
+    meldungen = _glocke(client)
+    # Ein neuer Termin + EINE Meldung für die neue Serie (nicht eine pro Vorkommen).
+    assert sorted(m["message"].split(" – ")[0] for m in meldungen) == [
+        "Kundentermin (GFN)",
+        "Weekly (Serie)",
+    ]
+    kunde = next(m for m in meldungen if m["message"].startswith("Kundentermin"))
+    assert kunde["type"] == "GOOGLE_EVENT_NEW"
+    assert kunde["target_date"] == "2026-11-05"
+    assert "Do, 05.11., 14:00 Uhr" in kunde["message"]  # Ortszeit (UTC+1)
+    # Beim nächsten Abruf kommt nichts doppelt.
+    assert len(_glocke(client)) == 2
+
+
+def test_von_der_app_eingetragene_termine_melden_sich_nicht_doppelt(
+    client, make_user, login, csrf, fake_google
+):
+    ceo = make_user("CEO")
+    anna = make_user("TRAINER", google_calendar_id="anna@gmail.com")
+    login(anna)
+    _glocke(client)  # erster Abgleich (leer)
+    client.post("/api/v1/auth/logout")
+
+    login(ceo)
+    client.post("/api/v1/events", json=_termin(anna.id), headers=csrf())  # -> Google-ID "g1"
+    client.post("/api/v1/auth/logout")
+    fake_google.termine = {
+        "anna@gmail.com": [_g("g1", "2026-11-02T08:00:00Z", "2026-11-02T09:00:00Z", "App-Kopie")]
+    }
+    login(anna)
+    typen = [m["type"] for m in _glocke(client)]
+    # Nur "Neuer Termin zugewiesen" aus der App – mit Tag zum Hinspringen.
+    assert typen == ["EVENT_ASSIGNED"]
+    assert _glocke(client)[0]["target_date"] == "2026-11-02"
+
+
+def test_beschreibung_wird_zu_sicherem_text():
+    text = calendar_service.beschreibung_als_text(
+        'Hallo<br><a href="https://meet.google.com/abc">Meet</a>'
+        "<ul><li>Punkt 1</li></ul><script>alert(1)</script>&amp; Ende"
+    )
+    assert text == "Hallo\nMeet (https://meet.google.com/abc)\n• Punkt 1\n\nalert(1)& Ende"
+    assert "<" not in text
+
+
+def test_teams_link_aus_der_beschreibung_wird_meeting_link():
+    termin = calendar_service._termin_aus_google(
+        {
+            "id": "t1",
+            "summary": "Weekly",
+            "start": {"dateTime": "2026-11-05T14:00:00+01:00"},
+            "end": {"dateTime": "2026-11-05T14:30:00+01:00"},
+            "description": "Agenda&nbsp;<br>https://teams.microsoft.com/l/meetup-join/19%3a"
+            "meeting_abc%40thread.v2/0?context=x<br>&nbsp;<br>Ende",
+        }
+    )
+    assert termin["meeting_url"].startswith("https://teams.microsoft.com/l/meetup-join/19%3a")
+    assert termin["meeting_url"].endswith("context=x")
+    assert "\xa0" not in termin["description"]

@@ -8,7 +8,7 @@ Was macht diese Datei?
     * ``mark_as_read()``           – eine eigene Benachrichtigung als gelesen markieren.
 
 Wer benutzt sie?
-    EventService (Termin zugewiesen),
+    EventService (Termin zugewiesen), GoogleWatchService (neuer Termin in Google),
     Routen in ``app/routes/notification_routes.py``.
 
 Womit spricht sie?
@@ -16,6 +16,7 @@ Womit spricht sie?
 """
 
 import logging
+from datetime import date
 
 from app import db
 from app.models import Notification, User
@@ -29,7 +30,12 @@ class NotificationService:
 
     @staticmethod
     def notify_user(
-        user_id: int, title: str, message: str, notification_type: str
+        user_id: int,
+        title: str,
+        message: str,
+        notification_type: str,
+        target_date: date | None = None,
+        send_email: bool = True,
     ) -> Notification | None:
         """Erstellt eine Benachrichtigung und merkt eine E-Mail für nach dem Commit vor.
 
@@ -47,10 +53,15 @@ class NotificationService:
             return None
 
         notification = Notification(
-            user_id=user.id, title=title, message=message, type=notification_type
+            user_id=user.id,
+            title=title,
+            message=message,
+            type=notification_type,
+            target_date=target_date,
         )
         db.session.add(notification)
-        EmailService.queue_email(user.email, f"[Bellmann Eng.] {title}", message)
+        if send_email:
+            EmailService.queue_email(user.email, f"[Bellmann Eng.] {title}", message)
         return notification
 
     @staticmethod

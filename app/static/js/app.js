@@ -521,7 +521,11 @@ async function fetchGoogleEvents(startStr, endStr, userId) {
                 editable: false,
                 classNames: [GOOGLE_EVENT_CLASS],
                 // source: zum Erkennen in eventClick/eventDidMount
-                extendedProps: { source: "google", htmlLink: e.html_link, location: e.location, tag: e.tag },
+                extendedProps: {
+                    source: "google", htmlLink: e.html_link, location: e.location, tag: e.tag,
+                    description: e.description, meetingUrl: e.meeting_url,
+                    attendees: Array.isArray(e.attendees) ? e.attendees : [], organizer: e.organizer,
+                },
             }));
         return { events, error: errors[0] || null };
     } catch (err) {
@@ -535,8 +539,112 @@ async function fetchGoogleEvents(startStr, endStr, userId) {
  * @param {object} event - FullCalendar-Event mit extendedProps.source === "google".
  */
 function openGoogleEvent(event) {
-    const link = event.extendedProps.htmlLink;
-    if (link && isSafeHttpUrl(link)) window.open(link, "_blank", "noopener");
+    const props = event.extendedProps || {};
+    const dialog = document.getElementById("google-event-modal");
+    if (!dialog) return;
+    const setRow = (rowId, valueId, value, render) => {
+        document.getElementById(rowId).hidden = !value;
+        const el = document.getElementById(valueId);
+        el.replaceChildren(value ? render(value) : "");
+    };
+
+    document.getElementById("g-title").replaceChildren(customerBadge(props.tag) || "", event.title || "");
+    document.getElementById("g-time").textContent = formatDateRange(event.start, event.end, event.allDay);
+    // Ort kann eine Adresse oder ein Link (z. B. Teams) sein.
+    setRow("g-location-row", "g-location", props.location, linkify);
+    setRow("g-organizer-row", "g-organizer", props.organizer, v => document.createTextNode(`Organisiert von ${v}`));
+
+    const meeting = document.getElementById("g-meeting");
+    meeting.hidden = !isSafeHttpUrl(props.meetingUrl);
+    if (!meeting.hidden) meeting.href = props.meetingUrl; else meeting.removeAttribute("href");
+
+    document.getElementById("g-description-block").hidden = !props.description;
+    document.getElementById("g-description").replaceChildren(props.description ? linkify(props.description) : "");
+
+    const attendees = props.attendees || [];
+    document.getElementById("g-attendees-block").hidden = attendees.length === 0;
+    document.getElementById("g-attendee-count").textContent = attendees.length ? `(${attendees.length})` : "";
+    document.getElementById("g-attendees").replaceChildren(...attendees.map(attendeeRow));
+
+    const open = document.getElementById("g-open");
+    open.hidden = !isSafeHttpUrl(props.htmlLink);
+    if (!open.hidden) open.href = props.htmlLink; else open.removeAttribute("href");
+    openDialog(dialog);
+}
+
+/** Zusage-Status der Teilnehmer (Google responseStatus) → Symbol + Text. */
+const ATTENDEE_STATUS = {
+    accepted: ["check-circle", "text-success", "zugesagt"],
+    declined: ["x-circle", "text-danger", "abgesagt"],
+    tentative: ["info", "text-warning", "vielleicht"],
+    needsAction: ["clock", "text-fg-subtle", "keine Antwort"],
+};
+
+/**
+ * Eine Zeile der Teilnehmerliste (Name, E-Mail, Zusage-Status).
+ * @param {{name: string, email: ?string, status: string, organizer: boolean}} person
+ * @returns {HTMLLIElement}
+ */
+function attendeeRow(person) {
+    const [iconName, iconClass, label] = ATTENDEE_STATUS[person.status] || ATTENDEE_STATUS.needsAction;
+    return h("li", { class: "flex items-center gap-2" },
+        h("span", { class: `inline-flex ${iconClass}`, title: label }, icon(iconName, "size-4")),
+        h("span", { class: "sr-only", text: `${label}: ` }),
+        h("span", { class: "min-w-0 truncate" },
+            h("span", { class: "text-fg", text: person.name }),
+            person.organizer ? h("span", { class: "text-fg-muted", text: " · Organisator" }) : null,
+            person.email && person.email !== person.name ? h("span", { class: "text-fg-muted", text: ` · ${person.email}` }) : null,
+        ),
+    );
+}
+
+/** Erkennt http(s)-Links in Freitext (Beschreibung, Ort). */
+const URL_IN_TEXT = /https?:\/\/[^\s<>"')\]]+[^\s<>"')\].,;:!?]/g;
+
+/**
+ * Freitext → DOM mit klickbaren Links. Sicher: Text bleibt Text (Textknoten),
+ * Links werden als <a> nur für geprüfte http(s)-Adressen erzeugt – nie innerHTML.
+ * @param {string} text
+ * @returns {DocumentFragment}
+ */
+function linkify(text) {
+    const fragment = document.createDocumentFragment();
+    let last = 0;
+    for (const match of String(text).matchAll(URL_IN_TEXT)) {
+        fragment.append(document.createTextNode(text.slice(last, match.index)));
+        const url = match[0];
+        fragment.append(isSafeHttpUrl(url)
+            ? h("a", { href: url, target: "_blank", rel: "noopener noreferrer", class: "font-medium text-accent underline break-all", text: url })
+            : document.createTextNode(url));
+        last = match.index + url.length;
+    }
+    fragment.append(document.createTextNode(String(text).slice(last)));
+    return fragment;
+}
+
+const FMT_RANGE_DAY = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "numeric", month: "short", year: "numeric" });
+const FMT_RANGE_TIME = new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit" });
+
+/**
+ * Lesbarer Zeitraum, z. B. "Do., 24. Sept. 2026 · 14:00 – 14:30 Uhr" oder
+ * "Mo., 5. Okt. – So., 25. Okt. 2026 · ganztägig" (Ende ganztägig = exklusiv).
+ * @param {Date} start
+ * @param {?Date} end
+ * @param {boolean} allDay
+ * @returns {string}
+ */
+function formatDateRange(start, end, allDay) {
+    if (!start) return "";
+    if (allDay) {
+        const last = end ? new Date(end.getTime() - 1) : start;
+        return last.toDateString() === start.toDateString()
+            ? `${FMT_RANGE_DAY.format(start)} · ganztägig`
+            : `${FMT_RANGE_DAY.format(start)} – ${FMT_RANGE_DAY.format(last)} · ganztägig`;
+    }
+    if (!end) return `${FMT_RANGE_DAY.format(start)} · ${FMT_RANGE_TIME.format(start)} Uhr`;
+    return start.toDateString() === end.toDateString()
+        ? `${FMT_RANGE_DAY.format(start)} · ${FMT_RANGE_TIME.format(start)} – ${FMT_RANGE_TIME.format(end)} Uhr`
+        : `${FMT_RANGE_DAY.format(start)}, ${FMT_RANGE_TIME.format(start)} – ${FMT_RANGE_DAY.format(end)}, ${FMT_RANGE_TIME.format(end)} Uhr`;
 }
 
 /**
@@ -676,7 +784,7 @@ function renderNotifications() {
         type: "button",
         class: `flex w-full cursor-pointer gap-3 border-b border-line px-4 py-3 text-left last:border-b-0 transition-colors hover:bg-surface-2 ${n.is_read ? "" : "bg-accent-soft/40"}`,
         // Handler direkt am Element – kein Inline-onclick, keine Daten im DOM-Attribut.
-        on: { click: () => markRead(n.id) },
+        on: { click: () => openNotification(n) },
     },
         h("span", {
             class: `mt-1.5 size-2 shrink-0 rounded-full ${n.is_read ? "bg-transparent" : "bg-accent"}`,
@@ -689,6 +797,27 @@ function renderNotifications() {
         ),
         n.is_read ? null : h("span", { class: "sr-only", text: "(ungelesen)" }),
     )));
+}
+
+/**
+ * Klick auf eine Benachrichtigung: als gelesen markieren und – falls sie zu einem
+ * Termin gehört (target_date) – im Kalender in diese Woche springen.
+ * Auf der Kalenderseite direkt (window.gotoCalendarDate aus dashboard.js),
+ * sonst über /dashboard?datum=JJJJ-MM-TT.
+ * @param {object} n - Benachrichtigung aus der API.
+ */
+async function openNotification(n) {
+    if (!n.target_date) { markRead(n.id); return; }
+    if (!n.is_read) {
+        try { await apiFetch(`/api/v1/notifications/${encodeURIComponent(n.id)}/read`, { method: "PUT" }); } catch (e) { /* weiter zum Termin */ }
+    }
+    if (typeof window.gotoCalendarDate === "function") {
+        openPopover?.close(false);
+        window.gotoCalendarDate(n.target_date);
+        loadNotifications();
+        return;
+    }
+    window.location.href = appUrl(`/dashboard?datum=${encodeURIComponent(n.target_date)}`);
 }
 
 /**

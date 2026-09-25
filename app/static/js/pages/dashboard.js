@@ -201,7 +201,7 @@ async function loadUpcoming() {
                 })),
             ...google.events.map(e => ({
                 source: "google", title: e.title, tag: e.extendedProps.tag, allDay: e.allDay,
-                start: parseCalendarDate(e.start), end: parseCalendarDate(e.end), htmlLink: e.extendedProps.htmlLink,
+                start: parseCalendarDate(e.start), end: parseCalendarDate(e.end), extendedProps: e.extendedProps,
             })),
         ];
         // Heute: alles, was heute stattfindet (auch mehrtägige, die früher begonnen haben).
@@ -257,8 +257,8 @@ function agendaItem(item, day, now) {
         type: "button", class: `agenda-item ${past ? "opacity-55" : ""}`,
         on: {
             click: () => {
-                if (item.source === "google" && item.htmlLink && isSafeHttpUrl(item.htmlLink)) {
-                    window.open(item.htmlLink, "_blank", "noopener");
+                if (item.source === "google") {
+                    openGoogleEvent(item); // Detail-Fenster (Titel, Zeit, Beschreibung …)
                     return;
                 }
                 calendar?.gotoDate(item.start);
@@ -403,6 +403,28 @@ function responsiveOptions() {
 }
 
 /**
+ * Startdatum aus der URL (?datum=2026-10-05) oder undefined (= heute).
+ * @returns {Date|undefined}
+ */
+function initialDateFromUrl() {
+    const value = new URLSearchParams(window.location.search).get("datum") || "";
+    return /^\d{4}-\d{2}-\d{2}$/.test(value) ? parseCalendarDate(value) : undefined;
+}
+
+/**
+ * Springt im Kalender zu einem Tag (Klick auf eine Benachrichtigung, app.js).
+ * Im Mitarbeiter-Tab zuerst zurück auf "Alle Termine" – die Meldung betrifft
+ * den eigenen Kalender.
+ * @param {string} isoDate - "2026-10-05"
+ */
+window.gotoCalendarDate = isoDate => {
+    if (!calendar) return;
+    if (selectedUserId !== null && document.getElementById("tab-all")) selectCalendarTab(null);
+    calendar.gotoDate(parseCalendarDate(isoDate));
+    document.getElementById("calendar-container").scrollIntoView({ behavior: "smooth", block: "start" });
+};
+
+/**
  * Erstellt den Kalender.
  * Spricht mit: GET /api/v1/events?start=...&end=...
  *
@@ -418,6 +440,8 @@ function renderCalendar(container) {
     calendar = new FullCalendar.Calendar(container, {
         views: CUSTOM_VIEWS,
         initialView: layout.view,
+        // ?datum=JJJJ-MM-TT (Klick in der Glocke von einer anderen Seite) → diese Woche.
+        initialDate: initialDateFromUrl(),
         // Wochenende standardmäßig ausgeblendet, per Button umschaltbar (weekendButtons).
         weekends: loadShowWeekends(),
         customButtons: weekendButtons(loadShowWeekends()),
@@ -666,6 +690,7 @@ function toCalendarEvent(e) {
             meeting_link: e.meeting_link,
             customer_id: e.customer_id,
             is_all_day: e.is_all_day,
+            description: e.description,
             tag: e.tag, // Kunde für das kleine Logo (decorateCustomerTag)
         },
     };
@@ -709,6 +734,10 @@ function openEventDetails(event) {
         link.removeAttribute("href");
         link.hidden = true;
     }
+
+    // Beschreibung mit klickbaren Links (app.js::linkify – Text bleibt Text).
+    document.getElementById("detail-description-block").hidden = !props.description;
+    document.getElementById("detail-description").replaceChildren(props.description ? linkify(props.description) : "");
 
     // Bearbeiten/Löschen nur für Planer (Mitarbeiter wechseln geht über "Bearbeiten").
     document.getElementById("admin-actions").hidden = !isPlanner();

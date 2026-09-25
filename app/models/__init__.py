@@ -11,6 +11,7 @@ Datenmodelle (SQLAlchemy ORM) – jede Klasse entspricht einer PostgreSQL-Tabell
                     └──< audit_logs  >── users   (unveränderliche Historie)
     users ──< notifications                      (In-App-Benachrichtigungen)
     google_connections (höchstens 1 Zeile)        (verbundenes Google-Konto, Token verschlüsselt)
+    users ──< google_seen_events                  (bekannte Google-Termine -> Glocke bei neuen)
 
 Wer benutzt dieses Paket?
     Services (``app/services``) und Routen importieren von hier, z. B.
@@ -25,6 +26,7 @@ from app.models.audit import AuditLog
 from app.models.customer import Customer
 from app.models.event import Event
 from app.models.google_connection import GoogleConnection
+from app.models.google_seen_event import GoogleSeenEvent
 from app.models.notification import Notification
 from app.models.role import Role, RoleEnum
 from app.models.team import Team
@@ -40,4 +42,5 @@ __all__ = [
     "AuditLog",
     "Notification",
     "GoogleConnection",
+    "GoogleSeenEvent",
 ]

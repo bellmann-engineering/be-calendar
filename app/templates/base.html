@@ -175,6 +175,52 @@ Performance:
         {% block content %}{% endblock %}
     </main>
 
+    {% if not public_page %}
+    {# ================= Dialog: Termin aus Google (app.js::openGoogleEvent) =================
+       Zeigt Besprechungsdetails direkt in der App – Links, Meeting, Beschreibung, Teilnehmer.
+       Alle Inhalte setzt app.js per textContent bzw. als geprüfte <a>-Elemente, nie als HTML. #}
+    <dialog id="google-event-modal" class="dialog" aria-labelledby="g-title">
+        <div class="dialog-header border-b-0 pb-2">
+            <div class="min-w-0">
+                <span class="badge badge-blue mb-2">{{ icon('calendar-sync', 'size-3.5') }}Google Kalender</span>
+                <h2 id="g-title" class="dialog-title break-words"></h2>
+            </div>
+            <button type="button" class="btn-icon -mt-1 -mr-2" data-close-dialog aria-label="Dialog schließen">{{ icon('x') }}</button>
+        </div>
+        <div class="dialog-body pt-2">
+            <dl class="space-y-3 text-sm">
+                <div class="flex items-start gap-3">
+                    <dt class="mt-0.5 text-fg-subtle">{{ icon('clock') }}<span class="sr-only">Zeit</span></dt>
+                    <dd id="g-time" class="text-fg tabular"></dd>
+                </div>
+                <div class="flex items-start gap-3" id="g-location-row" hidden>
+                    <dt class="mt-0.5 text-fg-subtle">{{ icon('map-pin') }}<span class="sr-only">Ort</span></dt>
+                    <dd id="g-location" class="min-w-0 break-words text-fg"></dd>
+                </div>
+                <div class="flex items-start gap-3" id="g-organizer-row" hidden>
+                    <dt class="mt-0.5 text-fg-subtle">{{ icon('user') }}<span class="sr-only">Organisiert von</span></dt>
+                    <dd id="g-organizer" class="text-fg"></dd>
+                </div>
+            </dl>
+            <a id="g-meeting" target="_blank" rel="noopener noreferrer" class="btn btn-primary mt-5 w-full" hidden>
+                {{ icon('video') }}Online-Meeting beitreten{{ icon('external', 'size-3.5 opacity-70') }}
+            </a>
+            <section id="g-description-block" class="mt-5" hidden>
+                <h3 class="text-sm font-semibold text-fg">Beschreibung</h3>
+                <div id="g-description" class="mt-1.5 max-h-72 overflow-y-auto rounded-lg bg-surface-2 px-3.5 py-3 text-sm leading-relaxed break-words whitespace-pre-line text-fg"></div>
+            </section>
+            <section id="g-attendees-block" class="mt-5" hidden>
+                <h3 class="text-sm font-semibold text-fg">Teilnehmer <span id="g-attendee-count" class="font-normal text-fg-muted"></span></h3>
+                <ul id="g-attendees" class="mt-1.5 space-y-1 text-sm"></ul>
+            </section>
+        </div>
+        <div class="dialog-footer">
+            <a id="g-open" target="_blank" rel="noopener noreferrer" class="btn btn-secondary" hidden>{{ icon('external') }}In Google Kalender öffnen</a>
+            <button type="button" class="btn btn-primary" data-close-dialog>Schließen</button>
+        </div>
+    </dialog>
+    {% endif %}
+
     {# ================= Globale Bausteine ================= #}
     {# Toasts (kurze Rückmeldungen). aria-live: Screenreader lesen neue Meldungen vor. #}
     <div id="toast-region" aria-live="polite" aria-relevant="additions"

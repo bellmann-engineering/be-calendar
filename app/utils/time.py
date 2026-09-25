@@ -19,7 +19,7 @@ Wovon hängt sie ab?
     Das pip-Paket ``tzdata`` liefert die Zeitzonendatenbank im schlanken Docker-Image.
 """
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
 from flask import current_app, has_app_context
@@ -68,6 +68,13 @@ def parse_iso_datetime(raw: object) -> datetime:
     # Python < 3.11 kannte kein "Z"; replace() hält den Code robust und explizit.
     parsed = datetime.fromisoformat(raw.strip().replace("Z", "+00:00"))
     return to_utc(parsed)
+
+
+def local_date(value: datetime | None) -> date | None:
+    """Kalendertag eines Zeitpunkts in der Geschäftszeitzone (z. B. für "springe zu Tag")."""
+    if value is None:
+        return None
+    return to_utc(value).astimezone(business_timezone()).date()
 
 
 def isoformat_utc(value: datetime | None) -> str | None:

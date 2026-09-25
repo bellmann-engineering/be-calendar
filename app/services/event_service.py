@@ -32,7 +32,7 @@ from app.models import (
 from app.services.authorization_service import AuthorizationService
 from app.services.google_sync_service import synchronisieren
 from app.services.notification_service import NotificationService
-from app.utils.time import isoformat_utc, parse_iso_datetime, utc_now
+from app.utils.time import isoformat_utc, local_date, parse_iso_datetime, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -139,6 +139,7 @@ class EventService:
                 title="Neuer Termin zugewiesen",
                 message=f"Ihnen wurde der Termin '{new_event.title}' zugewiesen.",
                 notification_type="EVENT_ASSIGNED",
+                target_date=local_date(new_event.start_time),
             )
 
         db.session.add(
@@ -264,6 +265,7 @@ class EventService:
                 title="Neuer Termin",
                 message=f"Termin '{event.title}' zugewiesen.",
                 notification_type="EVENT_ASSIGNED",
+                target_date=local_date(event.start_time),
             )
 
         db.session.add(

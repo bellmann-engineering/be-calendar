@@ -29,7 +29,9 @@ Thread-Sicherheit (wichtig für Gunicorn mit gthread-Workern!):
 
 from __future__ import annotations
 
+import html
 import logging
+import re
 import threading
 import time
 from datetime import datetime
@@ -78,6 +80,77 @@ class GoogleApiFehler(Exception):
     """Google war nicht erreichbar oder hat die Anfrage abgelehnt (Details im Log)."""
 
 
+# Beschreibung aus Google (oft HTML) -> reiner Text. Links bleiben als URL erhalten,
+# damit das Frontend sie als sichere <a>-Elemente darstellen kann (nie als HTML!).
+_HTML_LINK = re.compile(r"""<a\b[^>]*?href\s*=\s*["']([^"']+)["'][^>]*>(.*?)</a\s*>""", re.I | re.S)
+_HTML_BREAK = re.compile(r"<\s*(?:br|/?p|/?div|/?ul|/?ol|/li|/h[1-6]|/tr)\b[^>]*>", re.I)
+_HTML_LI = re.compile(r"<\s*li\b[^>]*>", re.I)
+_HTML_TAG = re.compile(r"<[^>]+>")
+_MAX_DESCRIPTION = 5000
+_MAX_ATTENDEES = 50
+
+
+def _link_als_text(treffer: re.Match) -> str:
+    ziel = html.unescape(treffer.group(1)).strip()
+    text = html.unescape(_HTML_TAG.sub("", treffer.group(2))).strip()
+    return ziel if not text or text == ziel else f"{text} ({ziel})"
+
+
+def beschreibung_als_text(roh: str | None) -> str | None:
+    """Google-Beschreibung (HTML oder Text) -> lesbarer Text mit Zeilenumbrüchen."""
+    if not roh:
+        return None
+    text = _HTML_LINK.sub(_link_als_text, roh)
+    text = _HTML_BREAK.sub("\n", text)
+    text = _HTML_LI.sub("• ", text)
+    text = html.unescape(_HTML_TAG.sub("", text)).replace("\xa0", " ")
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    return text[:_MAX_DESCRIPTION] or None
+
+
+# Teams/Zoom/Meet-Links, die nur in der Beschreibung stehen (z. B. aus Outlook-Einladungen).
+_MEETING_IN_TEXT = re.compile(
+    r"https://(?:teams\.microsoft\.com/l/meetup-join/|teams\.live\.com/meet/"
+    r"|[\w.-]*zoom\.us/j/|meet\.google\.com/)[^\s<>\"')\]]+",
+    re.I,
+)
+
+
+def _meeting_link(eintrag: dict, beschreibung: str | None = None) -> str | None:
+    """Videokonferenz-Link: Google Meet / Konferenzdaten, sonst aus Ort oder Beschreibung."""
+    if eintrag.get("hangoutLink"):
+        return eintrag["hangoutLink"]
+    for punkt in (eintrag.get("conferenceData") or {}).get("entryPoints") or []:
+        if punkt.get("entryPointType") == "video" and punkt.get("uri"):
+            return punkt["uri"]
+    for text in (eintrag.get("location"), beschreibung):
+        treffer = _MEETING_IN_TEXT.search(text or "")
+        if treffer:
+            return treffer.group(0)
+    return None
+
+
+def _teilnehmer(eintrag: dict) -> list[dict]:
+    """Teilnehmer ohne Räume/Ressourcen, höchstens 50."""
+    liste = []
+    for person in eintrag.get("attendees") or []:
+        if person.get("resource"):
+            continue
+        liste.append(
+            {
+                "name": person.get("displayName") or person.get("email") or "Unbekannt",
+                "email": person.get("email"),
+                # accepted | declined | tentative | needsAction
+                "status": person.get("responseStatus") or "needsAction",
+                "organizer": bool(person.get("organizer")),
+            }
+        )
+        if len(liste) >= _MAX_ATTENDEES:
+            break
+    return liste
+
+
 def _termin_aus_google(eintrag: dict) -> dict | None:
     """Google-Termin -> schlanke Darstellung für das Frontend (oder None = auslassen).
 
@@ -95,6 +168,7 @@ def _termin_aus_google(eintrag: dict) -> dict | None:
     stop = ende.get("date") if ganztaegig else ende.get("dateTime")
     if not start or not stop:
         return None
+    beschreibung = beschreibung_als_text(eintrag.get("description"))
     return {
         "id": eintrag.get("id"),
         "title": eintrag.get("summary") or "(Ohne Titel)",
@@ -103,6 +177,16 @@ def _termin_aus_google(eintrag: dict) -> dict | None:
         "all_day": ganztaegig,
         "location": eintrag.get("location") or None,
         "html_link": eintrag.get("htmlLink") or None,
+        # Details für das Termin-Fenster (Links und Zusatzinfos stehen oft hier).
+        "description": beschreibung,
+        "meeting_url": _meeting_link(eintrag, beschreibung),
+        "attendees": _teilnehmer(eintrag),
+        "organizer": (
+            (eintrag.get("organizer") or {}).get("displayName")
+            or (eintrag.get("organizer") or {}).get("email")
+        ),
+        # Serientermine: gemeinsame ID -> eine Meldung pro neuer Serie (Glocke).
+        "series_id": eintrag.get("recurringEventId"),
     }
 
 
