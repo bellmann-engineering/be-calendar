@@ -252,7 +252,7 @@ function agendaItem(item, day, now) {
     const assignee = selectedUserId === null && isPlanner() && item.assignee
         ? (tabUsers.get(item.assignee) ? `${tabUsers.get(item.assignee).first_name} ${tabUsers.get(item.assignee).last_name}` : trainerNames.get(String(item.assignee)))
         : null;
-    const meta = [assignee, item.source === "google" ? "Google Kalender" : null, running ? "läuft gerade" : null].filter(Boolean).join(" · ");
+    const meta = [assignee, running ? "läuft gerade" : null].filter(Boolean).join(" · ");
     const button = h("button", {
         type: "button", class: `agenda-item ${past ? "opacity-55" : ""}`,
         on: {
