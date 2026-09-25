@@ -232,7 +232,7 @@ class CustomerTagger:
             for alias in [c.name, *c.codes]:
                 self.by_alias.setdefault(alias.strip().lower(), (c, alias.strip()))
 
-    def _tag(self, customer: Customer, label: str | None = None) -> dict:
+    def _tag(self, customer: Customer, label: str | None = None, raw: str | None = None) -> dict:
         return {
             "customer_id": customer.id,
             "name": customer.name,
@@ -240,18 +240,33 @@ class CustomerTagger:
             "label": label or (customer.codes[0] if customer.codes else customer.name),
             "color": customer.color_hex if _HEX_COLOR.match(customer.color_hex or "") else None,
             "logo_url": logo_url(customer),
+            # Exakter Klammerausdruck im Titel, z. B. "(GFN)" – das Frontend blendet ihn
+            # aus der Anzeige aus, sobald die Zuordnung geklappt hat (Logo/Tag ersetzt ihn).
+            "raw": raw,
         }
 
+    def _bracket_for(self, customer: Customer, title: str | None) -> str | None:
+        """Der Klammerausdruck im Titel, der genau zu DIESEM Kunden passt (oder None)."""
+        aliases = {alias.strip().lower() for alias in [customer.name, *customer.codes]}
+        for treffer in _BRACKETS.finditer(title or ""):
+            for teil in _SEPARATORS.split(treffer.group(1)):
+                if teil.strip().lower() in aliases:
+                    return treffer.group(0)  # inkl. Klammern, z. B. "(GFN)"
+        return None
+
     def for_title(self, title: str | None) -> dict | None:
-        for inhalt in _BRACKETS.findall(title or ""):
-            for teil in _SEPARATORS.split(inhalt):
-                treffer = self.by_alias.get(teil.strip().lower())
-                if treffer:
-                    customer, alias = treffer
-                    return self._tag(customer, alias if alias != customer.name else None)
+        for treffer in _BRACKETS.finditer(title or ""):
+            for teil in _SEPARATORS.split(treffer.group(1)):
+                gefunden = self.by_alias.get(teil.strip().lower())
+                if gefunden:
+                    customer, alias = gefunden
+                    return self._tag(
+                        customer, alias if alias != customer.name else None, treffer.group(0)
+                    )
         return None
 
     def for_event(self, customer_id: int | None, title: str | None) -> dict | None:
         if customer_id and customer_id in self.by_id:
-            return self._tag(self.by_id[customer_id])
+            customer = self.by_id[customer_id]
+            return self._tag(customer, raw=self._bracket_for(customer, title))
         return self.for_title(title)

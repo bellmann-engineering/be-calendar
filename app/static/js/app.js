@@ -469,6 +469,21 @@ function customerBadge(tag) {
 }
 
 /**
+ * Titel für die Anzeige: Der erkannte Klammerausdruck ("(GFN)") wird entfernt, sobald
+ * die Kundenzuordnung geklappt hat – das Logo/Tag zeigt die Zugehörigkeit ja bereits.
+ * Der ungekürzte Titel bleibt im Termin selbst erhalten (z. B. für das Bearbeiten-Formular).
+ *
+ * @param {string} title
+ * @param {?{raw: ?string}} tag
+ * @returns {string}
+ */
+function displayTitle(title, tag) {
+    if (!tag || !tag.raw || !title) return title;
+    const stripped = title.replace(tag.raw, "").replace(/\s{2,}/g, " ").trim();
+    return stripped || title; // ganz leer? dann lieber den Originaltitel zeigen
+}
+
+/**
  * eventDidMount-Hilfe: setzt das Kunden-Logo vor den Titel eines Termins
  * (Raster-, Wochen- und Listenansicht).
  * @param {object} info - eventDidMount-Info von FullCalendar.
@@ -514,7 +529,7 @@ async function fetchGoogleEvents(startStr, endStr, userId) {
             .filter(e => e && e.start && e.end)
             .map(e => ({
                 id: `google-${e.id}`,
-                title: e.title || "(Ohne Titel)",
+                title: displayTitle(e.title || "(Ohne Titel)", e.tag),
                 start: e.start,
                 end: e.end,
                 allDay: Boolean(e.all_day),

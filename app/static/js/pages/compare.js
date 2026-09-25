@@ -88,7 +88,7 @@ function makeEventSource(selectId, color, side) {
             const events = (Array.isArray(data) ? data : [])
                 .filter(e => String(e.assigned_to_id) === String(employeeId))
                 .map(e => ({
-                    id: e.id, title: e.title, start: e.start_time, end: e.end_time, allDay: Boolean(e.is_all_day),
+                    id: e.id, title: displayTitle(e.title, e.tag), start: e.start_time, end: e.end_time, allDay: Boolean(e.is_all_day),
                     backgroundColor: color, borderColor: color, textColor: readableTextColor(color),
                     extendedProps: { tag: e.tag },
                 }));

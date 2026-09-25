@@ -155,8 +155,8 @@ async function loadCustomers() {
 /* Kennzahlen                                                         */
 /* ------------------------------------------------------------------ */
 
-/** Wie viele Einträge "Als Nächstes" höchstens zeigt. */
-const AGENDA_NEXT_LIMIT = 8;
+/** Wie viele Einträge "Als Nächstes" höchstens zeigt (Rest: "… und N weitere"). */
+const AGENDA_NEXT_LIMIT = 2;
 
 const FMT_AGENDA_DAY = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "numeric", month: "numeric" });
 
@@ -196,7 +196,7 @@ async function loadUpcoming() {
             ...(Array.isArray(appEvents) ? appEvents : [])
                 .filter(e => userId === null || e.assigned_to_id === userId)
                 .map(e => ({
-                    source: "app", id: e.id, title: e.title, tag: e.tag, allDay: Boolean(e.is_all_day),
+                    source: "app", id: e.id, title: displayTitle(e.title, e.tag), tag: e.tag, allDay: Boolean(e.is_all_day),
                     start: new Date(e.start_time), end: new Date(e.end_time), assignee: e.assigned_to_id,
                 })),
             ...google.events.map(e => ({
@@ -677,7 +677,10 @@ function toCalendarEvent(e) {
     const color = isValidHexColor(e.color) ? e.color : DEFAULT_EVENT_COLOR;
     return {
         id: e.id,
-        title: e.title, // FullCalendar setzt Titel als Text → sicher
+        // Klammer-Kürzel ("(GFN)") aus der Anzeige entfernt, sobald der Kunde erkannt wurde
+        // (das Logo/Tag zeigt die Zugehörigkeit dann schon). FullCalendar setzt den Titel
+        // als Text → sicher.
+        title: displayTitle(e.title, e.tag),
         start: e.start_time,
         end: e.end_time,
         allDay: Boolean(e.is_all_day),
@@ -686,6 +689,7 @@ function toCalendarEvent(e) {
         textColor: readableTextColor(color), // lesbar auch auf hellen Kundenfarben
         extendedProps: {
             color,
+            title: e.title, // Originaltitel MIT Klammer – fürs Bearbeiten-Formular (openEditForm)
             assigned_to_id: e.assigned_to_id,
             meeting_link: e.meeting_link,
             customer_id: e.customer_id,
@@ -838,7 +842,8 @@ function openEditForm(event) {
     resetEventForm();
     document.getElementById("event-modal-title").textContent = "Termin bearbeiten";
     document.getElementById("editing-event-id").value = event.id;
-    document.getElementById("event-title").value = event.title;
+    // props.title = Originaltitel MIT Klammer; event.title zeigt die gekürzte Anzeige.
+    document.getElementById("event-title").value = props.title || event.title;
 
     const allDay = Boolean(props.is_all_day);
     document.getElementById("event-is-all-day").checked = allDay;

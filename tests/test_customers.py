@@ -132,8 +132,11 @@ def test_kunde_wird_im_termintitel_erkannt(client, make_user, login, csrf):
             assert termine[t] is None, t
         else:
             assert (termine[t]["label"], termine[t]["customer_id"]) == erwartet, t
+    # "raw" ist der exakte Klammerausdruck – das Frontend blendet ihn aus der Anzeige aus.
+    assert termine["Schulung LF-VT3b (GFN)"]["raw"] == "(GFN)"
+    assert termine["Prüfung (Comcave/CC)"]["raw"] == "(Comcave/CC)"
 
-    # Ein in der App gewählter Kunde hat Vorrang vor dem Titel.
+    # Ein in der App gewählter Kunde hat Vorrang vor dem Titel, "raw" wird trotzdem erkannt.
     client.post(
         "/api/v1/events",
         json={
@@ -148,3 +151,21 @@ def test_kunde_wird_im_termintitel_erkannt(client, make_user, login, csrf):
         e for e in client.get("/api/v1/events").get_json() if e["title"] == "Workshop (GFN)"
     )
     assert workshop["tag"]["customer_id"] == comcave
+    # Die Klammer nennt GFN, zugewiesen ist aber Comcave -> kein passender Klammerausdruck.
+    assert workshop["tag"]["raw"] is None
+
+    # Ohne Klammer im Titel bleibt "raw" leer, obwohl ein Kunde zugewiesen ist.
+    client.post(
+        "/api/v1/events",
+        json={
+            "title": "Ohne Klammer",
+            "start_time": "2026-10-03T10:00:00+02:00",
+            "end_time": "2026-10-03T11:00:00+02:00",
+            "customer_id": gfn,
+        },
+        headers=csrf(),
+    )
+    ohne_klammer = next(
+        e for e in client.get("/api/v1/events").get_json() if e["title"] == "Ohne Klammer"
+    )
+    assert ohne_klammer["tag"]["raw"] is None
