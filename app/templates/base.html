@@ -3,7 +3,7 @@
 Datei: app/templates/base.html
 ---------------------------------------------------------------------
 Zweck:
-  Grundgerüst (Layout) für ALLE HTML-Seiten des Bellmann Eng. Calendar.
+  Grundgerüst (Layout) für ALLE HTML-Seiten des Kalenders der Bellmann Eng.
   Jede Seite erweitert diese Vorlage per {% extends "base.html" %}
   und füllt die Blöcke:
     - {% block title %}    → Seitentitel im Browser-Tab
@@ -54,7 +54,7 @@ Performance:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% block title %}Bellmann Engineering GmbH Calendar{% endblock %} · Bellmann Engineering GmbH Calendar</title>
+    <title>{% block title %}Kalender{% endblock %} · Bellmann Eng.</title>
     <meta name="description" content="Kalender- und Einsatzplanung der Bellmann Engineering GmbH">
     {# Farbe der Browser-Leiste (mobil) passend zur Kopfzeile #}
     <meta name="theme-color" content="#1a365d">
@@ -82,9 +82,9 @@ Performance:
                 {{ icon('menu') }}
             </button>
 
-            <a href="/dashboard" class="mr-4 flex items-center gap-2.5 rounded-lg" aria-label="Bellmann Calendar – zur Startseite">
+            <a href="/dashboard" class="mr-4 flex items-center gap-2.5 rounded-lg" aria-label="Bellmann Eng. – zur Startseite">
                 <img src="{{ asset_url('favicon.svg') }}" alt="" width="32" height="32" class="size-8 rounded-lg ring-1 ring-white/15">
-                <span class="text-[0.9375rem] font-semibold tracking-tight">Bellmann <span class="font-normal text-white/65">Calendar</span></span>
+                <span class="text-[0.9375rem] font-semibold tracking-tight">Bellmann <span class="font-normal text-white/65">Eng.</span></span>
             </a>
 
             <nav aria-label="Hauptnavigation" class="hidden md:block">

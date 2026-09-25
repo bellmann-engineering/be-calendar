@@ -50,7 +50,7 @@ class NotificationService:
             user_id=user.id, title=title, message=message, type=notification_type
         )
         db.session.add(notification)
-        EmailService.queue_email(user.email, f"[Bellmann Calendar] {title}", message)
+        EmailService.queue_email(user.email, f"[Bellmann Eng.] {title}", message)
         return notification
 
     @staticmethod

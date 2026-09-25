@@ -1,5 +1,5 @@
 """
-Synchronisierung: Termine aus dem Bellmann Calendar -> Google-Kalender der Mitarbeiter.
+Synchronisierung: Termine aus dem Kalender der Bellmann Engineering GmbH -> Google-Kalender der Mitarbeiter.
 
 Eine einzige Funktion ``synchronisieren(event)`` entscheidet nach JEDER Änderung, was in
 Google passieren muss. Sie vergleicht den Soll-Zustand mit dem, was zuletzt gespiegelt

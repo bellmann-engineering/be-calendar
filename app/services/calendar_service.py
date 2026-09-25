@@ -287,7 +287,7 @@ class GoogleCalendarService:
     ) -> dict:
         return {
             "summary": title,
-            "description": description or "Automatisch erstellt via Bellmann Calendar",
+            "description": description or "Automatisch erstellt via Bellmann Eng.",
             "start": {"dateTime": isoformat_utc(start_time), "timeZone": "UTC"},
             "end": {"dateTime": isoformat_utc(end_time), "timeZone": "UTC"},
         }

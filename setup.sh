@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# setup.sh – Ersteinrichtung von Bellmann Calendar mit Docker
+# setup.sh – Ersteinrichtung des Kalenders der Bellmann Eng. mit Docker
 # -----------------------------------------------------------------------------
 # Was passiert?
 #   1. Falls keine .env existiert: .env mit ZUFÄLLIG erzeugten Secrets anlegen.
@@ -25,7 +25,7 @@ random_secret() {
         || openssl rand -base64 "$1" | tr -d '\n/+='
 }
 
-echo "==> Starte Bellmann Calendar Setup ..."
+echo "==> Starte Setup (Kalender der Bellmann Eng.) ..."
 
 # --------------------------------------------------------------------- 1) .env
 if [ ! -f .env ]; then

@@ -126,7 +126,7 @@ def test_csv_import_mit_hierarchie_und_deutschen_fehlern(
     assert "Zeile 5: E-Mail fehlt." in body["errors"]
     assert "Zeile 6: E-Mail neu@example.com existiert bereits." in body["errors"]
     # Einladung wurde nach dem Commit verschickt.
-    assert sent_mails == [("neu@example.com", "Dein Zugang zum Bellmann Calendar")]
+    assert sent_mails == [("neu@example.com", "Dein Zugang zum Kalender der Bellmann Engineering GmbH")]
 
 
 def test_csv_import_lehnt_nicht_utf8_ab(client, make_user, login, csrf):

@@ -3,7 +3,7 @@
  * Datei: app/static/js/app.js
  * ---------------------------------------------------------------------
  * Zweck:
- *   Kern-Skript des Bellmann Calendar, von base.html auf JEDER Seite
+ *   Kern-Skript des Kalenders der Bellmann Eng., von base.html auf JEDER Seite
  *   geladen (nach ui.js, vor dem Seiten-Skript aus js/pages/).
  *
  * Was diese Datei bereitstellt:

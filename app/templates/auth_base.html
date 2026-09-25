@@ -22,10 +22,10 @@ Hinweis: Das Signet ist ein eigenes Kalender-Symbol, kein Firmenlogo.
 {% block content %}
 <div class="grid min-h-dvh lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
     {# ---------- Marken-Panel (nur große Bildschirme) ---------- #}
-    <aside class="auth-pattern relative hidden flex-col justify-between overflow-hidden bg-linear-to-br from-brand-950 via-brand-900 to-brand-700 p-12 text-white lg:flex" aria-label="Über Bellmann Calendar">
+    <aside class="auth-pattern relative hidden flex-col justify-between overflow-hidden bg-linear-to-br from-brand-950 via-brand-900 to-brand-700 p-12 text-white lg:flex" aria-label="Über Bellmann Engineering GmbH">
         <div class="flex items-center gap-3">
             <img src="{{ asset_url('favicon.svg') }}" alt="" width="40" height="40" class="size-10 rounded-xl ring-1 ring-white/20">
-            <span class="text-lg font-semibold tracking-tight">Bellmann Engineering GmbH <span class="font-normal text-white/65">Calendar</span></span>
+            <span class="text-lg font-semibold tracking-tight">Bellmann <span class="font-normal text-white/65">Engineering GmbH</span></span>
         </div>
 
         <div class="max-w-lg">
@@ -56,7 +56,7 @@ Hinweis: Das Signet ist ein eigenes Kalender-Symbol, kein Firmenlogo.
             {# Signet auch auf kleinen Bildschirmen zeigen #}
             <div class="mb-10 flex items-center gap-2.5 lg:hidden">
                 <img src="{{ asset_url('favicon.svg') }}" alt="" width="36" height="36" class="size-9 rounded-xl">
-                <span class="text-base font-semibold tracking-tight">Bellmann Engineering GmbH <span class="font-normal text-fg-muted">Calendar</span></span>
+                <span class="text-base font-semibold tracking-tight">Bellmann <span class="font-normal text-fg-muted">Engineering GmbH</span></span>
             </div>
             {% block auth_form %}{% endblock %}
         </div>

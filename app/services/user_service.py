@@ -366,9 +366,9 @@ class UserService:
         html_body = render_template("email/account_invite.html", user=user, setup_url=url)
         text_body = (
             f"Hallo {user.first_name},\n\n"
-            f"für dich wurde ein Konto im Bellmann Calendar angelegt. "
+            f"für dich wurde ein Konto im Kalender der Bellmann Engineering GmbH angelegt. "
             f"Lege hier dein Passwort fest (Link 72 Stunden gültig):\n{url}\n"
         )
         EmailService.queue_email(
-            user.email, "Dein Zugang zum Bellmann Calendar", text_body, html_body
+            user.email, "Dein Zugang zum Kalender der Bellmann Engineering GmbH", text_body, html_body
         )

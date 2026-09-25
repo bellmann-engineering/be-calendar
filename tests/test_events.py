@@ -211,7 +211,7 @@ def test_benachrichtigung_und_mail_erst_nach_commit(client, make_user, login, cs
     trainer = make_user("TRAINER")
     login(admin)
     client.post("/api/v1/events", json=_event_payload(trainer.id), headers=csrf())
-    assert sent_mails == [(trainer.email, "[Bellmann Calendar] Neuer Termin zugewiesen")]
+    assert sent_mails == [(trainer.email, "[Bellmann Eng.] Neuer Termin zugewiesen")]
     # Kollision -> nichts gespeichert -> keine weitere Mail.
     client.post("/api/v1/events", json=_event_payload(trainer.id), headers=csrf())
     assert len(sent_mails) == 1

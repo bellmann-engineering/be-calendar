@@ -1,4 +1,4 @@
-# Bellmann Calendar System
+# Kalendersystem der Bellmann Engineering GmbH
 
 Kalender- und Einsatzplanung für **Bellmann Engineering**: Termine anlegen und Mitarbeitern zuweisen, Rückmeldungen (RSVP) mit Pflichtbegründung, automatische Kollisionserkennung inkl. Pufferzeiten und privatem Google-Kalender, Rollen- und Teamrechte sowie ein lückenloses Audit-Log.
 
@@ -153,10 +153,10 @@ Ein CEO/Admin verbindet **einmalig sein Google-Konto**. Danach stehen alle Kalen
 
 **Einrichtung (einmalig, ca. 10 Minuten – durch den Inhaber des Google-Kontos)**
 
-1. [Google Cloud Console](https://console.cloud.google.com/) öffnen → neues Projekt anlegen, z. B. „Bellmann Calendar“.
+1. [Google Cloud Console](https://console.cloud.google.com/) öffnen → neues Projekt anlegen, z. B. „Bellmann Eng. Kalender“.
 2. *APIs & Dienste → Bibliothek* → **Google Calendar API** aktivieren.
-3. *Google Auth Platform → Branding*: App-Name „Bellmann Calendar“ und Support-E-Mail eintragen. *Zielgruppe*: Nutzertyp **Extern**, danach Veröffentlichungsstatus auf **„In Produktion“** setzen.
-   > Im Status „Test“ laufen die Zugänge nach **7 Tagen** ab und müssten ständig neu verbunden werden. Beim Verbinden zeigt Google für nicht geprüfte Apps einen Warnhinweis – über „Erweitert → Weiter zu Bellmann Calendar“ bestätigen. Für die interne Nutzung ist keine Google-Prüfung nötig.
+3. *Google Auth Platform → Branding*: App-Name „Bellmann Engineering GmbH“ und Support-E-Mail eintragen. *Zielgruppe*: Nutzertyp **Extern**, danach Veröffentlichungsstatus auf **„In Produktion“** setzen.
+   > Im Status „Test“ laufen die Zugänge nach **7 Tagen** ab und müssten ständig neu verbunden werden. Beim Verbinden zeigt Google für nicht geprüfte Apps einen Warnhinweis – über „Erweitert → Weiter zu Bellmann Engineering GmbH“ bestätigen. Für die interne Nutzung ist keine Google-Prüfung nötig.
 4. *Clients → Client erstellen*: Typ **Webanwendung**, unter *Autorisierte Weiterleitungs-URIs* exakt eintragen:
    `https://localhost:8443/api/v1/google/oauth/callback`
    (später zusätzlich die echte Adresse, z. B. `https://kalender.bellmann-engineering.com/api/v1/google/oauth/callback`).

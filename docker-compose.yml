@@ -1,5 +1,5 @@
 # =============================================================================
-# docker-compose.yml – Produktions-Stack von Bellmann Calendar
+# docker-compose.yml – Produktions-Stack des Kalenders der Bellmann Eng.
 # -----------------------------------------------------------------------------
 #   Browser ──https:8443──> nginx ──:5000──> web (Gunicorn/Flask) ──:5432──> db (PostgreSQL)
 #   (http:8080 leitet nur auf https:8443 um)

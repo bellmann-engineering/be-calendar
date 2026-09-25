@@ -1,5 +1,5 @@
 """
-Application Factory der Bellmann-Calendar-Anwendung.
+Application Factory der Kalender-Anwendung der Bellmann Engineering GmbH.
 
 Was macht diese Datei?
     1. Sie erzeugt die globalen Flask-Erweiterungen (``db``, ``jwt``, ``migrate``,

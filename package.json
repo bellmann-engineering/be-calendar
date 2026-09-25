@@ -2,7 +2,7 @@
   "name": "bellmann-calendar-frontend",
   "version": "1.0.0",
   "private": true,
-  "description": "Build der statischen Frontend-Assets (Tailwind-CSS, FullCalendar, Schrift) für Bellmann Calendar",
+  "description": "Build der statischen Frontend-Assets (Tailwind-CSS, FullCalendar, Schrift) für den Kalender der Bellmann Eng.",
   "license": "UNLICENSED",
   "engines": {
     "node": ">=20"
