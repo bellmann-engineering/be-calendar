@@ -700,6 +700,7 @@ async function disconnectGoogle() {
 function prepareGoogleField(currentId) {
     gcalOriginal = currentId || "";
     document.getElementById("m-gcal-input").value = gcalOriginal;
+    showGoogleCheckResult(null);
     const connected = Boolean(googleStatus && googleStatus.connected);
     if (connected && !googleCalendars && !googleCalendarsError) {
         // Liste lädt noch (oder wurde noch nie geladen) → Platzhalter, danach füllen.
@@ -791,22 +792,38 @@ function getGoogleFieldValue() {
 async function checkGoogleCalendar(btn) {
     const calendarId = getGoogleFieldValue();
     if (!calendarId) {
-        toast("Bitte zuerst einen Kalender auswählen oder eine Kalender-ID eintragen.", "warning");
+        showGoogleCheckResult("Bitte zuerst einen Kalender auswählen oder eine Kalender-ID eintragen.", "warning");
         return;
     }
+    showGoogleCheckResult(null);
     setBusy(btn, true, "Prüft …");
     try {
         const res = await apiFetch("/api/v1/google/calendars/check", { method: "POST", body: { calendar_id: calendarId } });
         const data = await readJson(res);
         if (res.ok) {
-            toast(data.message || (data.ok ? "Zugriff auf den Kalender bestätigt." : "Kein Zugriff auf diesen Kalender."), data.ok ? "success" : "error");
+            showGoogleCheckResult(data.message || (data.ok ? "Zugriff auf den Kalender bestätigt." : "Kein Zugriff auf diesen Kalender."), data.ok ? "success" : "error");
         } else {
-            toast(data.error || "Die Prüfung ist fehlgeschlagen.", "error");
+            showGoogleCheckResult(data.error || "Die Prüfung ist fehlgeschlagen.", "error");
         }
     } catch (err) {
-        toast("Netzwerkfehler.", "error");
+        showGoogleCheckResult("Netzwerkfehler.", "error");
     }
     setBusy(btn, false);
+}
+
+/**
+ * Zeigt das Prüfergebnis direkt im Dialog an. Ein Toast wäre hier nicht
+ * lesbar: showModal() legt den Dialog in den Top-Layer, über alle Toasts.
+ * @param {?string} message - null blendet die Meldung aus.
+ * @param {"success"|"error"|"warning"} [type="success"]
+ */
+function showGoogleCheckResult(message, type = "success") {
+    const box = document.getElementById("m-gcal-result");
+    box.hidden = !message;
+    if (!message) return;
+    box.className = `alert alert-${type} mt-2`;
+    box.setAttribute("role", type === "error" ? "alert" : "status");
+    box.textContent = message; // Text aus der API → nie als HTML
 }
 
 /* ------------------------------------------------------------------ */
@@ -824,6 +841,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     setupCsvImport();
     setupManualForm();
     document.getElementById("m-gcal-check").addEventListener("click", (e) => checkGoogleCalendar(e.currentTarget));
+    // Anderer Kalender → altes Prüfergebnis gilt nicht mehr.
+    document.getElementById("m-gcal-select").addEventListener("change", () => showGoogleCheckResult(null));
+    document.getElementById("m-gcal-input").addEventListener("input", () => showGoogleCheckResult(null));
     // Event-Delegation: EIN Listener an der Tabelle statt einer pro Button.
     document.getElementById("users-table-body").addEventListener("click", onUserTableClick);
     document.getElementById("member-search").addEventListener("input", renderUsers);

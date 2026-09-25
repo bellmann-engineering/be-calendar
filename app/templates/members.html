@@ -185,6 +185,8 @@ anna.muster@firma.de,Anna,Muster,TRAINER</pre>
                     <input type="text" id="m-gcal-input" maxlength="255" autocomplete="off" spellcheck="false" class="input sm:min-w-0 sm:flex-1" placeholder="z. B. anna.muster@gmail.com" aria-describedby="m-gcal-status m-gcal-help" hidden>
                     <button type="button" id="m-gcal-check" class="btn btn-secondary">{{ icon('check-circle') }}Verbindung prüfen</button>
                 </div>
+                {# Ergebnis von "Verbindung prüfen" – im Dialog statt als Toast (der läge hinter dem modalen Dialog) #}
+                <div id="m-gcal-result" class="alert mt-2" role="status" hidden></div>
                 <p id="m-gcal-status" class="hint" aria-live="polite"></p>
                 <p id="m-gcal-help" class="hint">Für die Übertragung von Terminen braucht das verbundene Konto mindestens „Bearbeiten“-Rechte; für die Belegt-Anzeige reicht „Nur Frei/Belegt“.</p>
             </div>
