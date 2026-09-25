@@ -18,6 +18,10 @@
 # =============================================================================
 set -euo pipefail
 
+# Git Bash (Windows) würde "-subj /CN=..." sonst in einen Windows-Pfad umschreiben
+# und openssl bräche nach dem Schlüssel ab. Auf Linux/macOS wirkungslos.
+export MSYS_NO_PATHCONV=1
+
 cd "$(dirname "$0")/.."
 CERT_DIR="nginx/certs"
 FORCE=0
