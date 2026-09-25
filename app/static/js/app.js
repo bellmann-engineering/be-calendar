@@ -24,6 +24,11 @@
  *      Benutzermenü mit Abmelden, Benachrichtigungs-Glocke.
  *   3. Sitzungsschutz: Auf geschützten Seiten ohne Login → /login.
  *
+ * URL-Präfix: Auf dem Server läuft die App unter /kalender (Authelia schützt
+ *   den ganzen Host). Alle Pfade in den Skripten bleiben "/api/v1/...",
+ *   "/login" usw.; apiFetch() und appUrl() setzen den Präfix davor, appPath()
+ *   entfernt ihn wieder. Quelle: <meta name="app-base"> aus base.html.
+ *
  * Mit welchen Backend-Endpunkten spricht diese Datei?
  *   POST /api/v1/auth/refresh       → neues Access-Token per Refresh-Cookie
  *   POST /api/v1/auth/logout        → Cookies löschen
@@ -51,6 +56,9 @@
 /* ------------------------------------------------------------------ */
 /* Konstanten                                                         */
 /* ------------------------------------------------------------------ */
+
+/** URL-Präfix der App ("/kalender" auf dem Server, lokal ""), siehe base.html. */
+const APP_BASE = document.querySelector('meta[name="app-base"]')?.content || "";
 
 /** Seiten, die OHNE Login erreichbar sein müssen (kein Redirect auf /login). */
 const PUBLIC_PATHS = ["/login", "/reset-password"];
@@ -134,19 +142,56 @@ function getCookie(name) {
 }
 
 /**
+ * App-Pfad → echte URL: "/login" wird zu "/kalender/login" (lokal unverändert).
+ * @param {string} path - Pfad innerhalb der App, beginnt mit "/".
+ * @returns {string}
+ */
+function appUrl(path) {
+    return APP_BASE + path;
+}
+
+/**
+ * Aktueller Pfad OHNE Präfix ("/kalender/members" → "/members").
+ * @returns {string}
+ */
+function appPath() {
+    const path = window.location.pathname;
+    if (APP_BASE && (path === APP_BASE || path.startsWith(`${APP_BASE}/`))) {
+        return path.slice(APP_BASE.length) || "/";
+    }
+    return path;
+}
+
+/**
  * Prüft, ob die aktuelle Seite öffentlich ist (Login / Passwort-Reset).
  * @returns {boolean}
  */
 function isPublicPage() {
-    return PUBLIC_PATHS.includes(window.location.pathname);
+    return PUBLIC_PATHS.includes(appPath());
 }
 
 /**
  * Leitet auf die Login-Seite um – außer man befindet sich bereits auf
  * einer öffentlichen Seite (sonst entstünde eine Redirect-Schleife).
+ * ?next= merkt sich die aktuelle Seite: Nach dem Login (mit Authelia sogar
+ * ohne Maske, siehe calendar_routes.py::login) geht es genau dorthin zurück.
  */
 function redirectToLogin() {
-    if (!isPublicPage()) window.location.href = "/login";
+    if (isPublicPage()) return;
+    const here = appPath() + window.location.search;
+    window.location.href = appUrl(`/login?next=${encodeURIComponent(here)}`);
+}
+
+/**
+ * Ziel nach erfolgreicher Anmeldung: ?next= der Login-Seite, sonst /dashboard
+ * (jeweils mit Präfix). Nur Pfade dieser App (kein "//fremde-seite.de" →
+ * kein Open Redirect).
+ * @returns {string}
+ */
+function loginTarget() {
+    const next = new URLSearchParams(window.location.search).get("next") || "";
+    const safe = next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/\\") && !next.startsWith("/login");
+    return appUrl(safe ? next : "/dashboard");
 }
 
 /**
@@ -222,7 +267,7 @@ function refreshAccessToken() {
         const csrf = getCookie("csrf_refresh_token");
         if (csrf) headers["X-CSRF-TOKEN"] = csrf;
 
-        refreshPromise = fetch("/api/v1/auth/refresh", {
+        refreshPromise = fetch(appUrl("/api/v1/auth/refresh"), {
             method: "POST",
             credentials: "same-origin",
             headers,
@@ -249,7 +294,7 @@ function refreshAccessToken() {
  *   - Bei 401: einmalig Refresh versuchen und den Request wiederholen;
  *     schlägt das fehl → Umleitung auf /login.
  *
- * @param {string} url - Relativer API-Pfad, z. B. "/api/v1/events".
+ * @param {string} url - API-Pfad OHNE Präfix, z. B. "/api/v1/events".
  * @param {object} [options={}] - Normale fetch-Optionen.
  * @param {boolean} [isRetry=false] - Intern: verhindert Endlos-Wiederholungen.
  * @returns {Promise<Response>} Die fetch-Response (Aufrufer prüft res.ok).
@@ -273,7 +318,7 @@ async function apiFetch(url, options = {}, isRetry = false) {
         if (csrf) headers["X-CSRF-TOKEN"] = csrf;
     }
 
-    const response = await fetch(url, { ...options, method, headers, body, credentials: "same-origin" });
+    const response = await fetch(appUrl(url), { ...options, method, headers, body, credentials: "same-origin" });
 
     // 401 = Access-Token abgelaufen oder fehlt → einmal still erneuern.
     const path = url.split("?")[0];
@@ -499,14 +544,19 @@ function setupMobileMenu() {
 
 /**
  * Abmelden. Spricht mit: POST /api/v1/auth/logout → Server löscht die Cookies.
+ * Mit Authelia liefert der Server ggf. {redirect: <Authelia-Logout>}; sonst geht es
+ * auf /login?abgemeldet=1 – ohne den Parameter würde Authelia sofort neu anmelden.
  */
 function setupLogout() {
     document.getElementById("logout-btn")?.addEventListener("click", async () => {
+        let target = appUrl("/login?abgemeldet=1");
         try {
-            await apiFetch("/api/v1/auth/logout", { method: "POST" });
+            const res = await apiFetch("/api/v1/auth/logout", { method: "POST" });
+            const data = await readJson(res);
+            if (data.redirect && isSafeHttpUrl(data.redirect)) target = data.redirect;
         } finally {
             // Auch wenn der Server nicht antwortet: zurück zum Login.
-            window.location.href = "/login";
+            window.location.href = target;
         }
     });
 }
@@ -627,14 +677,14 @@ function setupNotifications() {
  *   nach Rolle filtern. Die eigentliche Seitenlogik steckt in js/pages/.
  */
 document.addEventListener("DOMContentLoaded", async () => {
-    if (window.location.pathname === "/login") {
+    if (appPath() === "/login") {
         // Ohne lesbares CSRF-Cookie gibt es sicher keine Sitzung → gar nicht erst
         // fragen (spart eine Anfrage und einen roten 401-Eintrag in der Konsole).
         if (!getCookie("csrf_access_token") && !getCookie("csrf_refresh_token")) return;
         // Normales fetch (nicht apiFetch), damit ein 401 hier keinen Refresh/Redirect auslöst.
         try {
-            const res = await fetch("/api/v1/auth/me", { credentials: "same-origin" });
-            if (res.ok) window.location.href = "/dashboard";
+            const res = await fetch(appUrl("/api/v1/auth/me"), { credentials: "same-origin" });
+            if (res.ok) window.location.href = loginTarget();
         } catch (e) { /* offline → einfach auf der Login-Seite bleiben */ }
         return;
     }

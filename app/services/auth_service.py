@@ -3,6 +3,7 @@ Authentifizierung: Login-Prüfung und Passwort-Reset per signiertem Einmal-Link.
 
 Was macht diese Datei?
     * ``authenticate_user()``       – prüft E-Mail + Passwort, liefert den User oder None.
+    * ``authenticate_proxy_user()`` – User zur E-Mail aus Authelia (Single Sign-on).
     * ``generate_password_token()`` – erzeugt einen signierten, zeitlich begrenzten Token
                                       für "Passwort vergessen" und Einladungen.
     * ``request_password_reset()``  – verschickt den Reset-Link per E-Mail.
@@ -26,6 +27,7 @@ import secrets
 
 from flask import current_app, render_template
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
+from sqlalchemy import func
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from app import db
@@ -73,6 +75,20 @@ class AuthService:
         if not check_password_hash(user.password_hash, password):
             return None
         return user
+
+    @staticmethod
+    def authenticate_proxy_user(email: str | None) -> User | None:
+        """Aktiver User zur E-Mail, die Authelia bereits geprüft hat (ohne Passwort).
+
+        Groß-/Kleinschreibung spielt keine Rolle: Authelia liefert die Adresse so, wie sie
+        im Verzeichnis steht, in der App kann sie anders geschrieben sein.
+        """
+        normalized = (email or "").strip().lower()
+        if not normalized:
+            return None
+        return User.query.filter(
+            func.lower(User.email) == normalized, User.is_active.is_(True)
+        ).first()
 
     @staticmethod
     def random_password() -> str:

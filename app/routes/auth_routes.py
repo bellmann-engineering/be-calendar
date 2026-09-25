@@ -7,6 +7,8 @@ Sitzungsmodell (Cookies statt localStorage):
     * ``POST /refresh`` -> neues Access-Token, solange das Refresh-Token gültig ist.
                            Das Frontend (app.js::apiFetch) ruft das automatisch bei 401 auf.
     * ``POST /logout``  -> löscht alle Cookies.
+    * Single Sign-on: Mit Authelia (AUTHELIA_SSO=1) setzt bereits ``GET /login``
+      (calendar_routes.py) die Cookies – ganz ohne Passwort.
     JavaScript kann die Tokens nicht lesen -> ein XSS-Angriff kann sie nicht stehlen.
 
 Wer ruft diese Endpunkte auf?
@@ -19,14 +21,12 @@ Wovon hängt die Datei ab?
 Rate-Limits: Zusätzlich zu Nginx (limit_req) begrenzt Flask-Limiter pro Client-IP.
 """
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
 from flask_jwt_extended import (
     create_access_token,
-    create_refresh_token,
     current_user,
     jwt_required,
     set_access_cookies,
-    set_refresh_cookies,
     unset_jwt_cookies,
 )
 from sqlalchemy import select
@@ -34,6 +34,7 @@ from sqlalchemy import select
 from app import db, limiter
 from app.decorators.auth import role_required
 from app.models import Role, RoleEnum, User
+from app.security import set_session_cookies
 from app.services.admin_service import AdminService
 from app.services.auth_service import AuthService
 from app.services.user_service import UserService
@@ -70,9 +71,7 @@ def login():
         return jsonify({"error": "Ungültige Anmeldedaten oder inaktiver Benutzer."}), 401
 
     response = jsonify({"user": _serialize_me(user)})
-    # identity=user -> security.py::user_identity schreibt str(user.id) in den Token.
-    set_access_cookies(response, create_access_token(identity=user))
-    set_refresh_cookies(response, create_refresh_token(identity=user))
+    set_session_cookies(response, user)
     return response, 200
 
 
@@ -87,8 +86,14 @@ def refresh():
 
 @auth_bp.route("/logout", methods=["POST"])
 def logout():
-    """Löscht alle Auth-Cookies. Bewusst ohne @jwt_required: Logout muss immer gehen."""
-    response = jsonify({"message": "Abgemeldet."})
+    """Löscht alle Auth-Cookies. Bewusst ohne @jwt_required: Logout muss immer gehen.
+
+    Mit Authelia liefert die Antwort ggf. ``redirect`` (AUTHELIA_LOGOUT_URL): Nur so endet
+    auch die Authelia-Sitzung – sonst wäre man auf /login sofort wieder angemeldet.
+    """
+    config = current_app.config
+    logout_url = config["AUTHELIA_LOGOUT_URL"] if config.get("AUTHELIA_SSO") else ""
+    response = jsonify({"message": "Abgemeldet.", "redirect": logout_url or None})
     unset_jwt_cookies(response)
     return response, 200
 

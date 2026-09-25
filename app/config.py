@@ -27,6 +27,8 @@ from datetime import timedelta
 
 from dotenv import load_dotenv
 
+from app.utils.url_prefix import normalize_prefix
+
 # Lädt die .env-Datei aus dem Projektverzeichnis in os.environ.
 # override=False: Bereits gesetzte Variablen (z. B. aus docker-compose "environment:")
 # haben Vorrang vor der .env – so kann Compose z. B. APP_ENV=production erzwingen.
@@ -54,6 +56,11 @@ class BaseConfig:
     # Öffentliche Basis-URL der Anwendung, wie der Browser sie sieht (hinter Nginx).
     # Wird für Links in E-Mails verwendet (Passwort-Reset, Einladungen).
     APP_BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:8080").rstrip("/")
+
+    # Pfad, unter dem die App erreichbar ist (Server: "/kalender" auf
+    # intern.bellmann-engineering.com), lokal leer. APP_BASE_URL enthält ihn bereits.
+    # Siehe app/utils/url_prefix.py.
+    APP_URL_PREFIX = normalize_prefix(os.getenv("APP_URL_PREFIX"))
 
     # Geschäftszeitzone. In der DB wird IMMER UTC gespeichert; diese Zone dient nur dazu,
     # Datumsangaben OHNE Zeitzonen-Info (z. B. "2026-09-25T10:00") korrekt als
@@ -138,6 +145,18 @@ class BaseConfig:
     # Wie lange Frei/Belegt-Antworten von Google zwischengespeichert werden (Sekunden).
     # Spart API-Aufrufe, wenn mehrere Personen gleichzeitig den Kalender ansehen.
     GOOGLE_BUSY_CACHE_SECONDS = int(os.getenv("GOOGLE_BUSY_CACHE_SECONDS", 60))
+
+    # --- Single Sign-on über Authelia (Traefik forwardAuth) --------------------------------
+    # Auf dem Server steht Traefik mit Authelia vor der App. Nach erfolgreicher Anmeldung
+    # bei Authelia setzt Traefik den Header "Remote-Email". Ist AUTHELIA_SSO an, meldet
+    # /login den Mitarbeiter mit genau dieser E-Mail-Adresse ohne Passwort an.
+    # NUR einschalten, wenn die App ausschließlich über Traefik+Authelia erreichbar ist –
+    # sonst könnte jeder den Header selbst mitschicken. Lokal (nginx) bleibt es aus.
+    AUTHELIA_SSO = _env_bool("AUTHELIA_SSO", False)
+    AUTHELIA_EMAIL_HEADER = os.getenv("AUTHELIA_EMAIL_HEADER", "Remote-Email")
+    # Optional: Nach "Abmelden" dorthin weiterleiten (z. B. https://auth.example.com/logout),
+    # damit auch die Authelia-Sitzung endet. Leer = zurück zur Login-Seite.
+    AUTHELIA_LOGOUT_URL = os.getenv("AUTHELIA_LOGOUT_URL", "")
 
     # --- Flask-Session (NUR für den Google-Anmeldeablauf) ---------------------------------
     # Die Login-Cookies (JWT) sind SameSite=Strict und werden deshalb bei der Rückkehr von

@@ -100,3 +100,50 @@ def test_asset_url_fehlende_datei_ohne_version(app):
     with app.test_request_context():
         url = app.jinja_env.globals["asset_url"]("gibt/es/nicht.css")
     assert url == "/static/gibt/es/nicht.css"
+
+
+def test_sicherheits_header_kommen_von_der_app(client):
+    """CSP & Co. setzt die App selbst – hinter nginx (lokal) wie hinter Traefik (Server)."""
+    response = client.get("/login")
+    assert "script-src 'self'" in response.headers["Content-Security-Policy"]
+    assert response.headers["X-Frame-Options"] == "DENY"
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    # HSTS nur für HTTPS mit echter Domain, nie für localhost.
+    assert "Strict-Transport-Security" not in response.headers
+    secure = client.get("/login", base_url="https://kalender.example.com")
+    assert "max-age=" in secure.headers["Strict-Transport-Security"]
+    local = client.get("/login", base_url="https://localhost:8443")
+    assert "Strict-Transport-Security" not in local.headers
+
+
+def test_app_unter_pfad_praefix_wie_auf_dem_server(make_user):
+    """Server: https://intern.bellmann-engineering.com/kalender/... hinter Traefik+Authelia."""
+
+    class ServerConfig(TestingConfig):
+        APP_URL_PREFIX = "/kalender"
+        AUTHELIA_SSO = True
+
+    prefixed = create_app(ServerConfig).test_client()
+    user = make_user("TRAINER")
+
+    # Authelia-Login: Redirect und Cookies bleiben unter /kalender.
+    response = prefixed.get("/kalender/login?next=/members", headers={"Remote-Email": user.email})
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/kalender/members"
+    cookies = response.headers.getlist("Set-Cookie")
+    access = next(c for c in cookies if c.startswith("access_token_cookie="))
+    refresh = next(c for c in cookies if c.startswith("refresh_token_cookie="))
+    assert "Path=/kalender;" in access or access.endswith("Path=/kalender")
+    assert "Path=/kalender/api/v1/auth" in refresh
+
+    me = prefixed.get("/kalender/api/v1/auth/me", headers={"Remote-Email": user.email})
+    assert me.status_code == 200
+
+    # Seiten erzeugen alle Links mit Präfix; das Frontend liest ihn aus <meta name="app-base">.
+    html = prefixed.get("/kalender/login?abgemeldet=1").get_data(as_text=True)
+    assert '<meta name="app-base" content="/kalender">' in html
+    assert 'src="/kalender/static/js/app.js' in html
+
+    assert prefixed.get("/kalender").headers["Location"] == "/kalender/dashboard"
+    # Docker-HEALTHCHECK ruft /health ohne Präfix auf.
+    assert prefixed.get("/health").status_code == 200

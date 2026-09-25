@@ -26,7 +26,8 @@ Kalender- und Einsatzplanung für **Bellmann Engineering**: Termine anlegen und 
 4. [Konfiguration (.env)](#konfiguration-env)
 5. [E-Mail-Versand (SMTP)](#e-mail-versand-smtp)
    - [Google-Kalender anbinden](#google-kalender-anbinden)
-6. [HTTPS und Zertifikate](#https-und-zertifikate)
+6. [Server-Betrieb (Traefik + Authelia)](#server-betrieb-traefik--authelia)
+   - [HTTPS und Zertifikate (lokal)](#https-und-zertifikate-lokal)
 7. [Datensicherung und Wiederherstellung](#datensicherung-und-wiederherstellung)
 8. [Lokale Entwicklung](#lokale-entwicklung)
    - [Frontend: Designsystem und Build (CSS/JS)](#frontend-designsystem-und-build-cssjs)
@@ -42,12 +43,13 @@ Kalender- und Einsatzplanung für **Bellmann Engineering**: Termine anlegen und 
 ## Architektur
 
 ```
-Browser ──https:8443──> Nginx ──:5000──> Gunicorn (gthread) ──> Flask-App ──> PostgreSQL 16
-          (http:8080 leitet  │                                     ├──> SMTP (E-Mails, nach dem Commit)
-           auf https um)     └ TLS, Security-Header, Rate-Limit    └──> Google Calendar API (optional)
+Server:  Browser ──https://intern.bellmann-engineering.com/kalender──> Traefik ──> Authelia (Firmen-Login)
+                               └──:5000──> Gunicorn (gthread) ──> Flask-App ──> PostgreSQL 16
+Lokal:   Browser ──https:8443──> Nginx ──:5000──┘                   ├──> SMTP (E-Mails, nach dem Commit)
+                                                                    └──> Google Calendar API (optional)
 ```
 
-Alle drei Dienste laufen als Docker-Container (`docker-compose.yml`). Von außen erreichbar ist **nur Nginx**; Web-App und Datenbank hängen ausschließlich im internen Docker-Netzwerk.
+Web-App und Datenbank laufen als Docker-Container (`docker-compose.yml`). Auf dem Server stellt der vorhandene Traefik-Stack die App bereit, Authelia schützt sie ([Server-Betrieb](#server-betrieb-traefik--authelia)). Lokal kommt über `docker-compose.override.yml` ein Nginx mit selbstsigniertem Zertifikat dazu. Die Datenbank ist in beiden Fällen nur im internen Docker-Netzwerk erreichbar. Sicherheits-Header (CSP, HSTS …) setzt die App selbst (`app/utils/security_headers.py`).
 
 | Schicht | Ordner | Aufgabe |
 |---|---|---|
@@ -56,7 +58,7 @@ Alle drei Dienste laufen als Docker-Container (`docker-compose.yml`). Von außen
 | Models | `app/models/` | Tabellen (SQLAlchemy), Beziehungen, Indizes |
 | Frontend | `app/templates/`, `app/static/js/`, `frontend/` | Jinja2-Seiten, Seiten-Skripte, Tailwind-Designsystem, FullCalendar – spricht nur mit `/api/v1/...` |
 | Migrationen | `migrations/` | Alembic – **einzige** Quelle für Schemaänderungen |
-| Infrastruktur | `Dockerfile`, `gunicorn.conf.py`, `nginx/`, `scripts/`, `package.json` | Image (inkl. Frontend-Build), WSGI-Server, Reverse Proxy, Betriebsskripte |
+| Infrastruktur | `Dockerfile`, `docker-compose*.yml`, `gunicorn.conf.py`, `nginx/`, `scripts/`, `package.json` | Image (inkl. Frontend-Build), WSGI-Server, Reverse Proxy, Betriebsskripte |
 
 **Sitzung:** JWT in HttpOnly-Cookies (Access 30 min, Refresh 8 h) mit CSRF-Double-Submit. JavaScript kann das Token nicht lesen.
 
@@ -75,9 +77,10 @@ chmod +x setup.sh scripts/*.sh
 
 Das Skript
 1. erzeugt eine `.env` mit **zufälligen** Secrets (falls noch keine existiert),
-2. erzeugt ein selbstsigniertes TLS-Zertifikat (`scripts/generate_dev_cert.sh`),
-3. baut und startet die Container – die Datenbank-Migrationen laufen dabei automatisch,
-4. legt die Rollen und einen CEO-Zugang an.
+2. kopiert `docker-compose.override.example.yml` nach `docker-compose.override.yml` (lokaler Nginx, kein Authelia),
+3. erzeugt ein selbstsigniertes TLS-Zertifikat (`scripts/generate_dev_cert.sh`),
+4. baut und startet die Container – die Datenbank-Migrationen laufen dabei automatisch,
+5. legt die Rollen und einen CEO-Zugang an.
 
 Danach im Browser öffnen: **https://localhost:8443**
 Die Zertifikatswarnung des Browsers einmalig bestätigen (selbstsigniertes Zertifikat, siehe [HTTPS](#https-und-zertifikate)).
@@ -93,7 +96,7 @@ Optional Google Kalender: siehe [Google-Kalender anbinden](#google-kalender-anbi
 git pull
 ./scripts/backup_db.sh vor-update      # Sicherung der Datenbank (siehe unten)
 docker compose up -d --build           # neues Image bauen, Container neu starten
-docker compose restart nginx           # übernimmt Änderungen an nginx/nginx.conf (CSP, TLS …)
+docker compose restart nginx           # nur lokal: übernimmt Änderungen an nginx/nginx.conf
 docker compose ps                      # "web" muss nach kurzer Zeit "healthy" sein
 ```
 
@@ -110,8 +113,11 @@ Alle Einstellungen kommen aus der Datei `.env` (nicht in Git). Die Vorlage mit E
 | `SECRET_KEY`, `JWT_SECRET_KEY` | Pflicht, je mind. 32 Zeichen. Ohne sie startet die App in Produktion nicht. |
 | `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB` | Zugang zur Datenbank |
 | `APP_BASE_URL` | Öffentliche Adresse (für Links in E-Mails), z. B. `https://localhost:8443` |
+| `APP_HOST`, `APP_URL_PREFIX` | Nur Server: Host und Pfad der App (Standard `intern.bellmann-engineering.com` + `/kalender`); `docker-compose.yml` baut daraus auch `APP_BASE_URL` |
+| `AUTHELIA_SSO` | `1` = Anmeldung über den Authelia-Header `Remote-Email` (Server-Standard), lokal `0` |
+| `AUTHELIA_LOGOUT_URL` | Optional: Ziel nach „Abmelden“, damit auch die Authelia-Sitzung endet |
 | `COOKIE_SECURE` | `1` = Cookies nur über HTTPS (Standard). Nur für `python run.py` ohne TLS auf `0`. |
-| `HTTP_PORT`, `HTTPS_PORT` | Öffentliche Ports von Nginx (Standard 8080 / 8443) |
+| `HTTP_PORT`, `HTTPS_PORT` | Öffentliche Ports des lokalen Nginx (Standard 8080 / 8443) |
 | `SMTP_*`, `MAIL_DEFAULT_SENDER` | E-Mail-Versand, siehe unten |
 | `DEV_USER_EMAIL`, `DEV_USER_PASSWORD` | Erster CEO-Zugang (`seed_dev.py`) |
 | `GUNICORN_WORKERS`, `GUNICORN_THREADS` | Dimensionierung des WSGI-Servers (`gunicorn.conf.py`) |
@@ -177,13 +183,35 @@ Ein CEO/Admin verbindet **einmalig sein Google-Konto**. Danach stehen alle Kalen
 
 ---
 
-## HTTPS und Zertifikate
+## Server-Betrieb (Traefik + Authelia)
+
+Die App läuft auf dem Server unter **https://intern.bellmann-engineering.com/kalender** – der ganze Host ist durch Authelia geschützt. Es gilt **nur** `docker-compose.yml` (dort darf keine `docker-compose.override.yml` liegen). Voraussetzung: Der Traefik-Stack mit dem Netzwerk `traefik_network`, dem Entrypoint `websecure`, dem Zertifikats-Resolver `myresolver` und Authelia (`http://authelia:9091`) läuft bereits.
+
+1. `.env` mit Secrets anlegen (Vorlage `.env.example`), `COOKIE_SECURE=1`. Optional:
+   ```
+   # anderer Host/Pfad als intern.bellmann-engineering.com/kalender
+   APP_HOST=intern.bellmann-engineering.com
+   APP_URL_PREFIX=/kalender
+   # Nach "Abmelden" auch die Authelia-Sitzung beenden
+   AUTHELIA_LOGOUT_URL=https://auth.bellmann-engineering.com/logout
+   ```
+   `APP_BASE_URL` (Links in E-Mails, Google-Callback) setzt `docker-compose.yml` automatisch auf `https://<APP_HOST><APP_URL_PREFIX>`.
+2. `docker compose up -d --build`, danach einmalig `docker compose exec web python seed.py` (Rollen) und `docker compose exec web python seed_dev.py` (erster CEO).
+3. Google-Kalender: in der Google Cloud Console `https://intern.bellmann-engineering.com/kalender/api/v1/google/oauth/callback` als Weiterleitungs-URI eintragen.
+
+**Pfad-Präfix:** Traefik leitet `/kalender/...` **ohne** StripPrefix weiter, damit Authelia den vollen Pfad prüft. Die App entfernt den Präfix selbst (`app/utils/url_prefix.py`), erzeugt Links, Redirects und API-Aufrufe mit ihm und beschränkt ihre Cookies auf `/kalender` – andere Dienste auf demselben Host sehen sie nicht. Lokal ist der Präfix leer.
+
+**Anmeldung:** Authelia prüft Benutzer und Passwort (bzw. 2FA) und gibt die E-Mail im Header `Remote-Email` weiter (Traefik-Middleware `authResponseHeaders`). Gibt es in der App einen **aktiven** Mitarbeiter mit derselben E-Mail (Groß-/Kleinschreibung egal), überspringt `/login` die Anmeldemaske. Ohne passenden Mitarbeiter erscheint die normale Maske mit einem Hinweis. Meldet sich im selben Browser eine andere Person bei Authelia an, wird die alte App-Sitzung verworfen.
+
+> Sicherheit: `AUTHELIA_SSO=1` vertraut dem Header `Remote-Email`. Das ist nur sicher, weil die App ausschließlich über Traefik + Authelia erreichbar ist (Traefik überschreibt den Header mit Authelias Antwort). In Authelias `access_control` darf für `/kalender` daher **keine** `bypass`-Regel stehen. Lokal ist SSO aus, und Nginx verwirft `Remote-*`-Header vom Browser.
+
+### HTTPS und Zertifikate (lokal)
 
 Nginx liefert die Anwendung ausschließlich über HTTPS aus (TLS 1.2/1.3). Aufrufe über `http://…:8080` werden dauerhaft auf `https://…:8443` umgeleitet.
 
 - **Lokal / Intranet:** `scripts/generate_dev_cert.sh` erzeugt ein selbstsigniertes Zertifikat unter `nginx/certs/` (nicht in Git). Für den Zugriff über eine IP-Adresse im Büronetz:
   `./scripts/generate_dev_cert.sh --force 192.168.1.50`
-- **Produktion mit eigener Domain:** ein echtes Zertifikat (z. B. Let's Encrypt) als `nginx/certs/fullchain.pem` und `nginx/certs/privkey.pem` ablegen und `APP_BASE_URL` auf die Domain setzen. HSTS wird für echte Domains automatisch gesendet (für `localhost` bewusst nicht).
+- **Server:** Zertifikate holt Traefik (`myresolver`). HSTS sendet die App automatisch für echte Domains (für `localhost` bewusst nicht).
 
 ---
 
@@ -215,12 +243,7 @@ python run.py                         # http://127.0.0.1:5000
 
 > Ohne `npm run build` fehlt `app/static/dist/` – die Seiten laden dann ohne Design und ohne Kalender.
 
-Für den Zugriff auf die Docker-Datenbank vom eigenen Rechner (z. B. mit DBeaver) eine Datei `docker-compose.override.yml` anlegen (wird von Git ignoriert):
-```yaml
-services:
-  db:
-    ports: ["127.0.0.1:5432:5432"]
-```
+Für den Zugriff auf die Docker-Datenbank vom eigenen Rechner (z. B. mit DBeaver) in der lokalen `docker-compose.override.yml` (wird von Git ignoriert) den Block `db: ports: ["127.0.0.1:5432:5432"]` einkommentieren.
 
 ### Frontend: Designsystem und Build (CSS/JS)
 
@@ -305,8 +328,8 @@ Die Regeln stehen zentral in `app/services/authorization_service.py`. Rechteänd
 
 - Tokens nur in HttpOnly/Secure/SameSite=Strict-Cookies, CSRF-Schutz für alle schreibenden Anfragen.
 - Alle Benutzereingaben werden im Frontend als Text eingefügt (`h()` / `textContent`, nie `innerHTML`).
-- Strikte Content-Security-Policy in Nginx: `script-src 'self'` (kein Inline-JS, keine CDNs). `style-src` erlaubt zusätzlich nur den Hash des **leeren** Strings – FullCalendar legt ein leeres `<style>` an und befüllt es über die CSSOM-API; `'unsafe-inline'` wird nicht benötigt.
-- Brute-Force-Schutz für Login und Passwort-Reset (Nginx `limit_req` + Flask-Limiter).
+- Strikte Content-Security-Policy (gesetzt von der App, `app/utils/security_headers.py`): `script-src 'self'` (kein Inline-JS, keine CDNs). `style-src` erlaubt zusätzlich nur den Hash des **leeren** Strings – FullCalendar legt ein leeres `<style>` an und befüllt es über die CSSOM-API; `'unsafe-inline'` wird nicht benötigt.
+- Brute-Force-Schutz für Login und Passwort-Reset (Flask-Limiter, lokal zusätzlich Nginx `limit_req`; auf dem Server sitzt Authelia mit eigener Sperre davor).
 - Passwort-Reset nur über signierte Einmal-Links; es werden nie Passwörter per E-Mail verschickt.
 - Keine Fehlerdetails (SQL, Stacktraces) an den Client; vollständige Fehler stehen im JSON-Log.
 - Container laufen ohne Root-Rechte; die Datenbank ist von außen nicht erreichbar.
@@ -328,6 +351,8 @@ Die Regeln stehen zentral in `app/services/authorization_service.py`. Rechteänd
 
 | Problem | Lösung |
 |---|---|
+| Server: Login-Maske erscheint trotz Authelia | Gibt es einen **aktiven** Mitarbeiter mit genau der E-Mail aus Authelia? Hinweis auf der Login-Seite beachten. |
+| Server: Seite ohne Design / 404 auf `/static/...` | Stimmt `APP_URL_PREFIX` mit dem Traefik-Pfad überein? Beide kommen aus derselben Variable in `docker-compose.yml`. |
 | Login klappt nicht, man landet wieder auf `/login` | Aufruf über `https://…:8443`? Bei Zugriff ohne HTTPS muss `COOKIE_SECURE=0` gesetzt sein. |
 | Browser meldet „Verbindung nicht sicher“ | Erwartet beim selbstsignierten Zertifikat – einmalig bestätigen oder echtes Zertifikat einbinden. |
 | Container `web` wird nicht „healthy“ | `docker compose logs --tail 50 web` – meist fehlende/kurze Secrets in der `.env` oder eine Migration. |
@@ -342,7 +367,9 @@ Die Regeln stehen zentral in `app/services/authorization_service.py`. Rechteänd
 | Thema | Ort |
 |---|---|
 | Worker/Threads, Timeouts | `gunicorn.conf.py` |
-| Security-Header, CSP, gzip, Rate-Limit, TLS | `nginx/nginx.conf` |
+| Security-Header, CSP | `app/utils/security_headers.py` |
+| Traefik-Routing, Authelia (Server) | `docker-compose.yml` (Labels) |
+| gzip, Rate-Limit, TLS (lokal) | `nginx/nginx.conf`, `docker-compose.override.example.yml` |
 | Designsystem, Frontend-Build | `frontend/app.css`, `package.json` |
 | Alle Einstellungen | `app/config.py`, Vorlage `.env.example` |
 | Logs (JSON) | `docker compose logs -f web` |

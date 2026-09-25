@@ -6,7 +6,9 @@
 #   1. Falls keine .env existiert: .env mit ZUFÄLLIG erzeugten Secrets anlegen.
 #      (Früher standen feste Passwörter/Schlüssel hier im Skript – und damit in Git.
 #      Jeder mit Repo-Zugriff hätte gültige Login-Tokens fälschen können.)
-#   2. TLS-Zertifikat erzeugen (scripts/generate_dev_cert.sh), dann
+#   2. docker-compose.override.example.yml -> docker-compose.override.yml (lokaler
+#      Nginx statt Traefik/Authelia), falls noch nicht vorhanden.
+#      TLS-Zertifikat erzeugen (scripts/generate_dev_cert.sh), dann
 #      Container bauen und starten (docker compose up -d --build).
 #      Die DB-Migrationen laufen automatisch beim Start des Web-Containers
 #      (docker-entrypoint.sh -> flask db upgrade).
@@ -66,6 +68,12 @@ EOF
     echo "    .env erstellt (Rechte 600 – nur für dich lesbar)."
 else
     echo "==> .env existiert bereits – wird nicht verändert."
+fi
+
+# Lokaler Betrieb: Nginx statt Traefik/Authelia (Datei wird von Git ignoriert).
+if [ ! -f docker-compose.override.yml ]; then
+    cp docker-compose.override.example.yml docker-compose.override.yml
+    echo "==> docker-compose.override.yml für den lokalen Betrieb angelegt."
 fi
 
 # TLS-Zertifikat für Nginx (selbstsigniert, falls noch keins existiert).

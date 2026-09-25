@@ -17,7 +17,7 @@
  *          "User Enumeration"), egal ob das Konto existiert.
  *
  * Abhängigkeiten:
- *   app.js (apiFetch, readJson), ui.js (setBusy, showFormError,
+ *   app.js (apiFetch, readJson, loginTarget), ui.js (setBusy, showFormError,
  *   hideFormError, openDialog, icon). Geladen von login.html (defer).
  * =====================================================================
  */
@@ -53,7 +53,7 @@ function setupLoginForm() {
             });
             const data = await readJson(res);
             if (res.ok) {
-                window.location.href = "/dashboard";
+                window.location.href = loginTarget(); // ?next= oder /dashboard (app.js)
                 return; // Button bleibt im Lade-Zustand, bis die neue Seite da ist
             }
             showFormError("login-error", data.error || "Anmeldung fehlgeschlagen.");

@@ -13,6 +13,10 @@ Was macht diese Datei?
     3. Fehler-Callbacks – einheitliche JSON-Antworten ``{"error": "..."}`` mit Status 401
        statt der englischen Standardtexte bzw. 422.
 
+    Außerdem die Helfer für Single Sign-on über Authelia:
+    ``proxy_auth_email()`` (E-Mail aus dem Traefik-Header) und ``set_session_cookies()``
+    (von der Passwort-Anmeldung UND der Authelia-Anmeldung auf /login genutzt).
+
 Wer benutzt sie?
     ``app/__init__.py::create_app()`` -> ``register_jwt_callbacks(jwt)``.
     Die Routen nutzen danach ``@jwt_required()`` und ``current_user``.
@@ -23,11 +27,37 @@ Wovon hängt sie ab?
 
 import logging
 
-from flask import jsonify
-from flask_jwt_extended import JWTManager
+from flask import Response, current_app, has_request_context, jsonify, request
+from flask_jwt_extended import (
+    JWTManager,
+    create_access_token,
+    create_refresh_token,
+    set_access_cookies,
+    set_refresh_cookies,
+)
 from sqlalchemy.orm import joinedload
 
 logger = logging.getLogger(__name__)
+
+
+def proxy_auth_email() -> str | None:
+    """E-Mail, mit der Authelia den Besucher angemeldet hat – oder None.
+
+    Nur bei AUTHELIA_SSO=1 wird der Header überhaupt beachtet: Ohne Authelia davor
+    (lokal hinter nginx) könnte ihn sonst jeder Browser selbst setzen.
+    """
+    if not current_app.config.get("AUTHELIA_SSO"):
+        return None
+    email = request.headers.get(current_app.config["AUTHELIA_EMAIL_HEADER"], "").strip()
+    return email or None
+
+
+def set_session_cookies(response: Response, user: object) -> Response:
+    """Setzt Access- und Refresh-Cookie (samt CSRF-Cookies) für ``user``."""
+    # identity=user -> user_identity() unten schreibt str(user.id) in den Token.
+    set_access_cookies(response, create_access_token(identity=user))
+    set_refresh_cookies(response, create_refresh_token(identity=user))
+    return response
 
 
 def register_jwt_callbacks(jwt: JWTManager) -> None:
@@ -56,6 +86,11 @@ def register_jwt_callbacks(jwt: JWTManager) -> None:
             return None
         user = db.session.get(User, user_id, options=[joinedload(User.role)])
         if user is None or not user.is_active:
+            return None
+        # Hat sich im selben Browser eine ANDERE Person bei Authelia angemeldet, gilt die
+        # alte App-Sitzung nicht mehr -> 401 -> Frontend geht über /login (neue Sitzung).
+        sso_email = proxy_auth_email() if has_request_context() else None
+        if sso_email and sso_email.lower() != user.email.lower():
             return None
         return user
 

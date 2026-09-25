@@ -59,6 +59,8 @@ Performance:
     {# Farbe der Browser-Leiste (mobil) passend zur Kopfzeile #}
     <meta name="theme-color" content="#1a365d">
     <meta name="color-scheme" content="light dark">
+    {# URL-Präfix (z. B. "/kalender" auf dem Server, lokal leer) für app.js::appUrl() #}
+    <meta name="app-base" content="{{ request.script_root }}">
     <link rel="icon" href="{{ asset_url('favicon.svg') }}" type="image/svg+xml">
     {# Schrift früh anfordern, damit der Text nicht sichtbar "springt" #}
     <link rel="preload" href="{{ font_url }}" as="font" type="font/woff2" crossorigin>
@@ -82,7 +84,7 @@ Performance:
                 {{ icon('menu') }}
             </button>
 
-            <a href="/dashboard" class="mr-4 flex items-center gap-2.5 rounded-lg" aria-label="Bellmann Eng. – zur Startseite">
+            <a href="{{ url_for('calendar_ui.dashboard') }}" class="mr-4 flex items-center gap-2.5 rounded-lg" aria-label="Bellmann Eng. – zur Startseite">
                 <img src="{{ asset_url('favicon.svg') }}" alt="" width="32" height="32" class="size-8 rounded-lg ring-1 ring-white/15">
                 <span class="text-[0.9375rem] font-semibold tracking-tight">Bellmann <span class="font-normal text-white/65">Eng.</span></span>
             </a>
@@ -91,7 +93,7 @@ Performance:
                 <ul class="flex items-center gap-1">
                     {% for path, nav_id, label, icon_name, roles in nav_items %}
                     <li>
-                        <a href="{{ path }}" id="{{ nav_id }}" class="nav-link"
+                        <a href="{{ request.script_root }}{{ path }}" id="{{ nav_id }}" class="nav-link"
                            {% if roles %}data-roles="{{ roles }}" hidden{% endif %}
                            {% if request.path == path %}aria-current="page"{% endif %}>
                             {{ icon(icon_name) }}{{ label }}
@@ -153,7 +155,7 @@ Performance:
             <ul class="container-app space-y-1 py-3">
                 {% for path, nav_id, label, icon_name, roles in nav_items %}
                 <li>
-                    <a href="{{ path }}" class="nav-link-mobile"
+                    <a href="{{ request.script_root }}{{ path }}" class="nav-link-mobile"
                        {% if roles %}data-roles="{{ roles }}" hidden{% endif %}
                        {% if request.path == path %}aria-current="page"{% endif %}>
                         {{ icon(icon_name) }}{{ label }}

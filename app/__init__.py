@@ -18,7 +18,8 @@ Wer ruft sie auf?
 Womit spricht die App?
     * PostgreSQL über SQLAlchemy + psycopg 3 (``DATABASE_URL``)
     * SMTP-Server (E-Mails), Google Calendar API (optional)
-    * Der Browser spricht NICHT direkt mit ihr, sondern über Nginx (Reverse Proxy).
+    * Der Browser spricht NICHT direkt mit ihr, sondern über einen Reverse Proxy:
+      lokal nginx, auf dem Server Traefik (+ Authelia).
 
 Wichtig: Das Datenbankschema wird ausschließlich über Alembic-Migrationen verwaltet
 (``flask db upgrade``). ``db.create_all()`` wird bewusst NIE aufgerufen.
@@ -84,11 +85,19 @@ def create_app(config_class: type[BaseConfig] | None = None) -> Flask:
     migrate.init_app(app, db)
     limiter.init_app(app)
 
-    # ProxyFix: Vertraut GENAU EINEM vorgeschalteten Proxy (unserem Nginx) und übernimmt
+    # ProxyFix: Vertraut GENAU EINEM vorgeschalteten Proxy (nginx bzw. Traefik) und übernimmt
     # dessen X-Forwarded-For/-Proto/-Host. Dadurch stimmen request.remote_addr (Rate-Limit,
     # Logs) und request.scheme (https-Erkennung). Mehr als 1 wäre ein Sicherheitsrisiko:
     # Clients könnten sich per gefälschtem Header eine beliebige IP geben.
     app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
+    # Betrieb unter einem Pfad (z. B. /kalender hinter Traefik+Authelia), lokal leer.
+    from app.utils.url_prefix import PrefixMiddleware, apply_prefix_to_cookie_paths
+
+    prefix = app.config["APP_URL_PREFIX"]
+    if prefix:
+        app.wsgi_app = PrefixMiddleware(app.wsgi_app, prefix)
+        apply_prefix_to_cookie_paths(app, prefix)
 
     # --- JWT-Callbacks (User-Lookup, Fehlermeldungen) und globale Fehler-Handler ---------
     from app.errors import register_error_handlers
@@ -125,6 +134,11 @@ def create_app(config_class: type[BaseConfig] | None = None) -> Flask:
     from app.utils.assets import register_asset_helpers
 
     register_asset_helpers(app)
+
+    # CSP, X-Frame-Options, HSTS & Co. – gleich hinter nginx (lokal) und Traefik (Server).
+    from app.utils.security_headers import register_security_headers
+
+    register_security_headers(app)
 
     @app.route("/health", methods=["GET"])
     @limiter.exempt

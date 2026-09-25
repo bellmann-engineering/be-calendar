@@ -1,0 +1,54 @@
+# =============================================================================
+# docker-compose.override.example.yml – Vorlage für die LOKALE Entwicklung
+# -----------------------------------------------------------------------------
+# Kopieren nach docker-compose.override.yml (macht setup.sh automatisch, die Kopie
+# wird von Git ignoriert). "docker compose up" liest sie dann automatisch zusätzlich
+# zu docker-compose.yml ein.
+#
+# Auf dem SERVER darf es KEINE docker-compose.override.yml geben – dort gilt
+# docker-compose.yml allein (Traefik + Authelia).
+#
+# Was ändert sich lokal?
+#   * nginx mit selbstsigniertem Zertifikat: https://localhost:8443 (http:8080 leitet um)
+#   * kein Authelia -> AUTHELIA_SSO=0, Anmeldung mit E-Mail + Passwort
+#   * kein Pfad-Präfix (Server: /kalender), APP_BASE_URL aus der .env
+#   * "traefik_network" wird ein normales lokales Netzwerk (kein Traefik-Stack nötig)
+# =============================================================================
+services:
+  web:
+    environment:
+      # Ohne Authelia davor könnte jeder den Header "Remote-Email" selbst setzen.
+      AUTHELIA_SSO: "0"
+      # Lokal ohne Pfad-Präfix: https://localhost:8443/
+      APP_URL_PREFIX: ""
+      APP_BASE_URL: ${APP_BASE_URL:-https://localhost:8443}
+    labels:
+      - "traefik.enable=false"
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: bellmann_nginx
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-8080}:80"     # nur Umleitung auf HTTPS
+      - "${HTTPS_PORT:-8443}:443"   # die eigentliche Anwendung: https://localhost:8443
+    environment:
+      # Wird beim Start in das Template eingesetzt (Redirect-Ziel von Port 80).
+      NGINX_HTTPS_PORT: ${HTTPS_PORT:-8443}
+    volumes:
+      # Als Template eingehängt -> das Image ersetzt ${NGINX_HTTPS_PORT} beim Start.
+      - ./nginx/nginx.conf:/etc/nginx/templates/default.conf.template:ro
+      # TLS-Zertifikat + Schlüssel (scripts/generate_dev_cert.sh).
+      - ./nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      web:
+        # Nginx startet erst, wenn "web" laut HEALTHCHECK gesund ist.
+        condition: service_healthy
+
+  # Optional: Datenbank für DBeaver/psql vom eigenen Rechner aus erreichbar machen.
+  # db:
+  #   ports: ["127.0.0.1:5432:5432"]
+
+networks:
+  traefik_network:
+    external: false

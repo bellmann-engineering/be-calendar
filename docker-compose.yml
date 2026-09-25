@@ -1,20 +1,25 @@
 # =============================================================================
 # docker-compose.yml – Produktions-Stack des Kalenders der Bellmann Eng.
 # -----------------------------------------------------------------------------
-#   Browser ──https:8443──> nginx ──:5000──> web (Gunicorn/Flask) ──:5432──> db (PostgreSQL)
-#   (http:8080 leitet nur auf https:8443 um)
+# SERVER (diese Datei allein):
+#   Browser ──https://intern.bellmann-engineering.com/kalender──> Traefik
+#       ──forwardAuth──> Authelia (Firmen-Login, schützt den ganzen Host)
+#       └──:5000──> web (Gunicorn/Flask) ──:5432──> db (PostgreSQL)
+#   Traefik (Netzwerk "traefik_network", Zertifikate) und Authelia laufen in einem
+#   eigenen Stack auf dem Server. Host und Pfad: APP_HOST / APP_URL_PREFIX (.env),
+#   Standard intern.bellmann-engineering.com + /kalender. Authelia setzt nach dem Login den Header
+#   "Remote-Email"; damit meldet die App den passenden Mitarbeiter ohne zweite
+#   Passwortabfrage an (AUTHELIA_SSO, siehe app/routes/calendar_routes.py::login).
 #
-# Nur nginx ist vom Host aus erreichbar. web und db hängen ausschließlich im internen
-# Docker-Netzwerk ("expose" statt "ports").
+# LOKAL (zusätzlich docker-compose.override.yml, Vorlage:
+#   docker-compose.override.example.yml – setup.sh kopiert sie):
+#   Browser ──https:8443──> nginx ──:5000──> web ──:5432──> db
+#   Ohne Traefik/Authelia; "traefik_network" wird zu einem normalen lokalen Netzwerk,
+#   AUTHELIA_SSO ist aus, angemeldet wird mit E-Mail + Passwort.
 #
+# web und db veröffentlichen KEINE Ports am Host ("expose" statt "ports").
 # Zugangsdaten stehen NICHT hier, sondern in der .env-Datei (siehe .env.example).
 # Compose ersetzt ${VARIABLE} beim Start durch die Werte aus der .env.
-#
-# Lokaler Datenbankzugriff (z. B. mit DBeaver/psql) für Entwickler: eine Datei
-# docker-compose.override.yml anlegen (wird von Git ignoriert):
-#   services:
-#     db:
-#       ports: ["127.0.0.1:5432:5432"]     # nur vom eigenen Rechner erreichbar
 # =============================================================================
 services:
   web:
@@ -30,12 +35,52 @@ services:
       APP_ENV: production
       FLASK_DEBUG: "0"
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      # Auf dem Server steht Authelia davor -> Header "Remote-Email" ist vertrauenswürdig.
+      # Lokal setzt docker-compose.override.yml das auf "0".
+      AUTHELIA_SSO: ${AUTHELIA_SSO:-1}
+      # Pfad der App auf dem Host (app/utils/url_prefix.py) und daraus die öffentliche
+      # Adresse für Links in E-Mails und den Google-OAuth-Callback.
+      # Lokal überschreibt docker-compose.override.yml beides.
+      APP_URL_PREFIX: ${APP_URL_PREFIX:-/kalender}
+      APP_BASE_URL: https://${APP_HOST:-intern.bellmann-engineering.com}${APP_URL_PREFIX:-/kalender}
     expose:
       - "5000"
     depends_on:
       db:
         condition: service_healthy
     # Der HEALTHCHECK selbst steht im Dockerfile (GET /health inkl. DB-Prüfung).
+    # "default" für die Datenbank, "traefik_network" damit Traefik den Container erreicht.
+    networks:
+      - default
+      - traefik_network
+    labels:
+      - "traefik.enable=true"
+      # Bei mehreren Netzwerken muss Traefik explizit wissen, über welches es routen soll.
+      - "traefik.docker.network=traefik_network"
+
+      # Router: Pfad /kalender auf dem von Authelia geschützten Host.
+      # KEIN StripPrefix nötig: Die App entfernt den Präfix selbst (APP_URL_PREFIX) und
+      # erzeugt alle Links, Redirects und Cookie-Pfade mit ihm. So sieht Authelia den
+      # vollen Pfad und die access_control-Regel für intern.bellmann-engineering.com greift.
+      - "traefik.http.routers.bellmann_calendar.rule=Host(`${APP_HOST:-intern.bellmann-engineering.com}`) && PathPrefix(`${APP_URL_PREFIX:-/kalender}`)"
+      - "traefik.http.routers.bellmann_calendar.entrypoints=websecure"
+      - "traefik.http.routers.bellmann_calendar.tls.certresolver=myresolver"
+      # Reihenfolge: zuerst Authelia (Login), dann Komprimierung.
+      - "traefik.http.routers.bellmann_calendar.middlewares=authelia-bellmann-calendar@docker,bellmann_calendar-compress@docker"
+
+      # Authelia-Middleware: Ohne Authelia-Login kommt niemand bis zur App. Die
+      # Antwort-Header (u. a. Remote-Email) ÜBERSCHREIBEN gleichnamige Header des
+      # Browsers – gefälschte Werte erreichen die App also nicht.
+      # Wichtig: In Authelias access_control darf für diesen Pfad KEINE "bypass"-Regel stehen.
+      - "traefik.http.middlewares.authelia-bellmann-calendar.forwardAuth.address=http://authelia:9091/api/verify"
+      - "traefik.http.middlewares.authelia-bellmann-calendar.forwardAuth.trustForwardHeader=true"
+      - "traefik.http.middlewares.authelia-bellmann-calendar.forwardAuth.authResponseHeaders=Remote-User,Remote-Groups,Remote-Name,Remote-Email"
+
+      # gzip/brotli für CSS, JS, JSON (übernimmt lokal nginx).
+      - "traefik.http.middlewares.bellmann_calendar-compress.compress=true"
+
+      # Service: Gunicorn lauscht im Container auf Port 5000.
+      - "traefik.http.services.bellmann_calendar.loadbalancer.server.port=5000"
 
   db:
     image: postgres:16-alpine
@@ -47,7 +92,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    # Nur im Docker-Netzwerk erreichbar – NICHT mehr am Host-Port 5432 veröffentlicht.
+    # Nur im projekteigenen Netzwerk erreichbar – NICHT im Traefik-Netzwerk, NICHT am Host.
     expose:
       - "5432"
     healthcheck:
@@ -56,25 +101,11 @@ services:
       timeout: 5s
       retries: 5
 
-  nginx:
-    image: nginx:1.27-alpine
-    container_name: bellmann_nginx
-    restart: unless-stopped
-    ports:
-      - "${HTTP_PORT:-8080}:80"     # nur Umleitung auf HTTPS
-      - "${HTTPS_PORT:-8443}:443"   # die eigentliche Anwendung: https://localhost:8443
-    environment:
-      # Wird beim Start in das Template eingesetzt (Redirect-Ziel von Port 80).
-      NGINX_HTTPS_PORT: ${HTTPS_PORT:-8443}
-    volumes:
-      # Als Template eingehängt -> das Image ersetzt ${NGINX_HTTPS_PORT} beim Start.
-      - ./nginx/nginx.conf:/etc/nginx/templates/default.conf.template:ro
-      # TLS-Zertifikat + Schlüssel (scripts/generate_dev_cert.sh bzw. echtes Zertifikat).
-      - ./nginx/certs:/etc/nginx/certs:ro
-    depends_on:
-      web:
-        # Nginx startet erst, wenn "web" laut HEALTHCHECK gesund ist.
-        condition: service_healthy
+networks:
+  # Muss auf dem Server bereits durch den Traefik-Stack existieren.
+  # Lokal (docker-compose.override.yml) wird daraus ein normales, lokales Netzwerk.
+  traefik_network:
+    external: true
 
 volumes:
   postgres_data:
