@@ -70,7 +70,7 @@ Sicherheit:
         <div class="input-group sm:max-w-xs sm:flex-1">
             {{ icon('search') }}
             <label for="member-search" class="sr-only">Mitarbeiter suchen</label>
-            <input type="search" id="member-search" class="input" placeholder="Name oder E-Mail suchen …" autocomplete="off">
+            <input type="search" id="member-search" class="input" placeholder="Name, E-Mail oder Kalender suchen …" autocomplete="off">
         </div>
         <div class="sm:w-48">
             <label for="member-role-filter" class="sr-only">Nach Rolle filtern</label>
@@ -82,6 +82,14 @@ Sicherheit:
                 <option value="TRAINER">Trainer</option>
             </select>
         </div>
+        <div class="sm:w-52">
+            <label for="member-gcal-filter" class="sr-only">Nach Google-Kalender filtern</label>
+            <select id="member-gcal-filter" class="input">
+                <option value="">Alle Kalender-Zuordnungen</option>
+                <option value="assigned">Kalender zugeordnet</option>
+                <option value="missing">Ohne Kalender</option>
+            </select>
+        </div>
         {# Trefferzahl – aria-live, damit Screenreader die Filterwirkung hören #}
         <p id="member-count" class="text-sm text-fg-muted sm:ml-auto" aria-live="polite"></p>
     </div>
@@ -91,6 +99,7 @@ Sicherheit:
         <thead>
             <tr>
                 <th scope="col">Mitarbeiter</th>
+                <th scope="col">Google-Kalender</th>
                 <th scope="col">Rolle</th>
                 <th scope="col">Team</th>
                 <th scope="col">Status</th>
@@ -98,7 +107,7 @@ Sicherheit:
             </tr>
         </thead>
         <tbody id="users-table-body" aria-busy="true">
-            {{ skeleton_rows(5, 5) }}
+            {{ skeleton_rows(5, 6) }}
         </tbody>
     </table>
 </section>

@@ -54,7 +54,7 @@ const usersById = new Map();
 let viewerRole = null;
 
 /** Anzahl Tabellenspalten (für leere Zustände über die ganze Breite). */
-const MEMBER_COLUMNS = 5;
+const MEMBER_COLUMNS = 6;
 
 /**
  * Zuletzt geladener Google-Status (GET /api/v1/google/status) oder null,
@@ -70,6 +70,9 @@ let googleStatus = null;
  */
 let googleCalendars = null;
 let googleCalendarsError = null;
+
+/** true, sobald GET /api/v1/auth geantwortet hat (siehe refreshUsersTable). */
+let usersLoaded = false;
 
 /** Laufender Abruf der Kalenderliste (verhindert doppelte Requests). */
 let googleCalendarsPromise = null;
@@ -108,6 +111,7 @@ async function loadUsers() {
         const users = await readJson(res);
         usersById.clear();
         (Array.isArray(users) ? users : []).forEach(u => usersById.set(Number(u.id), u));
+        usersLoaded = true;
         renderUsers();
     } catch (err) {
         tbody.replaceChildren(emptyRow(MEMBER_COLUMNS, "alert", "Netzwerkfehler", "Die Liste konnte nicht geladen werden."));
@@ -117,17 +121,31 @@ async function loadUsers() {
 }
 
 /**
- * Zeichnet die Tabelle anhand von Suche und Rollenfilter neu.
+ * Zeichnet die Tabelle neu, sobald sich die Kalenderliste geändert hat
+ * (Kalendernamen statt IDs) – aber erst, wenn die Benutzer geladen sind,
+ * sonst würde das Skelett durch "Noch keine Mitarbeiter" ersetzt.
+ */
+function refreshUsersTable() {
+    if (usersLoaded) renderUsers();
+}
+
+/**
+ * Zeichnet die Tabelle anhand von Suche, Rollen- und Kalenderfilter neu.
  */
 function renderUsers() {
     const tbody = document.getElementById("users-table-body");
     const query = document.getElementById("member-search").value.trim().toLowerCase();
     const role = document.getElementById("member-role-filter").value;
+    const gcal = document.getElementById("member-gcal-filter").value;
     const all = Array.from(usersById.values());
     const visible = all.filter(u => {
         if (role && u.role !== role) return false;
+        if (gcal === "assigned" && !u.google_calendar_id) return false;
+        if (gcal === "missing" && u.google_calendar_id) return false;
         if (!query) return true;
-        return `${u.first_name} ${u.last_name} ${u.email}`.toLowerCase().includes(query);
+        const calendarName = findGoogleCalendar(u.google_calendar_id)?.summary || "";
+        return `${u.first_name} ${u.last_name} ${u.email} ${u.google_calendar_id || ""} ${calendarName}`
+            .toLowerCase().includes(query);
     });
 
     document.getElementById("member-count").textContent =
@@ -140,6 +158,60 @@ function renderUsers() {
         return;
     }
     tbody.replaceChildren(...visible.map(userRow));
+}
+
+/**
+ * Kalender aus der Liste des verbundenen Google-Kontos (oder null).
+ * @param {?string} calendarId
+ * @returns {?object}
+ */
+function findGoogleCalendar(calendarId) {
+    if (!calendarId || !googleCalendars) return null;
+    return googleCalendars.find(c => c.id === calendarId) || null;
+}
+
+/**
+ * Zelle "Google-Kalender": Name (aus der Kalenderliste) + ID darunter.
+ *   - nicht zugeordnet        → grauer Hinweis
+ *   - Liste geladen, Kalender
+ *     fehlt darin             → Warnung: verbundenes Konto sieht ihn nicht
+ *   - Liste nicht verfügbar   → nur die ID (z. B. Google nicht verbunden)
+ * Alle Texte aus Google landen per h()/text im DOM – nie als HTML.
+ *
+ * @param {object} u - Benutzer aus der API.
+ * @returns {HTMLTableCellElement}
+ */
+function googleCalendarCell(u) {
+    const label = h("span", { class: "text-fg-muted md:hidden", text: "Google-Kalender: " });
+    // Auf dem Smartphone eine eigene Zeile in der Karte (block), am PC normale Zelle.
+    const cellClass = "mt-2 block max-w-full align-middle md:mt-0 md:table-cell md:max-w-72";
+
+    if (!u.google_calendar_id) {
+        return h("td", { class: cellClass },
+            label, h("span", { class: "badge badge-gray", text: "Nicht zugeordnet" }));
+    }
+
+    const calendar = findGoogleCalendar(u.google_calendar_id);
+    const missing = Boolean(googleCalendars) && !calendar;
+    const name = calendar ? `${calendar.summary || calendar.id}${calendar.primary ? " (Hauptkalender)" : ""}` : null;
+    const role = calendar ? (GOOGLE_ACCESS_ROLES[calendar.access_role] || calendar.access_role) : null;
+
+    return h("td", { class: cellClass },
+        label,
+        h("span", { class: "inline-flex max-w-full min-w-0 flex-col align-top" },
+            h("span", { class: "flex min-w-0 items-center gap-1.5" },
+                icon(missing ? "alert" : "calendar-check", `size-4 shrink-0 ${missing ? "text-warning" : "text-accent"}`),
+                h("span", { class: "truncate font-medium text-fg", text: name || u.google_calendar_id, title: u.google_calendar_id }),
+            ),
+            // Die ID nur zusätzlich zeigen, wenn oben der Name steht.
+            name ? h("span", {
+                class: "truncate text-xs text-fg-muted",
+                text: role ? `${u.google_calendar_id} · ${role}` : u.google_calendar_id,
+                title: u.google_calendar_id,
+            }) : null,
+            missing ? h("span", { class: "text-xs text-warning", text: "Kein Zugriff über das verbundene Google-Konto" }) : null,
+        ),
+    );
 }
 
 /**
@@ -168,20 +240,12 @@ function userRow(u) {
             h("div", { class: "flex items-center gap-3" },
                 h("span", { class: "avatar", "aria-hidden": "true", text: initials(u.first_name, u.last_name) }),
                 h("div", { class: "min-w-0" },
-                    h("p", { class: "flex items-center gap-1.5 font-medium text-fg" },
-                        h("span", { class: "truncate", text: fullName }),
-                        // Kleines Kalender-Icon, wenn ein Google-Kalender zugeordnet ist.
-                        // role="img" + aria-label: Screenreader lesen die Bedeutung vor.
-                        u.google_calendar_id ? h("span", {
-                            class: "inline-flex shrink-0 text-accent", role: "img",
-                            "aria-label": "Google-Kalender verknüpft",
-                            title: `Google-Kalender verknüpft: ${u.google_calendar_id}`,
-                        }, icon("calendar-check", "size-3.5")) : null,
-                    ),
+                    h("p", { class: "truncate font-medium text-fg", text: fullName }),
                     h("p", { class: "truncate text-xs text-fg-muted", text: u.email }),
                 ),
             ),
         ),
+        googleCalendarCell(u),
         // Auf dem Smartphone stehen Rolle, Team und Status nebeneinander (inline-block).
         h("td", { class: "mt-2 mr-2 inline-block align-middle md:mt-0 md:mr-0 md:table-cell" },
             h("span", { class: `badge ${roleBadgeClass(u.role)}`, text: roleLabel(u.role) })),
@@ -493,6 +557,7 @@ async function loadGoogleStatus() {
     googleCalendars = null;
     googleCalendarsError = null;
     renderGoogleCard();
+    refreshUsersTable();
     if (googleStatus && googleStatus.connected) {
         await loadGoogleCalendars();
         renderGoogleCard(); // jetzt mit der Anzahl der Kalender
@@ -524,6 +589,7 @@ function loadGoogleCalendars(force = false) {
             return false;
         } finally {
             googleCalendarsPromise = null;
+            refreshUsersTable(); // Kalendernamen in der Tabelle aktualisieren
         }
     })();
     return googleCalendarsPromise;
@@ -848,4 +914,5 @@ document.addEventListener("DOMContentLoaded", async () => {
     document.getElementById("users-table-body").addEventListener("click", onUserTableClick);
     document.getElementById("member-search").addEventListener("input", renderUsers);
     document.getElementById("member-role-filter").addEventListener("change", renderUsers);
+    document.getElementById("member-gcal-filter").addEventListener("change", renderUsers);
 });
