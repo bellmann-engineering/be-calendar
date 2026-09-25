@@ -6,7 +6,7 @@ Wer benutzt sie?
     "Mitarbeiter" (members.html) ruft diese Endpunkte auf.
 
 Womit spricht sie?
-    Tabellen ``users``, ``roles``, ``events``, ``event_rsvps``, ``teams``, ``audit_logs``;
+    Tabellen ``users``, ``roles``, ``events``, ``teams``, ``audit_logs``;
     beim CSV-Import zusätzlich den SMTP-Server (Einladungs-Mail mit Passwort-Link).
 
 Sicherheitsregeln:
@@ -24,7 +24,7 @@ from werkzeug.datastructures import FileStorage
 from werkzeug.security import generate_password_hash
 
 from app import db
-from app.models import AuditLog, Event, EventRSVP, Role, RoleEnum, Team, User
+from app.models import AuditLog, Event, Role, RoleEnum, Team, User
 from app.services.auth_service import PURPOSE_INVITE, AuthService
 from app.services.authorization_service import AuthorizationService
 from app.services.email_service import EmailService
@@ -241,8 +241,8 @@ class UserService:
     def delete_user(target_user_id: int, actor_id: int) -> tuple[bool, str | None, int]:
         """Löscht einen Benutzer endgültig – nur, wenn er keine eigenen Termine angelegt hat.
 
-        Zugewiesene Termine werden zur Neu-Zuweisung freigegeben, RSVPs gelöscht und
-        eine eventuelle Teamleitung aufgehoben.
+        Zugewiesene Termine bleiben ohne Mitarbeiter stehen ("Nicht zugewiesen") und
+        eine eventuelle Teamleitung wird aufgehoben.
         """
         target_user = db.session.get(User, target_user_id)
         if not target_user:
@@ -263,10 +263,7 @@ class UserService:
             )
 
         # Massen-UPDATE/DELETE direkt in SQL (ohne jedes Objekt zu laden).
-        Event.query.filter_by(assigned_to_id=target_user_id).update(
-            {Event.assigned_to_id: None, Event.reallocation_required: True}
-        )
-        EventRSVP.query.filter_by(user_id=target_user_id).delete()
+        Event.query.filter_by(assigned_to_id=target_user_id).update({Event.assigned_to_id: None})
         Team.query.filter_by(team_leader_id=target_user_id).update({Team.team_leader_id: None})
         db.session.add(
             AuditLog(

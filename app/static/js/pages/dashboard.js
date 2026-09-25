@@ -5,22 +5,23 @@
  * Zweck:
  *   Logik der Kalenderseite (dashboard.html):
  *     - Begrüßung + Kennzahlen (heute, nächste 14 Tage, nächster Termin)
- *     - Hinweis auf abgelehnte Termine, die neu zugewiesen werden müssen
- *     - FullCalendar (Woche auf dem Desktop, Liste auf dem Smartphone)
+ *     - FullCalendar: Standard "diese + nächste Woche untereinander"
+ *       (Desktop: 2-Wochen-Raster, Smartphone: 2-Wochen-Liste)
  *     - Dialog "Termin anlegen/bearbeiten"
- *     - Dialog "Termindetails" mit RSVP (Trainer), Neu-Zuweisung,
- *       Bearbeiten und Löschen (CEO/ADMIN/TEAM_LEADER)
+ *     - Dialog "Termindetails" mit Bearbeiten und Löschen
+ *       (CEO/ADMIN/TEAM_LEADER). Mitarbeiter sagen nicht zu oder ab – ein
+ *       Termin ist mit der Zuweisung verbindlich.
  *
  * Mit welchen Backend-Endpunkten spricht diese Datei?
  *   GET    /api/v1/events?start=...&end=...  → sichtbare Termine
  *   POST   /api/v1/events                     → Termin anlegen
- *   PUT    /api/v1/events/<id>                → bearbeiten / neu zuweisen
+ *   PUT    /api/v1/events/<id>                → bearbeiten (auch Mitarbeiter wechseln)
  *   DELETE /api/v1/events/<id>                → löschen (Soft-Delete)
- *   PUT    /api/v1/events/<id>/rsvp           → Zusage/Absage (Trainer)
  *   GET    /api/v1/auth/trainers              → Mitarbeiter für Zuweisungen
  *   GET    /api/v1/customers                  → Kunden (Farben, Formular)
- *   GET    /api/v1/google/events?start=...&end=... → Termine aus dem eigenen Google-Kalender
- *                                               aus Google (Hintergrundblöcke)
+ *   GET    /api/v1/google/events?start=...&end=... → Termine aus dem Google-Kalender
+ *                                               (eigener bzw. im Mitarbeiter-Tab)
+ *   GET    /api/v1/auth                       → Mitarbeiter für die Tabs (Planer)
  *
  * Abhängigkeiten:
  *   - FullCalendar 6 (global "FullCalendar", dist/vendor/fullcalendar.min.js)
@@ -54,17 +55,23 @@ const trainerNames = new Map();
 /** Kunden-ID → {name, color_hex} (für die Anzeige im Detail-Dialog). */
 const customersById = new Map();
 
+/**
+ * Planer-Tabs: ID des Mitarbeiters, dessen Kalender angezeigt wird
+ * (null = "Alle Termine"). Steht auch in der URL (?mitarbeiter=ID).
+ * @type {?number}
+ */
+let selectedUserId = null;
+
+/** Mitarbeiter für die Tabs (aus GET /api/v1/auth), ID → Benutzer. */
+const tabUsers = new Map();
+
 /** Der aktuell im Detail-Dialog angezeigte Termin (FullCalendar-EventApi). */
 let selectedEvent = null;
 
-/** Abgelehnte Termine aus der 14-Tage-Vorschau (für den Hinweis-Banner). */
-let pendingReassignments = [];
+
 
 /** Unterhalb dieser Breite (px) zeigt der Kalender die kompakte Listenansicht. */
 const MOBILE_BREAKPOINT = 768;
-
-/** Farbe für Termine, die neu zugewiesen werden müssen. */
-const REASSIGN_COLOR = "#DC2626";
 
 /** Deutsche Formatierer (einmal erzeugen, oft verwenden). */
 const FMT_DAY_LONG = new Intl.DateTimeFormat("de-DE", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
@@ -124,7 +131,7 @@ function greeting() {
 /* ------------------------------------------------------------------ */
 
 /**
- * Füllt die Mitarbeiter-Auswahlfelder (Termin anlegen + Neu-Zuweisung).
+ * Füllt die Mitarbeiter-Auswahl im Termin-Formular.
  * Spricht mit: GET /api/v1/auth/trainers → [{id, name}]
  * new Option(text, value) setzt den Namen als Text → kein XSS möglich.
  */
@@ -133,7 +140,7 @@ async function loadTrainers() {
         const res = await apiFetch("/api/v1/auth/trainers");
         if (!res.ok) return;
         const data = await readJson(res);
-        const selects = [document.getElementById("event-assignee"), document.getElementById("reassign-select")];
+        const selects = [document.getElementById("event-assignee")];
         (Array.isArray(data) ? data : []).forEach(t => {
             trainerNames.set(String(t.id), t.name);
             selects.forEach(select => select?.add(new Option(t.name, t.id)));
@@ -159,12 +166,12 @@ async function loadCustomers() {
 }
 
 /* ------------------------------------------------------------------ */
-/* Kennzahlen & Hinweis-Banner                                        */
+/* Kennzahlen                                                         */
 /* ------------------------------------------------------------------ */
 
 /**
  * Lädt die Termine von heute 00:00 bis in 14 Tagen und aktualisiert die
- * Kennzahlen sowie den Banner "Termine neu zuweisen".
+ * Kennzahlen.
  * Spricht mit: GET /api/v1/events?start=...&end=...
  */
 async function loadUpcoming() {
@@ -188,34 +195,10 @@ async function loadUpcoming() {
         const next = list.find(e => e.start > now);
         document.getElementById("stat-next-title").textContent = next ? next.title : "Keine anstehenden Termine";
         document.getElementById("stat-next-time").textContent = next ? formatUpcoming(next.start) : "in den nächsten 14 Tagen";
-
-        pendingReassignments = isPlanner() ? list.filter(e => e.reallocation_required) : [];
-        const banner = document.getElementById("reassign-banner");
-        banner.hidden = pendingReassignments.length === 0;
-        if (pendingReassignments.length) {
-            const n = pendingReassignments.length;
-            document.getElementById("reassign-banner-text").textContent = n === 1
-                ? "1 Termin wurde abgelehnt und muss neu zugewiesen werden."
-                : `${n} Termine wurden abgelehnt und müssen neu zugewiesen werden.`;
-        }
     } catch (err) {
         ["stat-today", "stat-upcoming"].forEach(id => { document.getElementById(id).textContent = "–"; });
         document.getElementById("stat-next-title").textContent = "Konnte nicht geladen werden";
     }
-}
-
-/**
- * Banner-Button: springt zum ersten abgelehnten Termin und öffnet ihn.
- */
-function showFirstReassignment() {
-    const first = pendingReassignments[0];
-    if (!first || !calendar) return;
-    calendar.gotoDate(first.start);
-    // Nach dem Laden der neuen Ansicht den Termin im Kalender suchen und öffnen.
-    setTimeout(() => {
-        const ev = calendar.getEventById(String(first.id));
-        if (ev) openEventDetails(ev);
-    }, 400);
 }
 
 /** Kalender UND Kennzahlen neu laden (nach jeder Änderung). */
@@ -229,21 +212,47 @@ function refreshAll() {
 /* ------------------------------------------------------------------ */
 
 /**
+ * Eigene Ansichten: diese + nächste Woche, jeweils ab Montag.
+ *   twoWeeks     → zwei Wochenzeilen untereinander (Standard am Desktop). Jede
+ *                  Tageszelle zeigt ALLE Termine: ganztägige als Balken, dazu die
+ *                  stundenweisen mit Uhrzeit.
+ *   listTwoWeeks → dieselben zwei Wochen als Liste (Standard auf dem Smartphone).
+ * dateAlignment "week": "Heute" und die Pfeile springen immer auf einen Montag.
+ */
+const CUSTOM_VIEWS = {
+    twoWeeks: {
+        type: "dayGrid",
+        duration: { weeks: 2 },
+        dateAlignment: "week",
+        buttonText: "2 Wochen",
+        weekNumbers: true, // "KW 39" am Zeilenanfang
+        // Uhrzeit auch in der Monats-/Wochenzeile, z. B. "14:00–14:30 Weekly"
+        displayEventEnd: true,
+    },
+    listTwoWeeks: {
+        type: "list",
+        duration: { weeks: 2 },
+        dateAlignment: "week",
+        buttonText: "Liste",
+    },
+};
+
+/**
  * Ansicht und Werkzeugleisten passend zur Bildschirmbreite.
- * Smartphone: Liste (gut lesbar), Desktop: Wochenraster.
+ * Standard: diese und nächste Woche untereinander (Smartphone als Liste).
  * @returns {object} FullCalendar-Optionen.
  */
 function responsiveOptions() {
     const mobile = window.innerWidth < MOBILE_BREAKPOINT;
     return mobile
         ? {
-            view: "listWeek",
+            view: "listTwoWeeks",
             headerToolbar: { left: "prev,next", center: "title", right: "today" },
-            footerToolbar: { center: "listWeek,timeGridDay,dayGridMonth" },
+            footerToolbar: { center: "listTwoWeeks,timeGridDay,dayGridMonth" },
         }
         : {
-            view: "timeGridWeek",
-            headerToolbar: { left: "prev,next today", center: "title", right: "dayGridMonth,timeGridWeek,timeGridDay,listWeek" },
+            view: "twoWeeks",
+            headerToolbar: { left: "prev,next today", center: "title", right: "twoWeeks,timeGridWeek,timeGridDay,dayGridMonth,listTwoWeeks" },
             footerToolbar: false,
         };
 }
@@ -262,6 +271,7 @@ function renderCalendar(container) {
     container.replaceChildren();
     let layout = responsiveOptions();
     calendar = new FullCalendar.Calendar(container, {
+        views: CUSTOM_VIEWS,
         initialView: layout.view,
         headerToolbar: layout.headerToolbar,
         footerToolbar: layout.footerToolbar,
@@ -312,9 +322,7 @@ function renderCalendar(container) {
             openCreateForm(start);
         },
         eventDidMount: info => {
-            if (info.event.extendedProps.source === "google") { decorateGoogleEvent(info); return; }
-            // Abgelehnte Termine zusätzlich gestreift (erkennbar auch ohne Farbsehen).
-            if (info.event.extendedProps.reallocation_required) info.el.classList.add("bc-needs-reassign");
+            if (info.event.extendedProps.source === "google") decorateGoogleEvent(info);
         },
         // Beim Drehen/Vergrößern des Fensters zwischen Liste und Wochenraster wechseln.
         windowResize: () => {
@@ -344,7 +352,10 @@ async function loadCalendarEvents(fetchInfo, successCallback, failureCallback) {
         const response = await apiFetch(url);
         if (!response.ok) throw new Error("Fehler beim Laden");
         const data = await readJson(response);
-        successCallback((Array.isArray(data) ? data : []).map(toCalendarEvent));
+        // Mitarbeiter-Tab: nur dessen Termine.
+        const list = (Array.isArray(data) ? data : [])
+            .filter(e => selectedUserId === null || e.assigned_to_id === selectedUserId);
+        successCallback(list.map(toCalendarEvent));
     } catch (error) {
         toast("Termine konnten nicht geladen werden.", "error");
         failureCallback(error);
@@ -352,21 +363,133 @@ async function loadCalendarEvents(fetchInfo, successCallback, failureCallback) {
 }
 
 /**
- * Event-Quelle 2: Termine aus dem eigenen zugeordneten Google-Kalender (mit
- * Titel, nur lesend). Ohne Verbindung oder ohne zugeordneten Kalender: keine
- * Termine, kein Toast. Fehlt der Lesezugriff, steht ein Hinweis in der Legende.
+ * Event-Quelle 2: Termine aus dem zugeordneten Google-Kalender (mit Titel, nur
+ * lesend) – der eigene bzw. im Mitarbeiter-Tab der des Mitarbeiters. Ohne
+ * Verbindung oder ohne zugeordneten Kalender: keine Termine, kein Toast.
+ * Fehlt der Lesezugriff oder der Kalender, steht ein Hinweis unter der Legende.
  * Spricht mit: GET /api/v1/google/events (über app.js::fetchGoogleEvents)
  * @param {object} fetchInfo - Zeitraum von FullCalendar.
  * @param {Function} successCallback
  */
 async function loadGoogleEvents(fetchInfo, successCallback) {
-    const { events, error } = await fetchGoogleEvents(fetchInfo.startStr, fetchInfo.endStr);
+    const { events, error } = await fetchGoogleEvents(fetchInfo.startStr, fetchInfo.endStr, selectedUserId);
     // Einmal sichtbar, bleibt der Eintrag stehen (sonst "springt" die Legende beim Blättern).
     if (events.length) document.getElementById("google-legend").hidden = false;
+    const selected = selectedUserId !== null ? tabUsers.get(selectedUserId) : null;
+    let message = error ? `Google-Kalender: ${error}` : "";
+    if (!message && selected && !selected.google_calendar_id) {
+        message = `${selected.first_name} ${selected.last_name} ist kein Google-Kalender zugeordnet.`;
+    }
     const hint = document.getElementById("google-error");
-    hint.textContent = error ? `Google-Kalender: ${error}` : "";
-    hint.hidden = !error;
+    hint.textContent = message;
+    hint.hidden = !message;
     successCallback(events);
+}
+
+/* ------------------------------------------------------------------ */
+/* Planer-Tabs: Kalender einzelner Mitarbeiter                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Baut die Tabs "Alle Termine" + je Mitarbeiter (nur Planer). So sehen CEO,
+ * Administration und Teamleitung den Kalender eines Mitarbeiters – App-Termine
+ * UND seinen Google-Kalender –, ohne sich als er anzumelden.
+ * Spricht mit: GET /api/v1/auth (Teamleitung bekommt nur ihr Team; die
+ * Google-Termine prüft der Server ebenfalls nach diesen Regeln).
+ */
+async function setupCalendarTabs() {
+    const tablist = document.getElementById("calendar-tabs");
+    try {
+        const res = await apiFetch("/api/v1/auth");
+        if (!res.ok) return;
+        const users = (await readJson(res)) || [];
+        (Array.isArray(users) ? users : [])
+            .filter(u => u.is_active)
+            .sort((a, b) => `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`, "de"))
+            .forEach(u => tabUsers.set(Number(u.id), u));
+    } catch (err) {
+        return; // ohne Tabs: der Kalender zeigt weiter alle Termine
+    }
+
+    const tab = (userId, label, hint) => h("button", {
+        type: "button", role: "tab", class: "tab",
+        id: userId === null ? "tab-all" : `tab-user-${userId}`,
+        "aria-controls": "calendar-container",
+        title: hint || null,
+        dataset: { userId: userId === null ? "" : userId },
+    }, label);
+
+    tablist.replaceChildren(
+        tab(null, "Alle Termine"),
+        ...Array.from(tabUsers.values()).map(u => {
+            const name = `${u.first_name} ${u.last_name}${u.id === viewer.id ? " (ich)" : ""}`;
+            return tab(Number(u.id), [
+                name,
+                // Kleines Kalender-Symbol: Google-Kalender zugeordnet.
+                u.google_calendar_id ? icon("calendar-check", "size-3.5 text-accent") : null,
+            ], u.google_calendar_id ? "Mit Google-Kalender" : "Kein Google-Kalender zugeordnet");
+        }),
+    );
+
+    tablist.addEventListener("click", e => {
+        const button = e.target.closest(".tab");
+        if (button) selectCalendarTab(tabIdOf(button));
+    });
+    // Tastatur (WAI-ARIA Tabs): Pfeile, Pos1, Ende wechseln den Tab.
+    tablist.addEventListener("keydown", e => {
+        const tabs = Array.from(tablist.querySelectorAll(".tab"));
+        const index = tabs.indexOf(document.activeElement);
+        if (index < 0) return;
+        const next = { ArrowRight: index + 1, ArrowLeft: index - 1, Home: 0, End: tabs.length - 1 }[e.key];
+        if (next === undefined) return;
+        e.preventDefault();
+        const target = tabs[(next + tabs.length) % tabs.length];
+        selectCalendarTab(tabIdOf(target));
+        target.focus();
+    });
+
+    // Tab aus der URL übernehmen (Link auf den Kalender eines Mitarbeiters).
+    const fromUrl = Number(new URLSearchParams(window.location.search).get("mitarbeiter"));
+    selectCalendarTab(tabUsers.has(fromUrl) ? fromUrl : null, { initial: true });
+    tablist.hidden = false;
+}
+
+/**
+ * Mitarbeiter-ID eines Tab-Buttons (null = "Alle Termine").
+ * @param {HTMLElement} button
+ * @returns {?number}
+ */
+function tabIdOf(button) {
+    return button.dataset.userId ? Number(button.dataset.userId) : null;
+}
+
+/**
+ * Wechselt den angezeigten Kalender: Tabs markieren, Überschrift und URL
+ * anpassen, Termine neu laden.
+ * @param {?number} userId - Mitarbeiter oder null für "Alle Termine".
+ * @param {{initial?: boolean}} [options] - initial: Kalender lädt ohnehin gleich.
+ */
+function selectCalendarTab(userId, { initial = false } = {}) {
+    selectedUserId = userId;
+    const activeId = userId === null ? "tab-all" : `tab-user-${userId}`;
+    document.querySelectorAll("#calendar-tabs .tab").forEach(t => {
+        const active = t.id === activeId;
+        t.setAttribute("aria-selected", String(active));
+        t.tabIndex = active ? 0 : -1; // nur der aktive Tab ist per Tab-Taste erreichbar
+    });
+    document.getElementById("calendar-container").setAttribute("aria-labelledby", activeId);
+
+    const user = userId !== null ? tabUsers.get(userId) : null;
+    document.getElementById("dash-subtitle").textContent = user
+        ? `Kalender von ${user.first_name} ${user.last_name} – Termine aus der App und aus Google.`
+        : "Alle Termine und Einsätze auf einen Blick.";
+
+    const url = new URL(window.location.href);
+    if (userId === null) url.searchParams.delete("mitarbeiter");
+    else url.searchParams.set("mitarbeiter", String(userId));
+    history.replaceState(history.state, "", url.pathname + url.search + url.hash);
+
+    if (!initial && calendar) calendar.refetchEvents();
 }
 
 /**
@@ -375,9 +498,7 @@ async function loadGoogleEvents(fetchInfo, successCallback) {
  * @returns {object}
  */
 function toCalendarEvent(e) {
-    const color = e.reallocation_required
-        ? REASSIGN_COLOR
-        : (isValidHexColor(e.color) ? e.color : DEFAULT_EVENT_COLOR);
+    const color = isValidHexColor(e.color) ? e.color : DEFAULT_EVENT_COLOR;
     return {
         id: e.id,
         title: e.title, // FullCalendar setzt Titel als Text → sicher
@@ -389,13 +510,10 @@ function toCalendarEvent(e) {
         textColor: readableTextColor(color), // lesbar auch auf hellen Kundenfarben
         extendedProps: {
             color,
-            reallocation_required: e.reallocation_required,
             assigned_to_id: e.assigned_to_id,
             meeting_link: e.meeting_link,
             customer_id: e.customer_id,
             is_all_day: e.is_all_day,
-            is_mandatory: e.is_mandatory,
-            rejection_reason: e.rejection_reason,
         },
     };
 }
@@ -406,7 +524,7 @@ function toCalendarEvent(e) {
 
 /**
  * Öffnet den Detail-Dialog eines Termins und zeigt – je nach Rolle –
- * RSVP-Buttons (Trainer), Neu-Zuweisung und Verwaltung (CEO/ADMIN/TL).
+ * Neu-Zuweisung und Verwaltung (CEO/ADMIN/TL). Trainer sehen nur die Details.
  *
  * @param {object} event - FullCalendar-EventApi-Objekt.
  */
@@ -419,7 +537,6 @@ function openEventDetails(event) {
     document.getElementById("detail-time").textContent = formatEventRange(event.start, event.end, event.allDay);
     // CSSOM statt style-Attribut: CSP-konform, Farbe ist bereits validiert.
     document.getElementById("detail-color").style.backgroundColor = props.color || DEFAULT_EVENT_COLOR;
-    document.getElementById("detail-status").hidden = !props.reallocation_required;
 
     const assigneeName = props.assigned_to_id ? trainerNames.get(String(props.assigned_to_id)) : null;
     document.getElementById("detail-assignee-row").hidden = !isPlanner();
@@ -440,40 +557,9 @@ function openEventDetails(event) {
         link.hidden = true;
     }
 
-    // Alle rollenabhängigen Bereiche zurücksetzen.
-    const rsvpSection = document.getElementById("rsvp-section");
-    const reassignSection = document.getElementById("reassign-section");
-    const adminActions = document.getElementById("admin-actions");
-    rsvpSection.hidden = true;
-    reassignSection.hidden = true;
-    adminActions.hidden = true;
-    hideFormError("rsvp-error");
-    document.getElementById("decline-container").hidden = true;
-    document.getElementById("btn-decline").setAttribute("aria-expanded", "false");
-    document.getElementById("decline-reason").value = "";
-
-    if (viewer.role === "TRAINER") {
-        // Pflichttermine können nicht abgelehnt werden → keine RSVP-Buttons.
-        if (!props.is_mandatory) rsvpSection.hidden = false;
-    } else if (isPlanner()) {
-        if (props.reallocation_required) {
-            reassignSection.hidden = false;
-            const reasonEl = document.getElementById("detail-rejection-reason");
-            reasonEl.textContent = props.rejection_reason ? `„${props.rejection_reason}“` : "";
-            reasonEl.hidden = !props.rejection_reason;
-            document.getElementById("reassign-select").value = "";
-        }
-        adminActions.hidden = false;
-    }
+    // Bearbeiten/Löschen nur für Planer (Mitarbeiter wechseln geht über "Bearbeiten").
+    document.getElementById("admin-actions").hidden = !isPlanner();
     openDialog("event-details-modal");
-}
-
-/**
- * Zeigt eine Fehlermeldung im RSVP-Bereich an.
- * @param {string} message
- */
-function showRsvpError(message) {
-    showFormError("rsvp-error", message);
 }
 
 /**
@@ -500,89 +586,11 @@ async function deleteSelectedEvent() {
 }
 
 /**
- * Sendet die Zusage/Absage eines Trainers.
- * Spricht mit: PUT /api/v1/events/<id>/rsvp {status, rejection_reason}
- * Bei DECLINED markiert das Backend den Termin zur Neu-Zuweisung.
- *
- * @param {"ACCEPTED"|"DECLINED"} status
- * @param {string|null} reason - Pflicht bei DECLINED.
- * @param {HTMLButtonElement} button - für den Lade-Zustand.
- */
-async function submitRsvp(status, reason, button) {
-    if (!selectedEvent) return;
-    setBusy(button, true, "Sendet …");
-    try {
-        const response = await apiFetch(`/api/v1/events/${encodeURIComponent(selectedEvent.id)}/rsvp`, {
-            method: "PUT",
-            body: { status, rejection_reason: reason },
-        });
-        if (response.ok) {
-            closeDialog("event-details-modal");
-            toast(status === "ACCEPTED" ? "Zusage gesendet – danke!" : "Absage gesendet. Die Planung wurde informiert.");
-            refreshAll();
-        } else {
-            const data = await readJson(response);
-            showRsvpError(data.error || "Rückmeldung konnte nicht gespeichert werden.");
-        }
-    } catch (err) {
-        showRsvpError("Netzwerkfehler oder Server nicht erreichbar.");
-    }
-    setBusy(button, false);
-}
-
-/**
- * Weist den ausgewählten (abgelehnten) Termin einem neuen Mitarbeiter zu.
- * Spricht mit: PUT /api/v1/events/<id> {assigned_to_id}
- */
-async function reassignSelectedEvent() {
-    const select = document.getElementById("reassign-select");
-    if (!selectedEvent) return;
-    if (!select.value) {
-        select.setAttribute("aria-invalid", "true");
-        select.focus();
-        return;
-    }
-    select.removeAttribute("aria-invalid");
-    const button = document.getElementById("btn-reassign");
-    setBusy(button, true, "Speichert …");
-    try {
-        const response = await apiFetch(`/api/v1/events/${encodeURIComponent(selectedEvent.id)}`, {
-            method: "PUT",
-            body: { assigned_to_id: parseInt(select.value, 10) },
-        });
-        if (response.ok) {
-            closeDialog("event-details-modal");
-            toast("Termin neu zugewiesen.");
-            refreshAll();
-            loadNotifications();
-        } else {
-            const data = await readJson(response);
-            toast(data.message || data.error || "Fehler bei der Zuweisung.", "error");
-        }
-    } catch (err) {
-        toast("Netzwerkfehler oder Server nicht erreichbar.", "error");
-    }
-    setBusy(button, false);
-}
-
-/**
  * Verdrahtet die festen Buttons des Detail-Dialogs (einmalig).
  * Die Aktionen beziehen sich immer auf `selectedEvent` – so stapeln sich
  * keine Handler, wenn nacheinander mehrere Termine geöffnet werden.
  */
 function setupDetailsDialog() {
-    document.getElementById("btn-accept").addEventListener("click", (e) => submitRsvp("ACCEPTED", null, e.currentTarget));
-    document.getElementById("btn-decline").addEventListener("click", (e) => {
-        document.getElementById("decline-container").hidden = false;
-        e.currentTarget.setAttribute("aria-expanded", "true");
-        document.getElementById("decline-reason").focus();
-    });
-    document.getElementById("btn-submit-decline").addEventListener("click", (e) => {
-        const reason = document.getElementById("decline-reason").value.trim();
-        if (!reason) { showRsvpError("Bitte gib eine Begründung an."); return; }
-        submitRsvp("DECLINED", reason, e.currentTarget);
-    });
-    document.getElementById("btn-reassign").addEventListener("click", reassignSelectedEvent);
     document.getElementById("btn-delete").addEventListener("click", deleteSelectedEvent);
     document.getElementById("btn-edit").addEventListener("click", () => {
         if (selectedEvent) openEditForm(selectedEvent);
@@ -624,6 +632,11 @@ function openCreateForm(start) {
     const end = new Date(begin.getTime() + 3600000);
     document.getElementById("event-start").value = toDatetimeLocal(begin);
     document.getElementById("event-end").value = toDatetimeLocal(end);
+    // Im Mitarbeiter-Tab: neuer Termin gleich für diesen Mitarbeiter (falls planbar).
+    const assignee = document.getElementById("event-assignee");
+    if (selectedUserId !== null && Array.from(assignee.options).some(o => o.value === String(selectedUserId))) {
+        assignee.value = String(selectedUserId);
+    }
     openDialog("event-modal");
     document.getElementById("event-title").focus();
 }
@@ -758,11 +771,12 @@ document.addEventListener("DOMContentLoaded", async () => {
         // Stammdaten parallel laden; der Kalender wartet nicht darauf.
         loadTrainers();
         loadCustomers();
+        // Tabs zuerst: Ein ?mitarbeiter= aus der URL soll schon beim ersten Laden gelten.
+        await setupCalendarTabs();
     }
 
     renderCalendar(document.getElementById("calendar-container"));
     loadUpcoming();
     setupEventForm();
     setupDetailsDialog();
-    document.getElementById("reassign-banner-btn").addEventListener("click", showFirstReassignment);
 });

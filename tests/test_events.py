@@ -136,7 +136,6 @@ def test_terminliste_ohne_n_plus_1(client, make_user, login, csrf):
                     end_time=f"2026-10-{day:02d}T0{i}:30:00+00:00",
                     created_by_id=admin.id,
                     customer_id=customer.id,
-                    reallocation_required=True,
                 )
             )
         db.session.commit()

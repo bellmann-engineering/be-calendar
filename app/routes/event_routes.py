@@ -26,7 +26,7 @@ event_bp = Blueprint("events", __name__, url_prefix="/api/v1/events")
 DEFAULT_COLOR = "#2B6CB0"
 
 
-def serialize_event(event: Event, rejection_reason: str | None = None) -> dict:
+def serialize_event(event: Event) -> dict:
     """Einheitliche JSON-Darstellung eines Termins (für Liste, Anlegen, Ändern).
 
     ``event.customer`` wurde in der Liste per joinedload vorab geladen -> kein Extra-SQL.
@@ -42,13 +42,9 @@ def serialize_event(event: Event, rejection_reason: str | None = None) -> dict:
         "end_time": isoformat_utc(event.end_time),
         "assigned_to_id": event.assigned_to_id,
         "meeting_link": event.meeting_link,
-        "reallocation_required": event.reallocation_required,
         "is_all_day": event.is_all_day,
         "customer_id": event.customer_id,
         "color": color,
-        "rejection_reason": rejection_reason,
-        # Pflichttermine sind im Frontend vorgesehen, aber noch nicht im Datenmodell.
-        "is_mandatory": False,
     }
 
 
@@ -78,8 +74,7 @@ def create_event():
 def list_events():
     """Sichtbare Termine, optional gefiltert über ?start=...&end=... (ISO-8601).
 
-    Zwei SQL-Abfragen, egal wie viele Termine: (1) Termine inkl. Kunde per JOIN,
-    (2) alle Ablehnungsgründe für die Termine mit reallocation_required.
+    Eine SQL-Abfrage, egal wie viele Termine: Termine inkl. Kunde per JOIN.
     """
     events, error_message, status_code = EventService.list_visible_events(
         current_user.id, request.args.get("start"), request.args.get("end")
@@ -87,10 +82,7 @@ def list_events():
     if error_message:
         return jsonify({"error": error_message}), status_code
 
-    reasons = EventService.latest_rejection_reasons(
-        [e.id for e in events if e.reallocation_required]
-    )
-    return jsonify([serialize_event(e, reasons.get(e.id)) for e in events]), 200
+    return jsonify([serialize_event(e) for e in events]), 200
 
 
 @event_bp.route("/<int:event_id>", methods=["PUT"])

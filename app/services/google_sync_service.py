@@ -14,10 +14,10 @@ wurde (``event.google_event_id`` + ``event.google_sync_calendar_id``):
     | –                    | K             | in K anlegen                            |
     | K                    | K             | in K ändern (Titel, Zeit, Beschreibung) |
     | K                    | L (anderer)   | in K löschen, in L anlegen (Neu-Zuweis.)|
-    | K                    | –             | in K löschen (Absage, Löschen, …)       |
+    | K                    | –             | in K löschen (Löschen, …)               |
 
 Wann wird sie aufgerufen?  Immer NACH dem erfolgreichen Commit der eigentlichen Änderung
-(EventService: anlegen/ändern/löschen, RSVPService: Absage). Scheitert Google, bleibt der
+(EventService: anlegen/ändern/löschen). Scheitert Google, bleibt der
 Termin in unserer Datenbank trotzdem korrekt gespeichert – der Fehler wird nur geloggt.
 Die neue Google-ID wird in einem zweiten, kleinen Commit festgehalten.
 """
@@ -63,7 +63,7 @@ def synchronisieren(event: Event) -> None:
 
         geaendert = False
         if vorher_id and vorher_kalender:
-            # Alte Kopie entfernen (anderer Trainer, Absage oder gelöscht).
+            # Alte Kopie entfernen (anderer Trainer oder gelöscht).
             google.delete_event(vorher_kalender, vorher_id)
             event.google_event_id = None
             event.google_sync_calendar_id = None

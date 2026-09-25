@@ -33,7 +33,7 @@ class AuditLog(db.Model):
         index=True,
     )
 
-    # Maschinenlesbarer Aktionscode, z. B. CREATE_EVENT, RSVP_DECLINED_REALLOCATION_NEEDED.
+    # Maschinenlesbarer Aktionscode, z. B. CREATE_EVENT, UPDATE_EVENT, DELETE_USER.
     action = db.Column(db.String(100), nullable=False)
     # Indiziert, weil das Log immer "neueste zuerst" sortiert abgefragt wird.
     timestamp = db.Column(db.DateTime(timezone=True), default=utc_now, nullable=False, index=True)

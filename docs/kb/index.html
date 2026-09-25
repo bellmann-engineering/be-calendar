@@ -227,7 +227,7 @@ mark{background:color-mix(in srgb,#facc15 45%,transparent);color:inherit;border-
       <p class="lead">Alles, was du brauchst, um den <b>Kalender der Bellmann Engineering GmbH</b> zu verstehen, zu betreiben und weiterzuentwickeln – mit Diagrammen, echten Code-Beispielen aus dem Projekt, Wissensfragen und geprüften Quellen.</p>
 
       <div class="hinweis"><b>Was ist der Bellmann Engineering Calendar?</b>
-        Eine Web-Anwendung zur Einsatz- und Terminplanung für die Bellmann Engineering GmbH. Termine werden Mitarbeitern (Trainern) zugewiesen, die zu- oder absagen. Das System verhindert Doppelbuchungen (inkl. Pufferzeiten und privatem Google-Kalender), kennt Rollen und Teams und protokolliert jede Änderung im Audit-Log.</div>
+        Eine Web-Anwendung zur Einsatz- und Terminplanung für die Bellmann Engineering GmbH. Termine werden Mitarbeitern (Trainern) verbindlich zugewiesen – ohne Zu- oder Absage. Das System zeigt auch die Termine aus den Google-Kalendern der Mitarbeiter an, kennt Rollen und Teams und protokolliert jede Änderung im Audit-Log.</div>
 
       <h2>Womit fange ich an?</h2>
       <div class="raster">
@@ -236,7 +236,7 @@ mark{background:color-mix(in srgb,#facc15 45%,transparent);color:inherit;border-
         <a class="karte" href="#a-gesamtbild"><b>🏗 Architektur</b><span>Wie Browser, Nginx, Flask und PostgreSQL zusammenspielen.</span></a>
         <a class="karte" href="#a-datenmodell"><b>🗄 Datenbank</b><span>Tabellen, Beziehungen, Zeitzonen, Indizes und Migrationen.</span></a>
         <a class="karte" href="#a-auth"><b>🔐 Sicherheit</b><span>Login mit Cookies, CSRF, XSS, Rollen und Secrets.</span></a>
-        <a class="karte" href="#a-termine"><b>📅 Fachlogik</b><span>Termine, Kollisionen, Rückmeldungen und Benachrichtigungen.</span></a>
+        <a class="karte" href="#a-termine"><b>📅 Fachlogik</b><span>Termine, Google-Termine, Kalenderansicht und Benachrichtigungen.</span></a>
         <a class="karte" href="#a-docker"><b>🐳 Betrieb</b><span>Docker, Gunicorn, Nginx/TLS, Backup und Fehlerbehebung.</span></a>
         <a class="karte" href="#a-tests"><b>✅ Qualität</b><span>Tests, CI/CD, Code-Stil und Projektregeln.</span></a>
         <a class="karte" href="#a-glossar"><b>📖 Glossar</b><span>Fachbegriffe von A wie Alembic bis X wie XSS.</span></a>
@@ -270,7 +270,7 @@ mark{background:color-mix(in srgb,#facc15 45%,transparent);color:inherit;border-
         <tr><td>1. Überblick</td><td><a href="#a-gesamtbild">Gesamtbild</a>, <a href="#a-anfrage">Lebenszyklus einer Anfrage</a></td><td>… erklären, welcher Teil des Systems was macht.</td></tr>
         <tr><td>2. Code-Struktur</td><td><a href="#a-schichten">Schichten</a>, <a href="#a-factory">Application Factory</a></td><td>… eine neue Route mit Service schreiben.</td></tr>
         <tr><td>3. Daten</td><td><a href="#a-datenmodell">Datenmodell</a>, <a href="#a-migrationen">Migrationen</a>, <a href="#a-zeitzonen">Zeitzonen</a></td><td>… eine Spalte hinzufügen, ohne etwas kaputtzumachen.</td></tr>
-        <tr><td>4. Fachlogik</td><td><a href="#a-termine">Termine</a>, <a href="#a-kollision">Kollisionserkennung</a>, <a href="#a-rsvp">Rückmeldungen</a></td><td>… den Weg eines Termins von der Anlage bis zur Absage nachvollziehen.</td></tr>
+        <tr><td>4. Fachlogik</td><td><a href="#a-termine">Termine</a>, <a href="#a-ueberschneidung">Überschneidungen &amp; Google-Termine</a>, <a href="#a-ansicht">Kalenderansicht &amp; Zuweisung</a></td><td>… den Weg eines Termins von der Anlage bis zur Absage nachvollziehen.</td></tr>
         <tr><td>5. Sicherheit</td><td><a href="#a-auth">Anmeldung</a>, <a href="#a-xss">XSS</a>, <a href="#a-rollen">Rollen</a>, <a href="#a-secrets">Secrets</a></td><td>… typische Sicherheitslücken erkennen und vermeiden.</td></tr>
         <tr><td>6. Qualität</td><td><a href="#a-tests">Tests</a>, <a href="#a-ci">CI/CD</a>, <a href="#a-regeln">Projektregeln</a></td><td>… einen Test schreiben und einen sauberen Commit machen.</td></tr>
         <tr><td>7. Betrieb</td><td><a href="#a-docker">Docker</a>, <a href="#a-nginx">Nginx &amp; TLS</a>, <a href="#a-backup">Backup</a>, <a href="#a-fehler">Fehlerbehebung</a></td><td>… ein Update einspielen und Probleme selbst diagnostizieren.</td></tr>
@@ -384,8 +384,8 @@ mark{background:color-mix(in srgb,#facc15 45%,transparent);color:inherit;border-
               <line x1="445" y1="150" x2="811" y2="150" class="d-linie" marker-end="url(#pfeil)"/><text x="630" y="143" text-anchor="middle">③ Token prüfen, User + Rolle laden (1 SELECT mit JOIN)</text>
               <text x="455" y="182">④ @role_required: CEO/ADMIN/TEAM_LEADER?</text>
               <line x1="445" y1="205" x2="631" y2="205" class="d-linie" marker-end="url(#pfeil)"/><text x="540" y="198" text-anchor="middle">⑤ create_event(data)</text>
-              <text x="645" y="232">⑥ Validieren, Rechte, Puffer</text>
-              <line x1="635" y1="255" x2="811" y2="255" class="d-linie" marker-end="url(#pfeil)"/><text x="725" y="248" text-anchor="middle">⑦ Kollision? (SQL)</text>
+              <text x="645" y="232">⑥ Validieren, Rechte</text>
+              <line x1="635" y1="255" x2="811" y2="255" class="d-linie" marker-end="url(#pfeil)"/><text x="725" y="248" text-anchor="middle">⑦ Kunde/Mitarbeiter da? (SQL)</text>
               <line x1="635" y1="290" x2="811" y2="290" class="d-linie ok" marker-end="url(#pfeil-ok)"/><text x="725" y="283" text-anchor="middle">⑧ INSERT + COMMIT</text>
               <text x="645" y="322">⑨ nach COMMIT: E-Mail im Hintergrund</text>
               <line x1="631" y1="350" x2="449" y2="350" class="d-linie" marker-end="url(#pfeil)"/><text x="540" y="343" text-anchor="middle">⑩ (event, None, 201)</text>
@@ -394,7 +394,7 @@ mark{background:color-mix(in srgb,#facc15 45%,transparent);color:inherit;border-
             </g>
           </svg>
         </div>
-        <figcaption>Abbildung 2 – Ablauf von „Termin anlegen“. Fehler (z. B. 403, 409 Kollision) verlassen den Ablauf früher mit JSON <code>{"error": …}</code>.</figcaption>
+        <figcaption>Abbildung 2 – Ablauf von „Termin anlegen“. Fehler (z. B. 400 ungültige Daten, 403 fehlende Rechte) verlassen den Ablauf früher mit JSON <code>{"error": …}</code>.</figcaption>
       </figure>
       <h2>Die Schritte im Code</h2>
       <ol>
@@ -403,7 +403,7 @@ mark{background:color-mix(in srgb,#facc15 45%,transparent);color:inherit;border-
         <li><b>Flask-JWT-Extended</b> prüft Signatur, Ablaufzeit und CSRF und ruft <code>load_user()</code> in <a data-datei="app/security.py">app/security.py</a> auf.</li>
         <li><b>@role_required</b> in <a data-datei="app/decorators/auth.py">app/decorators/auth.py</a> vergleicht die Rolle aus der Datenbank.</li>
         <li><b>Route</b> <code>create_event()</code> in <a data-datei="app/routes/event_routes.py">event_routes.py</a> ruft den Service auf – sie enthält selbst keine Logik.</li>
-        <li><b>EventService.create_event()</b> in <a data-datei="app/services/event_service.py">event_service.py</a> validiert, prüft Rechte und Kollisionen, speichert und schreibt das Audit-Log.</li>
+        <li><b>EventService.create_event()</b> in <a data-datei="app/services/event_service.py">event_service.py</a> validiert, prüft Rechte, speichert und schreibt das Audit-Log.</li>
         <li>Nach dem <code>COMMIT</code> verschickt ein Hook die E-Mail (<a data-datei="app/utils/transaction.py">transaction.py</a>).</li>
       </ol>
       <div class="quiz" data-richtig="1"><h3>🧠 Wissensfrage</h3><p>Warum wird die E-Mail erst <i>nach</i> dem COMMIT verschickt?</p>
@@ -452,16 +452,16 @@ mark{background:color-mix(in srgb,#facc15 45%,transparent);color:inherit;border-
       <h2>Die wichtigsten Ordner</h2>
       <div class="tabelle-wrap"><table>
         <tr><th>Ordner / Datei</th><th>Inhalt</th></tr>
-        <tr><td><code>app/routes/</code></td><td>Blueprints: <code>auth</code>, <code>events</code>, <code>rsvps</code>, <code>teams</code>, <code>customers</code>, <code>notifications</code>, HTML-Seiten</td></tr>
-        <tr><td><code>app/services/</code></td><td>Logik: Event, RSVP, User, Auth, Authorization, Notification, E-Mail, Google Calendar …</td></tr>
-        <tr><td><code>app/models/</code></td><td>User, Role, Team, Event, EventRSVP, Customer, AuditLog, Notification</td></tr>
+        <tr><td><code>app/routes/</code></td><td>Blueprints: <code>auth</code>, <code>events</code>, <code>google</code>, <code>teams</code>, <code>customers</code>, <code>notifications</code>, HTML-Seiten</td></tr>
+        <tr><td><code>app/services/</code></td><td>Logik: Event, User, Auth, Authorization, Notification, E-Mail, Google Calendar …</td></tr>
+        <tr><td><code>app/models/</code></td><td>User, Role, Team, Event, Customer, AuditLog, Notification, GoogleConnection</td></tr>
         <tr><td><code>app/utils/</code></td><td><code>time.py</code> (Zeitzonen), <code>transaction.py</code> (Aktionen nach dem Commit)</td></tr>
         <tr><td><code>migrations/</code></td><td>Alembic-Migrationen – Historie des Datenbankschemas</td></tr>
         <tr><td><code>tests/</code></td><td>pytest-Suite gegen eine echte PostgreSQL</td></tr>
         <tr><td><code>scripts/</code></td><td>Betriebsskripte: Backup, TLS-Zertifikat, Google-Test</td></tr>
       </table></div>
-      <div class="quiz" data-richtig="0"><h3>🧠 Wissensfrage</h3><p>Wo gehört die Regel „Nicht-CEOs dürfen nur 15–30 Minuten Puffer setzen“ hin?</p>
-        <button>In den Service (EventService.validate_buffers)</button><button>In die Route</button><button>In das JavaScript im Browser</button>
+      <div class="quiz" data-richtig="0"><h3>🧠 Wissensfrage</h3><p>Wo gehört die Regel „Teamleitungen dürfen Termine nur Mitgliedern des eigenen Teams zuweisen“ hin?</p>
+        <button>In den Service (AuthorizationService.can_manage_assignee)</button><button>In die Route</button><button>In das JavaScript im Browser</button>
         <p class="erklärung">Geschäftsregeln gehören in den Service. Eine Prüfung nur im Browser wäre wertlos – jeder kann die API direkt aufrufen. Das Frontend darf die Regel <i>zusätzlich</i> anzeigen, entscheidend ist der Server.</p></div>
       <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
         <li><a href="https://flask.palletsprojects.com/en/stable/blueprints/" target="_blank" rel="noopener">Blueprints</a><span class="typ">Flask</span></li>
@@ -529,7 +529,7 @@ mark{background:color-mix(in srgb,#facc15 45%,transparent);color:inherit;border-
         <tr><td><code>GET /api/v1/auth/me</code></td><td>eingeloggter Benutzer</td><td>angemeldet</td></tr>
         <tr><td><code>GET /api/v1/events?start=&amp;end=</code></td><td>sichtbare Termine im Zeitraum</td><td>angemeldet (gefiltert nach Rolle)</td></tr>
         <tr><td><code>POST / PUT / DELETE /api/v1/events</code></td><td>Termin anlegen / ändern / löschen</td><td>CEO, ADMIN, TEAM_LEADER</td></tr>
-        <tr><td><code>PUT /api/v1/events/&lt;id&gt;/rsvp</code></td><td>zu- oder absagen</td><td>eingeladene Person</td></tr>
+        <tr><td><code>GET /api/v1/google/events?start=&amp;end=&amp;user_ids=</code></td><td>Termine aus den Google-Kalendern (nur lesend)</td><td>angemeldet (gefiltert nach Rolle)</td></tr>
         <tr><td><code>GET /api/v1/events/audit</code></td><td>Audit-Log</td><td>CEO, ADMIN</td></tr>
         <tr><td><code>/api/v1/customers</code></td><td>Kunden verwalten</td><td>lesen: CEO/ADMIN/TL · schreiben: CEO/ADMIN</td></tr>
         <tr><td><code>/api/v1/auth/users…</code></td><td>Benutzerverwaltung, CSV-Import</td><td>CEO, ADMIN</td></tr>
@@ -634,12 +634,12 @@ mark{background:color-mix(in srgb,#facc15 45%,transparent);color:inherit;border-
               <text x="296" y="160" class="d-mono">role_id  FK ⚡</text><text x="296" y="178" class="d-mono">team_id  FK ⚡</text><text x="296" y="196" class="d-mono">is_active</text><text x="296" y="214" class="d-mono">created_at  tz</text></g>
             <g><rect x="580" y="170" width="220" height="230" rx="10" class="d-box ok"/><text x="596" y="194" class="d-text">events</text>
               <text x="596" y="216" class="d-mono">id  PK</text><text x="596" y="234" class="d-mono">title, description</text><text x="596" y="252" class="d-mono">start_time, end_time  tz ⚡</text>
-              <text x="596" y="270" class="d-mono">buffer_before/after_mins</text><text x="596" y="288" class="d-mono">created_by_id  FK ⚡</text><text x="596" y="306" class="d-mono">assigned_to_id  FK ⚡</text>
-              <text x="596" y="324" class="d-mono">customer_id  FK ⚡</text><text x="596" y="342" class="d-mono">is_deleted, deleted_at</text><text x="596" y="360" class="d-mono">reallocation_required</text><text x="596" y="378" class="d-mono">parent_event_id  FK ⚡</text></g>
+              <text x="596" y="270" class="d-mono">google_event_id</text><text x="596" y="288" class="d-mono">created_by_id  FK ⚡</text><text x="596" y="306" class="d-mono">assigned_to_id  FK ⚡</text>
+              <text x="596" y="324" class="d-mono">customer_id  FK ⚡</text><text x="596" y="342" class="d-mono">is_deleted, deleted_at</text><text x="596" y="360" class="d-mono">google_sync_calendar_id</text><text x="596" y="378" class="d-mono">parent_event_id  FK ⚡</text></g>
             <g><rect x="620" y="20" width="180" height="92" rx="10" class="d-box"/><text x="636" y="44" class="d-text">customers</text>
               <text x="636" y="66" class="d-mono">id  PK</text><text x="636" y="84" class="d-mono">name, email</text><text x="636" y="102" class="d-mono">color_hex</text></g>
-            <g><rect x="280" y="300" width="210" height="110" rx="10" class="d-box"/><text x="296" y="324" class="d-text">event_rsvps</text>
-              <text x="296" y="346" class="d-mono">event_id, user_id  UNIQUE</text><text x="296" y="364" class="d-mono">status</text><text x="296" y="382" class="d-mono">rejection_reason</text><text x="296" y="400" class="d-mono">updated_at  tz</text></g>
+            <g><rect x="280" y="300" width="210" height="110" rx="10" class="d-box"/><text x="296" y="324" class="d-text">google_connections</text>
+              <text x="296" y="346" class="d-mono">account_email</text><text x="296" y="364" class="d-mono">refresh_token_enc 🔒</text><text x="296" y="382" class="d-mono">connected_by_id  FK</text><text x="296" y="400" class="d-mono">connected_at  tz</text></g>
             <g><rect x="20" y="340" width="200" height="92" rx="10" class="d-box"/><text x="36" y="364" class="d-text">notifications</text>
               <text x="36" y="386" class="d-mono">user_id  FK ⚡</text><text x="36" y="404" class="d-mono">title, message, type</text><text x="36" y="422" class="d-mono">is_read, created_at</text></g>
             <g><rect x="580" y="430" width="220" height="80" rx="10" class="d-box warn"/><text x="596" y="454" class="d-text">audit_logs</text>
@@ -649,7 +649,6 @@ mark{background:color-mix(in srgb,#facc15 45%,transparent);color:inherit;border-
             <path d="M190 226 H235 V170 H280" class="d-linie" marker-end="url(#pfeil)"/>
             <path d="M480 150 H530 V300 H580" class="d-linie akzent" marker-end="url(#pfeil-akzent)"/>
             <path d="M710 112 V168" class="d-linie" marker-end="url(#pfeil)"/>
-            <path d="M578 355 H490" class="d-linie" marker-end="url(#pfeil)"/>
             <path d="M380 230 V298" class="d-linie" marker-end="url(#pfeil)"/>
             <path d="M280 200 H250 V386 H222" class="d-linie" marker-end="url(#pfeil)"/>
             <path d="M690 400 V428" class="d-linie" marker-end="url(#pfeil)"/>
@@ -663,16 +662,17 @@ mark{background:color-mix(in srgb,#facc15 45%,transparent);color:inherit;border-
       <h2>Besonderheiten</h2>
       <ul>
         <li><b>Soft-Delete:</b> Termine werden nie physisch gelöscht, sondern mit <code>is_deleted=True</code> markiert – das Audit-Log bleibt nachvollziehbar.</li>
-        <li><b>Eindeutigkeit:</b> Pro Termin und Person gibt es genau eine Rückmeldung (<code>UNIQUE(event_id, user_id)</code>).</li>
-        <li><b>ON DELETE:</b> RSVPs sterben mit dem Termin (<code>CASCADE</code>), Audit-Einträge bleiben erhalten (<code>SET NULL</code>).</li>
+        <li><b>Verbindliche Zuweisung:</b> <code>assigned_to_id</code> ist die einzige Verbindung Termin → Mitarbeiter. Es gibt keine Zu-/Absage-Tabelle.</li>
+        <li><b>ON DELETE:</b> Audit-Einträge bleiben erhalten (<code>SET NULL</code>); wird ein Mitarbeiter gelöscht, bleiben seine Termine „nicht zugewiesen“ stehen.</li>
+        <li><b>Verschlüsselt:</b> Das Google-Refresh-Token in <code>google_connections</code> liegt nur verschlüsselt in der Datenbank (Fernet).</li>
         <li><b>Zirkuläre Beziehung</b> users ↔ teams: <code>use_alter=True</code> erzeugt den Fremdschlüssel erst nach beiden Tabellen.</li>
       </ul>
-<pre><code><span class="c"># app/models/rsvp.py (Auszug)</span>
-<span class="k">class</span> <span class="n">EventRSVP</span>(db.Model):
-    __tablename__ = <span class="s">"event_rsvps"</span>
-    __table_args__ = (db.UniqueConstraint(<span class="s">"event_id"</span>, <span class="s">"user_id"</span>, name=<span class="s">"uq_event_rsvps_event_user"</span>),)
-    event_id = db.Column(db.Integer, db.ForeignKey(<span class="s">"events.id"</span>, ondelete=<span class="s">"CASCADE"</span>), nullable=<span class="k">False</span>)
-    user_id = db.Column(db.Integer, db.ForeignKey(<span class="s">"users.id"</span>), nullable=<span class="k">False</span>, index=<span class="k">True</span>)</code></pre>
+<pre><code><span class="c"># app/models/event.py (Auszug)</span>
+<span class="k">class</span> <span class="n">Event</span>(db.Model):
+    __tablename__ = <span class="s">"events"</span>
+    __table_args__ = (db.Index(<span class="s">"ix_events_assignee_active_start"</span>, <span class="s">"assigned_to_id"</span>, <span class="s">"is_deleted"</span>, <span class="s">"start_time"</span>),)
+    assigned_to_id = db.Column(db.Integer, db.ForeignKey(<span class="s">"users.id"</span>), nullable=<span class="k">True</span>, index=<span class="k">True</span>)
+    is_deleted = db.Column(db.Boolean, default=<span class="k">False</span>, nullable=<span class="k">False</span>, index=<span class="k">True</span>)</code></pre>
       <div class="quiz" data-richtig="1"><h3>🧠 Wissensfrage</h3><p>Warum werden Termine nur „soft“ gelöscht?</p>
         <button>Weil DELETE in PostgreSQL langsam ist</button><button>Damit Historie und Audit-Log nachvollziehbar bleiben</button><button>Weil Flask kein DELETE kann</button>
         <p class="erklärung">Wer hat wann welchen Termin gelöscht? Diese Frage muss auch später noch beantwortbar sein. Gelöschte Termine werden in allen Abfragen mit <code>Event.is_deleted.is_(False)</code> ausgefiltert.</p></div>
@@ -719,7 +719,7 @@ db.Column(db.DateTime(timezone=<span class="k">True</span>))</code></pre></div>
       <h1>Performance: Indizes und das N+1-Problem</h1>
       <p class="lead">Zwei Klassiker, die jede ORM-Anwendung irgendwann langsam machen – und wie der Kalender der Bellmann Engineering GmbH sie vermeidet.</p>
       <h2>Indizes auf Fremdschlüsseln</h2>
-      <p>PostgreSQL legt für Primärschlüssel automatisch einen Index an, für Fremdschlüssel <b>nicht</b>. Ohne Index muss die Datenbank für „alle Termine von Trainer 5“ die ganze Tabelle lesen (Full Table Scan). Deshalb haben alle Fremdschlüssel <code>index=True</code>, und für die teuerste Abfrage – die Kollisionsprüfung – gibt es einen zusammengesetzten Index:</p>
+      <p>PostgreSQL legt für Primärschlüssel automatisch einen Index an, für Fremdschlüssel <b>nicht</b>. Ohne Index muss die Datenbank für „alle Termine von Trainer 5“ die ganze Tabelle lesen (Full Table Scan). Deshalb haben alle Fremdschlüssel <code>index=True</code>, und für die häufigste Abfrage – „aktive Termine von Mitarbeiter X im Zeitraum Y“ (Mitarbeiter-Tab, Vergleichsansicht) – gibt es einen zusammengesetzten Index:</p>
 <pre><code>db.Index(<span class="s">"ix_events_assignee_active_start"</span>, <span class="s">"assigned_to_id"</span>, <span class="s">"is_deleted"</span>, <span class="s">"start_time"</span>)
 <span class="c"># Reihenfolge = Filterreihenfolge: erst Gleichheit, dann der Bereich</span></code></pre>
       <h2>Das N+1-Problem</h2>
@@ -736,10 +736,10 @@ db.Column(db.DateTime(timezone=<span class="k">True</span>))</code></pre></div>
         <tr><th>Werkzeug</th><th>Wann</th></tr>
         <tr><td><code>joinedload()</code></td><td>n:1-Beziehungen (Termin → Kunde, User → Rolle)</td></tr>
         <tr><td><code>selectinload()</code></td><td>1:n-Listen (Team → Mitglieder)</td></tr>
-        <tr><td>eine Abfrage mit <code>IN (…)</code> + Dictionary</td><td>eigene Aggregationen, z. B. <code>latest_rejection_reasons()</code></td></tr>
+        <tr><td>eine Abfrage mit <code>IN (…)</code> + Dictionary</td><td>eigene Nachschlage-Mengen, z. B. alle <code>google_event_id</code>s beim Ausfiltern übertragener Google-Termine</td></tr>
       </table></div>
-      <div class="quiz" data-richtig="2"><h3>🧠 Wissensfrage</h3><p>Warum reicht in <code>event_rsvps</code> ein Index auf <code>user_id</code>, aber keiner auf <code>event_id</code>?</p>
-        <button>event_id wird nie abgefragt</button><button>PostgreSQL indiziert Fremdschlüssel automatisch</button><button>event_id ist die erste Spalte des UNIQUE-Index (event_id, user_id) – der deckt es ab</button>
+      <div class="quiz" data-richtig="2"><h3>🧠 Wissensfrage</h3><p>Der Mitarbeiter-Tab fragt „alle Termine von Mitarbeiter 5“ ab. Warum hilft dabei der Index <code>(assigned_to_id, is_deleted, start_time)</code>?</p>
+        <button>Er hilft nicht, nur ein Einzelindex würde helfen</button><button>PostgreSQL nutzt immer alle Indizes gleichzeitig</button><button>assigned_to_id ist die führende Spalte – der zusammengesetzte Index deckt die Abfrage ab</button>
         <p class="erklärung">Ein zusammengesetzter Index kann für Abfragen auf seine <i>führenden</i> Spalten genutzt werden.</p></div>
       <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
         <li><a href="https://www.w3schools.com/sql/sql_create_index.asp" target="_blank" rel="noopener">SQL CREATE INDEX</a><span class="typ">W3Schools</span></li>
@@ -791,56 +791,61 @@ db.Column(db.DateTime(timezone=<span class="k">True</span>))</code></pre></div>
       <ol>
         <li><b>Format:</b> gültige ISO-Zeiten, Ende nach Beginn, Titel vorhanden (max. 200 Zeichen), Meeting-Link nur <code>http(s)</code>, Kunde muss existieren.</li>
         <li><b>Ausführender aktiv?</b> Deaktivierte Benutzer dürfen nichts anlegen.</li>
-        <li><b>Pufferzeiten:</b> ganze Zahlen ≥ 0; Nicht-CEOs nur 15–30 Minuten.</li>
         <li><b>Zuweisung erlaubt?</b> Teamleitungen nur an Mitglieder des eigenen Teams (<code>AuthorizationService.can_manage_assignee</code>).</li>
-        <li><b>Kollision?</b> In der Datenbank und im privaten Google-Kalender – siehe <a href="#a-kollision">Kollisionserkennung</a>. Nur der CEO darf mit <code>override_conflict=true</code> bewusst überbuchen.</li>
-        <li><b>Speichern:</b> Termin, RSVP (Status PENDING), Benachrichtigung und Audit-Log in <b>einer</b> Transaktion.</li>
+        <li><b>Keine Kollisionsprüfung:</b> Termine dürfen sich überschneiden – siehe <a href="#a-ueberschneidung">Überschneidungen &amp; Google-Termine</a>.</li>
+        <li><b>Speichern:</b> Termin, Benachrichtigung an den Mitarbeiter und Audit-Log in <b>einer</b> Transaktion. Die Zuweisung ist verbindlich – es gibt keine Zu- oder Absage.</li>
         <li><b>Nach dem Commit:</b> E-Mail senden und Termin in Google spiegeln.</li>
       </ol>
       <div class="hinweis"><b>Teil-Updates</b> <code>update_event()</code> ändert nur Felder, die mitgeschickt werden. <code>"customer_id": null</code> oder <code>"meeting_link": null</code> bedeuten bewusst „entfernen“. Das Audit-Log speichert den Vorher- und Nachher-Stand.</div>
       <div class="quiz" data-richtig="0"><h3>🧠 Wissensfrage</h3><p>Eine Teamleitung will einen Termin einem Trainer aus einem fremden Team zuweisen. Welche Antwort liefert die API?</p>
-        <button>403 – Zugriff verweigert</button><button>409 – Kollision</button><button>201 – angelegt</button>
+        <button>403 – Zugriff verweigert</button><button>400 – ungültige Daten</button><button>201 – angelegt</button>
         <p class="erklärung"><code>can_manage_assignee</code> liefert „Termine dürfen nur Mitgliedern des eigenen Teams zugeordnet werden.“ und der Service antwortet mit 403.</p></div>
       <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
-        <li><a href="https://developer.mozilla.org/de/docs/Web/HTTP/Status/409" target="_blank" rel="noopener">HTTP 409 Conflict</a><span class="typ">MDN (Deutsch)</span></li>
+        <li><a href="https://developer.mozilla.org/de/docs/Web/HTTP/Status/403" target="_blank" rel="noopener">HTTP 403 Forbidden</a><span class="typ">MDN (Deutsch)</span></li>
         <li><a href="https://docs.sqlalchemy.org/en/20/orm/session_basics.html" target="_blank" rel="noopener">Session und Transaktionen</a><span class="typ">SQLAlchemy</span></li>
       </ul></div>
     </article>
 
-    <article id="a-kollision" data-gruppe="Fachlogik" data-titel="Kollisionserkennung" data-icon="🚧">
-      <h1>Kollisionserkennung mit Pufferzeiten</h1>
-      <p class="lead">Zwei Termine kollidieren, wenn sich ihre <b>um die Puffer verlängerten</b> Zeiträume überschneiden. Puffer stehen für Anfahrt, Vorbereitung oder Nachbereitung.</p>
+    <article id="a-ueberschneidung" data-gruppe="Fachlogik" data-titel="Überschneidungen &amp; Google-Termine" data-icon="🗓">
+      <h1>Überschneidungen und Google-Termine</h1>
+      <p class="lead">Termine dürfen sich überschneiden – es gibt bewusst <b>keine Kollisionsprüfung</b>. Ein Mitarbeiter hat oft mehrere ganztägige Einträge (Schulung, Prüfung, Urlaub) und dazu stundenweise Termine am selben Tag. Der Kalender zeigt alles <b>nebeneinander</b>, dazu die Termine aus seinem Google-Kalender.</p>
       <figure>
         <div class="diagramm">
-          <svg viewBox="0 0 900 250" role="img" aria-labelledby="d6t d6d"><desc id="d6d">Termin A von 10 bis 11 Uhr und Termin B von 11:10 bis 12:10 Uhr, jeweils mit 15 Minuten Puffer. Die Puffer überschneiden sich zwischen 10:55 und 11:15 Uhr, daher meldet das System eine Kollision.</desc>
-            <title id="d6t">Zeitleiste: Kollision durch Pufferzeiten</title>
-            <line x1="40" y1="215" x2="650" y2="215" class="d-linie"/>
-            <g class="d-klein" text-anchor="middle">
-              <text x="80" y="237">09:00</text><text x="245" y="237">10:00</text><text x="410" y="237">11:00</text><text x="575" y="237">12:00</text>
+          <svg viewBox="0 0 900 300" role="img" aria-labelledby="d6t d6d"><desc id="d6d">Ein Kalendertag: oben im Ganztagesbereich zwei ganztägige Einträge untereinander, darunter zwei sich überschneidende Termine mit Uhrzeit nebeneinander. Einträge aus Google sind gestrichelt umrandet, Termine aus der App ausgefüllt.</desc>
+            <title id="d6t">Ein Tag mit mehreren ganztägigen und gleichzeitigen Terminen</title>
+            <rect x="40" y="20" width="480" height="265" rx="10" fill="none" class="d-linie"/>
+            <text x="56" y="44" class="d-klein">Ganztägig</text>
+            <rect x="130" y="30" width="376" height="26" rx="6" fill="none" class="d-linie akzent d-strich"/><text x="142" y="48" class="d-klein">Google: Schulung FIAE (mehrtägig)</text>
+            <rect x="130" y="62" width="376" height="26" rx="6" fill="none" class="d-linie akzent d-strich"/><text x="142" y="80" class="d-klein">Google: Prüfungsvorbereitung</text>
+            <line x1="40" y1="100" x2="520" y2="100" class="d-linie"/>
+            <g class="d-klein"><text x="56" y="128">09:00</text><text x="56" y="188">10:00</text><text x="56" y="248">11:00</text></g>
+            <rect x="130" y="115" width="184" height="110" rx="6" class="d-box ok"/><text x="142" y="138" class="d-klein">App: Kundentermin</text><text x="142" y="156" class="d-klein">09:00–10:45</text>
+            <rect x="322" y="160" width="184" height="100" rx="6" fill="none" class="d-linie akzent d-strich"/><text x="334" y="183" class="d-klein">Google: Weekly</text><text x="334" y="201" class="d-klein">09:45–11:30</text>
+            <g class="d-klein">
+              <text x="560" y="50">① Mehrere Ganztagstermine: untereinander,</text>
+              <text x="580" y="68">nie „+2 weitere“ (dayMaxEvents: false)</text>
+              <text x="560" y="140">② Gleichzeitige Termine: nebeneinander</text>
+              <text x="580" y="158">statt übereinander (slotEventOverlap: false)</text>
+              <text x="560" y="220">③ Gestrichelt = aus Google (nur lesend,</text>
+              <text x="580" y="238">Klick öffnet den Termin in Google)</text>
             </g>
-            <g><line x1="80" y1="210" x2="80" y2="220" class="d-linie"/><line x1="245" y1="210" x2="245" y2="220" class="d-linie"/><line x1="410" y1="210" x2="410" y2="220" class="d-linie"/><line x1="575" y1="210" x2="575" y2="220" class="d-linie"/></g>
-            <text x="40" y="36" class="d-text">Termin A (bestehend)</text>
-            <rect x="204" y="48" width="41" height="36" rx="6" class="d-box warn"/><rect x="245" y="48" width="165" height="36" rx="6" class="d-box ok"/><rect x="410" y="48" width="41" height="36" rx="6" class="d-box warn"/>
-            <text x="327" y="71" text-anchor="middle" class="d-text">10:00 – 11:00</text>
-            <text x="40" y="118" class="d-text">Termin B (neu)</text>
-            <rect x="395" y="130" width="41" height="36" rx="6" class="d-box warn"/><rect x="436" y="130" width="165" height="36" rx="6" class="d-box akzent"/><rect x="601" y="130" width="41" height="36" rx="6" class="d-box warn"/>
-            <text x="518" y="153" text-anchor="middle" class="d-text">11:10 – 12:10</text>
-            <rect x="395" y="44" width="56" height="126" rx="6" fill="none" class="d-linie gefahr d-strich"/>
-            <text x="665" y="150" class="d-klein" style="fill:var(--gefahr)">⚠ Puffer überschneiden sich:</text>
-            <text x="665" y="166" class="d-klein">A belegt bis 11:15, B ab 10:55</text>
-            <text x="665" y="182" class="d-klein">→ 409 Kollision, obwohl sich die</text>
-            <text x="665" y="198" class="d-klein" dy="0">Termine selbst nicht berühren</text>
-            <rect x="665" y="44" width="16" height="12" rx="3" class="d-box warn"/><text x="687" y="54" class="d-klein">= 15 Minuten Puffer</text>
           </svg>
         </div>
-        <figcaption>Abbildung 6 – B beginnt 10 Minuten nach dem Ende von A. Mit je 15 Minuten Puffer überschneiden sich die belegten Zeiträume.</figcaption>
+        <figcaption>Abbildung 6 – Ein Tag im Kalender: Ganztägige und stundenweise Termine aus App und Google bleiben alle sichtbar.</figcaption>
       </figure>
-      <h2>Die Bedingung</h2>
-<pre><code>A.start − A.puffer_vorher  &lt;  B.ende  + B.puffer_nachher
-<span class="k">UND</span>
-A.ende  + A.puffer_nachher &gt;  B.start − B.puffer_vorher</code></pre>
-      <p>Die komplette Bedingung läuft als SQL in PostgreSQL (mit <code>make_interval()</code> für die Puffer der bestehenden Termine) – nicht in einer Python-Schleife.</p>
-      <h2>Der größte Bug des Projekts</h2>
+      <h2>Woher kommen die Google-Termine?</h2>
+      <p>Das Frontend fragt <code>GET /api/v1/google/events?start=…&amp;end=…</code> ab (<code>fetchGoogleEvents()</code> in <a data-datei="app/static/js/app.js">app.js</a>). Der Server liest mit <code>GoogleCalendarService.list_events()</code> in <a data-datei="app/services/calendar_service.py">calendar_service.py</a> die Termine des zugeordneten Kalenders über die <b>Events-API</b> – Serientermine einzeln aufgelöst, abgesagte ausgelassen.</p>
+      <div class="hinweis warn"><b>Warum nicht Frei/Belegt?</b> Früher nutzte die App die Free/Busy-API. Die liefert keine Titel – und <b>ganztägige Einträge sind in Google standardmäßig „Frei“</b>, fehlen dort also komplett. Genau die Schulungen wären unsichtbar geblieben. Deshalb braucht das verbundene Konto jetzt mindestens das Recht „Alle Termindetails sehen“.</div>
+      <h2>Keine Dopplungen</h2>
+      <p>Die App überträgt ihre eigenen Termine in den Google-Kalender des Mitarbeiters (<a href="#a-google">Google-Kalender</a>). Beim Lesen würden sie sonst doppelt erscheinen. Zwei Sicherungen verhindern das:</p>
+      <ul>
+        <li>Jeder übertragene Termin trägt in Google die Markierung <code>extendedProperties.private.bellmann_app</code> – solche Einträge überspringt <code>_termin_aus_google()</code>.</li>
+        <li>Ältere Kopien ohne Markierung erkennt die Route an der gespeicherten <code>events.google_event_id</code>.</li>
+      </ul>
+      <h2>Kalender anderer Mitarbeiter (Tabs)</h2>
+      <p>CEO, Administration und Teamleitung sehen über dem Kalender Tabs: „Alle Termine“ und je Mitarbeiter einen Tab. Ein Mitarbeiter-Tab zeigt dessen App-Termine <b>und</b> seinen Google-Kalender – ohne sich als er anzumelden. Der Tab steht in der URL (<code>/dashboard?mitarbeiter=2</code>), neue Termine aus dem Tab sind ihm gleich zugewiesen. Wer wessen Google-Termine sehen darf, prüft der Server mit denselben Regeln wie bei Terminen (<code>_sichtbare_benutzer_ids()</code>): Teamleitung nur das eigene Team, Trainer nur sich selbst.</p>
+      <h2>Lektion aus der alten Kollisionsprüfung</h2>
+      <p>Die frühere Kollisionsprüfung enthielt den größten Bug des Projekts – eine SQLAlchemy-Falle, die überall lauert, wo in Abfragen gefiltert wird:</p>
       <div class="vorher-nachher">
         <div><span class="etikett schlecht">✗ Vorher</span>
 <pre><code>Event.query.filter(
@@ -851,58 +856,66 @@ A.ende  + A.puffer_nachher &gt;  B.start − B.puffer_vorher</code></pre>
   Event.assigned_to_id == uid,
   Event.is_deleted.is_(<span class="k">False</span>))</code></pre></div>
       </div>
-      <div class="hinweis gefahr"><b>Warum das fatal war</b> Python wertet <code>not Event.is_deleted</code> sofort aus – ein Objekt ist „wahr“, also ergibt <code>not …</code> <code>False</code>. Die Abfrage wurde zu <code>WHERE … AND false</code> und fand <b>nie</b> einen Konflikt. Doppelbuchungen waren unbemerkt möglich. SQLAlchemy kann <code>==</code> und <code>&lt;</code> überladen, Pythons <code>not</code>, <code>and</code>, <code>or</code> aber nicht – deshalb gibt es <code>is_()</code>, <code>not_()</code>, <code>and_()</code>, <code>or_()</code>.</div>
-      <h2>Und der Google-Kalender?</h2>
-      <p>Findet die Datenbank nichts und hat der Mitarbeiter eine <code>google_calendar_id</code>, fragt <code>GoogleCalendarService.get_busy_times()</code> die Free/Busy-API ab. Jeder belegte Block im Zeitraum zählt als „Privater Termin (Google Kalender)“.</p>
-      <div class="quiz" data-richtig="1"><h3>🧠 Wissensfrage</h3><p>Termin A: 14:00–15:00, Puffer 15/15. Termin B soll um 15:30 beginnen (Puffer 15/15). Kollision?</p>
-        <button>Ja</button><button>Nein – A ist bis 15:15 belegt, B ab 15:15</button><button>Nur für Nicht-CEOs</button>
-        <p class="erklärung">Die Bedingung verlangt echtes „kleiner als“: 15:15 &lt; 15:15 ist falsch. Die Puffer berühren sich nur – keine Überschneidung.</p></div>
+      <div class="hinweis gefahr"><b>Warum das fatal war</b> Python wertet <code>not Event.is_deleted</code> sofort aus – ein Objekt ist „wahr“, also ergibt <code>not …</code> <code>False</code>. Die Abfrage wurde zu <code>WHERE … AND false</code> und fand <b>nie</b> etwas. SQLAlchemy kann <code>==</code> und <code>&lt;</code> überladen, Pythons <code>not</code>, <code>and</code>, <code>or</code> aber nicht – deshalb gibt es <code>is_()</code>, <code>not_()</code>, <code>and_()</code>, <code>or_()</code>.</div>
+      <div class="quiz" data-richtig="1"><h3>🧠 Wissensfrage</h3><p>In Thorbens Google-Kalender steht eine mehrtägige Schulung als ganztägiger Eintrag. Warum war sie mit der alten Frei/Belegt-Abfrage nicht zu sehen?</p>
+        <button>Weil Google mehrtägige Termine nicht über die API liefert</button><button>Weil ganztägige Einträge in Google standardmäßig „Frei“ sind und Frei/Belegt nur belegte Zeiten meldet</button><button>Weil der Kalender nicht geteilt war</button>
+        <p class="erklärung">Frei/Belegt kennt nur „belegt“. Ein als „Frei“ markierter Eintrag – bei ganztägigen Terminen die Voreinstellung – taucht dort gar nicht auf. Die Events-API liefert dagegen jeden Eintrag.</p></div>
       <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
+        <li><a href="https://developers.google.com/calendar/api/v3/reference/events/list" target="_blank" rel="noopener">Events: list</a><span class="typ">Google</span></li>
+        <li><a href="https://developers.google.com/calendar/api/guides/extended-properties" target="_blank" rel="noopener">Extended Properties</a><span class="typ">Google</span></li>
+        <li><a href="https://fullcalendar.io/docs/dayMaxEvents" target="_blank" rel="noopener">dayMaxEvents</a><span class="typ">FullCalendar</span></li>
+        <li><a href="https://fullcalendar.io/docs/slotEventOverlap" target="_blank" rel="noopener">slotEventOverlap</a><span class="typ">FullCalendar</span></li>
+        <li><a href="https://www.w3.org/WAI/ARIA/apg/patterns/tabs/" target="_blank" rel="noopener">Tabs barrierefrei (WAI-ARIA)</a><span class="typ">W3C</span></li>
         <li><a href="https://docs.sqlalchemy.org/en/20/core/sqlelement.html#sqlalchemy.sql.expression.ColumnOperators.is_" target="_blank" rel="noopener">ColumnOperators.is_()</a><span class="typ">SQLAlchemy</span></li>
-        <li><a href="https://www.w3schools.com/python/python_booleans.asp" target="_blank" rel="noopener">Booleans in Python</a><span class="typ">W3Schools</span></li>
-        <li><a href="https://www.postgresql.org/docs/16/functions-datetime.html" target="_blank" rel="noopener">Datums-Funktionen (make_interval)</a><span class="typ">PostgreSQL</span></li>
       </ul></div>
     </article>
 
-    <article id="a-rsvp" data-gruppe="Fachlogik" data-titel="Rückmeldungen (RSVP)" data-icon="✉️">
-      <h1>Rückmeldungen (RSVP)</h1>
-      <p class="lead">Wer einen Termin zugewiesen bekommt, erhält eine Einladung mit Status <code>PENDING</code> und antwortet mit Zusage, Vorbehalt oder Absage – eine Absage braucht eine Begründung.</p>
+    <article id="a-ansicht" data-gruppe="Fachlogik" data-titel="Kalenderansicht &amp; Zuweisung" data-icon="🗂">
+      <h1>Kalenderansicht und Zuweisung</h1>
+      <p class="lead">Termine werden Mitarbeitern <b>verbindlich zugewiesen</b> – sie sagen nicht zu oder ab. Die Planung sieht auf einen Blick diese und nächste Woche und kann über Tabs in den Kalender jedes Mitarbeiters schauen.</p>
       <figure>
         <div class="diagramm">
-          <svg viewBox="0 0 900 280" role="img" aria-labelledby="d7t">
-            <title id="d7t">Zustandsdiagramm einer Rückmeldung</title>
-            <g text-anchor="middle">
-              <rect x="30" y="110" width="150" height="60" rx="30" class="d-box"/><text x="105" y="145" class="d-text">PENDING</text>
-              <rect x="330" y="20" width="160" height="60" rx="30" class="d-box ok"/><text x="410" y="55" class="d-text">ACCEPTED</text>
-              <rect x="330" y="110" width="160" height="60" rx="30" class="d-box warn"/><text x="410" y="145" class="d-text">TENTATIVE</text>
-              <rect x="330" y="200" width="160" height="60" rx="30" class="d-box gefahr"/><text x="410" y="235" class="d-text">DECLINED</text>
-              <rect x="620" y="195" width="250" height="70" rx="12" class="d-box akzent"/><text x="745" y="222" class="d-text">Termin frei · reallocation</text><text x="745" y="244" class="d-klein">Teamleitung wird benachrichtigt</text>
+          <svg viewBox="0 0 900 250" role="img" aria-labelledby="d7t d7d"><desc id="d7d">Standardansicht: zwei Wochenzeilen untereinander, jeweils Montag bis Sonntag mit Kalenderwoche am Zeilenanfang. In den Tageszellen stehen ganztägige Balken und darunter stundenweise Termine mit Uhrzeit.</desc>
+            <title id="d7t">Standardansicht: diese und nächste Woche untereinander</title>
+            <g class="d-klein" text-anchor="middle">
+              <text x="145" y="30">Mo</text><text x="245" y="30">Di</text><text x="345" y="30">Mi</text><text x="445" y="30">Do</text><text x="545" y="30">Fr</text><text x="645" y="30">Sa</text><text x="745" y="30">So</text>
             </g>
-            <path d="M180 130 C 250 60, 270 50, 326 50" class="d-linie ok" marker-end="url(#pfeil-ok)"/>
-            <line x1="180" y1="140" x2="326" y2="140" class="d-linie" marker-end="url(#pfeil)"/>
-            <path d="M180 150 C 250 220, 270 230, 326 230" class="d-linie gefahr" marker-end="url(#pfeil-gefahr)"/>
-            <line x1="490" y1="230" x2="616" y2="230" class="d-linie gefahr" marker-end="url(#pfeil-gefahr)"/>
-            <path d="M745 195 C 745 110, 600 20, 110 20 L 105 106" class="d-linie akzent d-strich" marker-end="url(#pfeil-akzent)"/>
-            <text x="250" y="222" class="d-klein">mit Begründung (Pflicht)</text>
-            <text x="560" y="40" class="d-klein">neu zuweisen → neue Einladung PENDING</text>
+            <text x="40" y="70" class="d-klein">KW 39</text><text x="40" y="170" class="d-klein">KW 40</text>
+            <rect x="95" y="40" width="700" height="95" rx="8" fill="none" class="d-linie"/>
+            <rect x="95" y="140" width="700" height="95" rx="8" fill="none" class="d-linie"/>
+            <rect x="100" y="50" width="490" height="20" rx="5" fill="none" class="d-linie akzent d-strich"/><text x="110" y="64" class="d-klein">Google: LF-VT3b (GFN), ganztägig Mo–Fr</text>
+            <rect x="400" y="76" width="90" height="20" rx="5" class="d-box ok"/><text x="408" y="90" class="d-klein">14:00 Weekly</text>
+            <rect x="400" y="100" width="90" height="20" rx="5" class="d-box ok"/><text x="408" y="114" class="d-klein">16:00 Kunde</text>
+            <rect x="500" y="150" width="90" height="20" rx="5" fill="none" class="d-linie akzent d-strich"/><text x="508" y="164" class="d-klein">Prüfung</text>
+            <rect x="500" y="174" width="90" height="20" rx="5" fill="none" class="d-linie akzent d-strich"/><text x="508" y="188" class="d-klein">Vorbereitung</text>
+            <rect x="200" y="150" width="90" height="20" rx="5" class="d-box ok"/><text x="208" y="164" class="d-klein">09:00 Schulung</text>
+            <text x="810" y="70" class="d-klein">diese</text><text x="810" y="86" class="d-klein">Woche</text>
+            <text x="810" y="170" class="d-klein">nächste</text><text x="810" y="186" class="d-klein">Woche</text>
           </svg>
         </div>
-        <figcaption>Abbildung 7 – Status einer Einladung. Eine Absage gibt den Termin frei und stößt die Neu-Zuweisung an.</figcaption>
+        <figcaption>Abbildung 7 – Standardansicht „2 Wochen“: Jede Tageszelle zeigt alle Termine – mehrere ganztägige und stundenweise.</figcaption>
       </figure>
-      <h2>Was bei einer Absage passiert</h2>
+      <h2>Die Ansichten</h2>
+      <ul>
+        <li><b>Standard:</b> <code>twoWeeks</code> – eine eigene FullCalendar-Ansicht (<code>dayGrid</code>, Dauer 2 Wochen, <code>dateAlignment: "week"</code>). „Heute“ und die Pfeile springen immer auf einen Montag.</li>
+        <li><b>Smartphone:</b> dieselben zwei Wochen als Liste (<code>listTwoWeeks</code>).</li>
+        <li>Woche, Tag und Monat bleiben als Umschalter erhalten (<code>CUSTOM_VIEWS</code> in <a data-datei="app/static/js/pages/dashboard.js">dashboard.js</a>).</li>
+      </ul>
+      <h2>Verbindliche Zuweisung</h2>
       <ol>
-        <li>Prüfung: Nur die eingeladene Person, nur solange sie noch zugewiesen ist (sonst 409).</li>
-        <li><code>assigned_to_id = NULL</code>, <code>reallocation_required = True</code> – der Termin erscheint im Kalender rot.</li>
-        <li><b>Genau eine</b> Benachrichtigung an die zuständige Teamleitung (Team des Erstellers), sonst an den Ersteller.</li>
-        <li>Audit-Eintrag <code>RSVP_DECLINED_REALLOCATION_NEEDED</code> mit Begründung.</li>
+        <li>Die Planung legt einen Termin an und wählt den Mitarbeiter – fertig. Es gibt keinen Status „offen“, „zugesagt“ oder „abgelehnt“.</li>
+        <li>Der Mitarbeiter bekommt eine In-App-Benachrichtigung und eine E-Mail, der Termin wird in seinen Google-Kalender übertragen.</li>
+        <li>Soll jemand anderes den Termin übernehmen, ändert die Planung im Dialog „Bearbeiten“ den Mitarbeiter – die Google-Kopie zieht mit um.</li>
+        <li>Wird ein Mitarbeiter gelöscht, bleiben seine Termine als „Nicht zugewiesen“ stehen und können über „Bearbeiten“ neu vergeben werden.</li>
       </ol>
-      <div class="hinweis warn"><b>Sicherheit</b> Die Begründung ist freier Text eines Trainers und landet in der Benachrichtigung der Teamleitung und des CEO. Genau hier saß eine XSS-Lücke – siehe <a href="#a-xss">XSS-Schutz</a>.</div>
-      <div class="quiz" data-richtig="2"><h3>🧠 Wissensfrage</h3><p>Ein Trainer lehnt ab, ohne Begründung. Ergebnis?</p>
-        <button>Absage wird gespeichert</button><button>Termin wird gelöscht</button><button>400 – „Für eine Ablehnung ist eine Begründung erforderlich.“</button>
-        <p class="erklärung">Die Pflichtbegründung wird im <code>RSVPService</code> geprüft – nicht nur im Formular.</p></div>
+      <div class="hinweis"><b>Früher</b> gab es Rückmeldungen (RSVP) mit Pflichtbegründung bei Absage und eine rote Markierung „abgelehnt – neu zuweisen“. Das war nie eine Anforderung; die Migration <code>f2a3b4c5d6e7</code> hat Tabelle und Markierung entfernt.</div>
+      <div class="quiz" data-richtig="1"><h3>🧠 Wissensfrage</h3><p>Ein Trainer soll einen bereits zugewiesenen Termin nicht mehr machen. Was tut die Planung?</p>
+        <button>Der Trainer sagt im Kalender ab</button><button>Im Termin „Bearbeiten“ einen anderen Mitarbeiter wählen</button><button>Termin löschen und neu anlegen</button>
+        <p class="erklärung">Zugewiesen wird nur von der Planung. Beim Wechsel des Mitarbeiters entfernt die App die Google-Kopie beim alten und legt sie beim neuen an.</p></div>
       <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
-        <li><a href="https://de.wikipedia.org/wiki/Endlicher_Automat" target="_blank" rel="noopener">Endlicher Automat (Zustandsmaschine)</a><span class="typ">Wikipedia (Deutsch)</span></li>
-        <li><a href="https://www.w3schools.com/python/python_conditions.asp" target="_blank" rel="noopener">If … Else in Python</a><span class="typ">W3Schools</span></li>
+        <li><a href="https://fullcalendar.io/docs/custom-views" target="_blank" rel="noopener">Eigene Ansichten (Custom Views)</a><span class="typ">FullCalendar</span></li>
+        <li><a href="https://fullcalendar.io/docs/dateAlignment" target="_blank" rel="noopener">dateAlignment</a><span class="typ">FullCalendar</span></li>
+        <li><a href="https://fullcalendar.io/docs/weekNumbers" target="_blank" rel="noopener">weekNumbers</a><span class="typ">FullCalendar</span></li>
       </ul></div>
     </article>
 
@@ -990,13 +1003,14 @@ A.ende  + A.puffer_nachher &gt;  B.start − B.puffer_vorher</code></pre>
         <tr><td>Termin angelegt und zugewiesen</td><td>Kopie im Kalender des Mitarbeiters anlegen</td></tr>
         <tr><td>Zeit, Titel oder Beschreibung geändert</td><td>Kopie ändern</td></tr>
         <tr><td>Anderem Mitarbeiter zugewiesen</td><td>beim alten löschen, beim neuen anlegen</td></tr>
-        <tr><td>Absage (RSVP) oder Termin gelöscht</td><td>Kopie löschen</td></tr>
+        <tr><td>Termin gelöscht</td><td>Kopie löschen</td></tr>
       </table></div>
-      <h2>Anzeige und Kollisionsprüfung</h2>
+      <h2>Anzeige</h2>
       <ul>
-        <li>Die <b>Kollisionsprüfung</b> fragt die Frei/Belegt-API ab – ein privater Termin blockiert die Zuweisung (409).</li>
-        <li>Im <b>Dashboard</b> und in der <b>Vergleichsansicht</b> erscheinen private Termine als graue „Belegt (Google)“-Blöcke – bewusst <b>nur Zeiten, keine Titel</b> (Privatsphäre). Wer welche Blöcke sieht, folgt denselben Regeln wie bei Terminen.</li>
-        <li>Antworten werden 60 Sekunden zwischengespeichert, bis zu 50 Kalender pro Anfrage gebündelt.</li>
+        <li>Im <b>Dashboard</b> (auch im Tab eines Mitarbeiters) und in der <b>Vergleichsansicht</b> erscheinen die Termine des zugeordneten Google-Kalenders <b>mit Titel</b>, gestrichelt und nur lesend – Details in <a href="#a-ueberschneidung">Überschneidungen &amp; Google-Termine</a>.</li>
+        <li>Wer wessen Termine sieht, folgt denselben Regeln wie bei App-Terminen.</li>
+        <li>Antworten werden 60 Sekunden zwischengespeichert (<code>GOOGLE_EVENTS_CACHE_SECONDS</code>).</li>
+        <li>Es gibt <b>keine</b> Kollisionsprüfung – Google-Termine blockieren nichts.</li>
       </ul>
       <div class="hinweis"><b>Einrichtung</b> Die Schritt-für-Schritt-Anleitung (Google Cloud Console, OAuth-Client, <code>.env</code>) steht in der README im Abschnitt „Google-Kalender anbinden“. Wichtig: App auf „In Produktion“ stellen – im Testmodus laufen die Zugänge nach 7 Tagen ab.</div>
       <div class="quiz" data-richtig="2"><h3>🧠 Wissensfrage</h3><p>Warum reicht ein einfacher Google-API-Key nicht, um die Kalender der Mitarbeiter zu lesen?</p>
@@ -1004,7 +1018,7 @@ A.ende  + A.puffer_nachher &gt;  B.start − B.puffer_vorher</code></pre>
         <p class="erklärung">Private Kalender brauchen die Zustimmung einer Person (OAuth) – hier die von Kai, der die Kalender der Mitarbeiter bereits geteilt bekommen hat.</p></div>
       <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
         <li><a href="https://developers.google.com/identity/protocols/oauth2/web-server" target="_blank" rel="noopener">OAuth 2.0 für Webserver-Anwendungen</a><span class="typ">Google</span></li>
-        <li><a href="https://developers.google.com/calendar/api/v3/reference/freebusy/query" target="_blank" rel="noopener">Free/Busy-API</a><span class="typ">Google</span></li>
+        <li><a href="https://developers.google.com/calendar/api/v3/reference/events/list" target="_blank" rel="noopener">Events-API (list)</a><span class="typ">Google</span></li>
         <li><a href="https://oauth.net/2/pkce/" target="_blank" rel="noopener">PKCE erklärt</a><span class="typ">oauth.net</span></li>
         <li><a href="https://cryptography.io/en/latest/fernet/" target="_blank" rel="noopener">Fernet-Verschlüsselung</a><span class="typ">cryptography</span></li>
         <li><a href="https://developer.mozilla.org/de/docs/Web/HTTP/Headers/Set-Cookie#samesitesamesite-value" target="_blank" rel="noopener">SameSite-Cookies</a><span class="typ">MDN (Deutsch)</span></li>
@@ -1090,10 +1104,9 @@ max.weber@bellmann-engineering.com,Max,Weber,TEAM_LEADER</code></pre>
       <p class="lead">Vier Rollen mit klarer Hierarchie: <b>CEO &gt; ADMIN &gt; TEAM_LEADER &gt; TRAINER</b>. Alle Regeln stehen an einer Stelle: <a data-datei="app/services/authorization_service.py">authorization_service.py</a>.</p>
       <div class="tabelle-wrap"><table>
         <tr><th>Aktion</th><th>CEO</th><th>ADMIN</th><th>TEAM_LEADER</th><th>TRAINER</th></tr>
-        <tr><td>Eigene Termine sehen, zu-/absagen</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+        <tr><td>Eigene Termine sehen</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
         <tr><td>Termine anlegen/ändern/löschen</td><td>alle</td><td>alle</td><td>nur eigenes Team</td><td>–</td></tr>
-        <tr><td>Kollision bewusst überbuchen</td><td>✓</td><td>–</td><td>–</td><td>–</td></tr>
-        <tr><td>Pufferzeiten frei wählen</td><td>✓</td><td>15–30 min</td><td>15–30 min</td><td>–</td></tr>
+        <tr><td>Kalender anderer Mitarbeiter ansehen (Tabs, inkl. Google)</td><td>alle</td><td>alle</td><td>eigenes Team</td><td>–</td></tr>
         <tr><td>Benutzerliste sehen</td><td>alle</td><td>alle</td><td>eigenes Team</td><td>–</td></tr>
         <tr><td>Benutzer anlegen/ändern/sperren</td><td>alle Rollen</td><td>nur TRAINER/TEAM_LEADER</td><td>–</td><td>–</td></tr>
         <tr><td>Kunden verwalten</td><td>✓</td><td>✓</td><td>nur lesen</td><td>–</td></tr>
@@ -1463,18 +1476,18 @@ docker rm -f bellmann_test_pg</code></pre>
         <tr><th>Datei</th><th>Schwerpunkt</th></tr>
         <tr><td><a data-datei="tests/test_auth.py">test_auth.py</a></td><td>HttpOnly-Cookies, CSRF, Refresh, sofortige Sperre, Einmal-Reset-Links</td></tr>
         <tr><td><a data-datei="tests/test_users.py">test_users.py</a></td><td>Rollen-Hierarchie (keine Rechteausweitung), CSV-Import</td></tr>
-        <tr><td><a data-datei="tests/test_events.py">test_events.py</a></td><td>Kollisionen (Regressionstest des großen Bugs), Zeitzonen, Sichtbarkeit, kein N+1</td></tr>
-        <tr><td><a data-datei="tests/test_rsvp.py">test_rsvp.py</a></td><td>Pflichtbegründung, Neu-Zuweisung, genau eine Benachrichtigung</td></tr>
-        <tr><td><a data-datei="tests/test_admin_teams.py">test_admin_teams.py</a></td><td>Rechteentzug, Teams, Benachrichtigungen, Google-Kollision (gemockt)</td></tr>
+        <tr><td><a data-datei="tests/test_events.py">test_events.py</a></td><td>Überschneidungen erlaubt, Zeitzonen, Sichtbarkeit, kein N+1</td></tr>
+        <tr><td><a data-datei="tests/test_google.py">test_google.py</a></td><td>OAuth-Verbindung, Übertragung nach Google, Google-Termine (Sichtbarkeit, parallele Ganztagstermine, keine Dopplungen)</td></tr>
+        <tr><td><a data-datei="tests/test_admin_teams.py">test_admin_teams.py</a></td><td>Rechteentzug, Teams, Benachrichtigungen, Kunden</td></tr>
         <tr><td><a data-datei="tests/test_platform.py">test_platform.py</a></td><td>Health-Check, Fehler ohne Details, Fail-fast-Konfiguration, kein Inline-JavaScript auf allen Seiten, versionierte Assets mit Cache-Headern</td></tr>
       </table></div>
       <h2>Aufbau eines Tests (Arrange – Act – Assert)</h2>
-<pre><code><span class="k">def</span> <span class="n">test_kollision_wird_erkannt</span>(client, make_user, login, csrf):
-    admin = make_user(<span class="s">"ADMIN"</span>); trainer = make_user(<span class="s">"TRAINER"</span>)     <span class="c"># Arrange</span>
-    login(admin)
-    client.post(<span class="s">"/api/v1/events"</span>, json=termin(trainer.id), headers=csrf())
-    antwort = client.post(<span class="s">"/api/v1/events"</span>, json=termin(trainer.id, <span class="s">"10:30"</span>), headers=csrf())  <span class="c"># Act</span>
-    <span class="k">assert</span> antwort.status_code == <span class="n">409</span>                                <span class="c"># Assert</span></code></pre>
+<pre><code><span class="k">def</span> <span class="n">test_teamleitung_plant_nur_im_eigenen_team</span>(client, make_user, make_team, login, csrf):
+    leitung = make_user(<span class="s">"TEAM_LEADER"</span>); fremd = make_user(<span class="s">"TRAINER"</span>)  <span class="c"># Arrange</span>
+    make_team(<span class="s">"Vertrieb"</span>, leader=leitung)
+    login(leitung)
+    antwort = client.post(<span class="s">"/api/v1/events"</span>, json=termin(fremd.id), headers=csrf())  <span class="c"># Act</span>
+    <span class="k">assert</span> antwort.status_code == <span class="n">403</span>                                <span class="c"># Assert</span></code></pre>
       <div class="quiz" data-richtig="1"><h3>🧠 Wissensfrage</h3><p>Warum laufen die Tests gegen PostgreSQL und nicht gegen das bequemere SQLite?</p>
         <button>SQLite ist nicht kostenlos</button><button>Weil timestamptz, make_interval &amp; Co. PostgreSQL-spezifisch sind – Tests sollen die echte Umgebung abbilden</button><button>pytest kann kein SQLite</button>
         <p class="erklärung">Ein Test, der in einer anderen Datenbank grün ist, beweist wenig über die Produktion.</p></div>
@@ -1541,7 +1554,7 @@ ruff check . &amp;&amp; black --check .</code></pre>
         <tr><td>Abhängigkeiten mit <code>==</code> fest pinnen</td><td>reproduzierbare Builds</td></tr>
       </table></div>
       <div class="quiz" data-richtig="2"><h3>🧠 Wissensfrage</h3><p>Welche Commit-Meldung entspricht den Projektregeln?</p>
-        <button><code>fixed stuff</code></button><button><code>Fix: Bug behoben!!!</code></button><button><code>fix(events): Kollisionsprüfung berücksichtigt Pufferzeiten</code></button>
+        <button><code>fixed stuff</code></button><button><code>Fix: Bug behoben!!!</code></button><button><code>fix(events): ganztägige Google-Termine im Kalender anzeigen</code></button>
         <p class="erklärung">Typ, optionaler Bereich in Klammern, Doppelpunkt, dann eine kurze, aussagekräftige Beschreibung.</p></div>
       <div class="quellen"><h2>Quellen &amp; Vertiefung</h2><ul>
         <li><a href="https://docs.astral.sh/ruff/rules/" target="_blank" rel="noopener">Alle ruff-Regeln</a><span class="typ">Ruff</span></li>
@@ -1569,9 +1582,10 @@ ruff check . &amp;&amp; black --check .</code></pre>
         <tr><td><span class="abzeichen">mittel</span></td><td>N+1-Abfragen, fehlende Indizes, naive Zeitstempel</td><td>joinedload, Indizes, timestamptz</td></tr>
         <tr><td><span class="abzeichen">mittel</span></td><td>DB-Port offen, Container als root, kein TLS</td><td>expose, UID 10001, HTTPS mit Nginx</td></tr>
         <tr><td><span class="abzeichen">25.09.</span></td><td>Oberfläche wirkte veraltet, CSP brauchte <code>'unsafe-inline'</code> und CDNs</td><td>Redesign mit Designsystem, Tailwind-Build, selbst gehostetes FullCalendar, strikte CSP, Lighthouse 100</td></tr>
+        <tr><td><span class="abzeichen">25.09.</span></td><td>Kollisionsprüfung und Zu-/Absagen waren nie Anforderungen; ganztägige Google-Termine („Frei“) fehlten in der Anzeige</td><td>Kollisionsprüfung, Pufferzeiten und Rückmeldungen (RSVP) entfernt, Google-Termine mit Titel über die Events-API, Mitarbeiter-Tabs für Planer, Standardansicht „2 Wochen“</td></tr>
         <tr><td><span class="abzeichen">niedrig</span></td><td>keine Tests, keine CI, ungepinnte Pakete, <code>print()</code>, spanische Texte</td><td>Tests, GitHub Actions, Pins, Logging, Deutsch</td></tr>
       </table></div>
-      <div class="hinweis ok"><b>Die wichtigste Lehre</b> Die gefährlichsten Fehler werfen <i>keine</i> Fehlermeldung: Die Kollisionsprüfung „funktionierte“ still falsch, die Secrets lagen still im Verlauf. Deshalb braucht jedes Projekt Tests, die das <b>erwartete Verhalten</b> prüfen – nicht nur, ob der Code läuft.</div>
+      <div class="hinweis ok"><b>Die wichtigste Lehre</b> Die gefährlichsten Fehler werfen <i>keine</i> Fehlermeldung: Die (inzwischen entfernte) Kollisionsprüfung „funktionierte“ still falsch, die Secrets lagen still im Verlauf. Deshalb braucht jedes Projekt Tests, die das <b>erwartete Verhalten</b> prüfen – nicht nur, ob der Code läuft.</div>
     </article>
 
     <article id="a-glossar" data-gruppe="Nachschlagen" data-titel="Glossar" data-icon="📖">
@@ -1596,7 +1610,6 @@ ruff check . &amp;&amp; black --check .</code></pre>
         <tr><td>ORM</td><td>Object-Relational Mapping – Tabellen als Python-Klassen (SQLAlchemy).</td></tr>
         <tr><td>Rate-Limiting</td><td>Begrenzung der Anfragen pro Zeit und Client.</td></tr>
         <tr><td>Reverse Proxy</td><td>Server vor der Anwendung, der Anfragen annimmt und weiterleitet (Nginx).</td></tr>
-        <tr><td>RSVP</td><td>„Répondez s'il vous plaît“ – Rückmeldung auf eine Einladung.</td></tr>
         <tr><td>Soft-Delete</td><td>Datensatz wird als gelöscht markiert statt physisch entfernt.</td></tr>
         <tr><td>timestamptz</td><td>PostgreSQL-Zeitstempel mit Zeitzone (intern UTC).</td></tr>
         <tr><td>TLS</td><td>Verschlüsselung der Verbindung (das „S“ in HTTPS).</td></tr>

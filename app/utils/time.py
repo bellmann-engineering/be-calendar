@@ -10,7 +10,7 @@ Grundregel des Projekts:
     * ``datetime.utcnow()`` ist verboten (liefert "naive" Werte) -> ``utc_now()`` nutzen.
 
 Wer benutzt diese Datei?
-    Services (event_service, rsvp_service, ...), Routen (Serialisierung) und Models
+    Services (event_service, ...), Routen (Serialisierung) und Models
     (Default-Werte für created_at & Co.).
 
 Wovon hängt sie ab?

@@ -6,7 +6,7 @@ Beziehungen:
     * n:1 ``users``     über ``created_by_id``   -> ``event.created_by`` (wer hat angelegt)
     * n:1 ``users``     über ``assigned_to_id``  -> ``event.assigned_to`` (wer führt durch)
     * n:1 ``events``    über ``parent_event_id`` -> ``event.parent_event`` (Serien/Ausnahmen)
-    * 1:n ``event_rsvps`` und ``audit_logs`` (definiert in den jeweiligen Models)
+    * 1:n ``audit_logs`` (definiert in app/models/audit.py)
 
 Zeiten:
     ``start_time``/``end_time`` sind ``timestamptz`` (UTC). Termine eines Mitarbeiters
@@ -69,8 +69,6 @@ class Event(db.Model):
 
     is_deleted = db.Column(db.Boolean, default=False, nullable=False, index=True)
     deleted_at = db.Column(db.DateTime(timezone=True), nullable=True)
-    # True, wenn der zugewiesene Trainer abgelehnt hat -> Teamleitung muss neu zuweisen.
-    reallocation_required = db.Column(db.Boolean, default=False, nullable=False, index=True)
     created_at = db.Column(db.DateTime(timezone=True), default=utc_now)
     updated_at = db.Column(db.DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 

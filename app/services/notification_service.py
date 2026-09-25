@@ -8,7 +8,7 @@ Was macht diese Datei?
     * ``mark_as_read()``           – eine eigene Benachrichtigung als gelesen markieren.
 
 Wer benutzt sie?
-    EventService (Termin zugewiesen), RSVPService (Termin abgelehnt),
+    EventService (Termin zugewiesen),
     Routen in ``app/routes/notification_routes.py``.
 
 Womit spricht sie?

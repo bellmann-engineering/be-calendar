@@ -1,6 +1,6 @@
 # Kalendersystem der Bellmann Engineering GmbH
 
-Kalender- und Einsatzplanung für **Bellmann Engineering**: Termine anlegen und Mitarbeitern zuweisen, Rückmeldungen (RSVP) mit Pflichtbegründung, Anbindung an die Google-Kalender der Mitarbeiter (Termine anzeigen und übertragen), Rollen- und Teamrechte sowie ein lückenloses Audit-Log.
+Kalender- und Einsatzplanung für **Bellmann Engineering**: Termine anlegen und Mitarbeitern verbindlich zuweisen, Kalender einzelner Mitarbeiter für Planer, Anbindung an die Google-Kalender der Mitarbeiter (Termine anzeigen und übertragen), Rollen- und Teamrechte sowie ein lückenloses Audit-Log.
 
 > **⚠️ Wichtiger Hinweis (24.09.2026): Der Git-Verlauf wurde bereinigt.**
 > Alte Commits enthielten Zugangsdaten (`.env`, Passwörter in `setup.sh`). Der Verlauf wurde neu geschrieben und alle betroffenen Secrets wurden rotiert.
@@ -154,7 +154,7 @@ Ein CEO/Admin verbindet **einmalig sein Google-Konto**. Danach stehen alle Kalen
 | Funktion | Voraussetzung (Freigabe des Mitarbeiter-Kalenders für das verbundene Konto) |
 |---|---|
 | Termine des zugeordneten Google-Kalenders im Kalender und in der Vergleichsansicht anzeigen – mit Titel, auch ganztägige und mehrere gleichzeitige (Klick öffnet den Termin in Google) | mind. „Alle Termindetails sehen“ |
-| Termine automatisch übertragen: anlegen, verschieben, bei Neu-Zuweisung umziehen, bei Absage/Löschen entfernen | „Änderungen an Terminen vornehmen“ |
+| Termine automatisch übertragen: anlegen, verschieben, bei Wechsel des Mitarbeiters umziehen, beim Löschen entfernen | „Änderungen an Terminen vornehmen“ |
 
 Es gibt **keine Kollisionsprüfung**: Termine dürfen sich überschneiden, ein Mitarbeiter kann am selben Tag mehrere ganztägige und stundenweise Termine haben – der Kalender zeigt alle nebeneinander. Termine, die die App selbst in Google überträgt, erscheinen nicht doppelt.
 
@@ -316,10 +316,10 @@ Im Container: `docker exec bellmann_web flask db check`.
 
 | Rolle | Darf |
 |---|---|
-| **CEO** | alles, inkl. Anlegen von Admins |
+| **CEO** | alles, inkl. Anlegen von Admins; Kalender aller Mitarbeiter über Tabs |
 | **ADMIN** | Benutzer (nur TRAINER/TEAM_LEADER), Kunden, alle Termine, Audit-Log |
-| **TEAM_LEADER** | Termine für Mitglieder des **eigenen** Teams anlegen, ändern, neu zuweisen |
-| **TRAINER** | eigene Termine sehen und Einladungen bestätigen/ablehnen (Ablehnung mit Begründung) |
+| **TEAM_LEADER** | Termine für Mitglieder des **eigenen** Teams anlegen, ändern, Mitarbeiter wechseln; deren Kalender über Tabs |
+| **TRAINER** | eigene Termine sehen (Termine werden verbindlich zugewiesen, keine Zu- oder Absage) |
 
 Die Regeln stehen zentral in `app/services/authorization_service.py`. Rechteänderungen und Deaktivierungen wirken **sofort**, weil die Rolle bei jedem Request aus der Datenbank gelesen wird.
 

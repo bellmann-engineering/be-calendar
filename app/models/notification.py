@@ -2,7 +2,7 @@
 Tabelle ``notifications`` – In-App-Benachrichtigungen (Glocken-Symbol in der Navigation).
 
 Erzeugt von: NotificationService.notify_user() (z. B. "Neuer Termin zugewiesen",
-"Termin abgelehnt – Neu-Zuweisung erforderlich"). Parallel dazu wird – nach dem Commit –
+"Neuer Termin zugewiesen"). Parallel dazu wird – nach dem Commit –
 eine E-Mail verschickt.
 
 Gelesen über: ``GET /api/v1/notifications`` (nur die eigenen, neueste zuerst).

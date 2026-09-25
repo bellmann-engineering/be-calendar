@@ -5,7 +5,7 @@ Wer benutzt sie?
     ``app/routes/event_routes.py`` (Endpunkte unter /api/v1/events).
 
 Womit spricht sie?
-    * PostgreSQL: Tabellen ``events``, ``event_rsvps``, ``users``, ``customers``, ``audit_logs``
+    * PostgreSQL: Tabellen ``events``, ``users``, ``customers``, ``audit_logs``
     * NotificationService (In-App + E-Mail an den zugewiesenen Mitarbeiter)
     * google_sync_service (Termin in den Google-Kalender des Mitarbeiters spiegeln,
       ändern, umziehen, löschen)
@@ -19,7 +19,6 @@ ganztägige und stundenweise Termine haben. Es gibt keine Kollisionsprüfung.
 
 import logging
 
-from sqlalchemy import func, select
 from sqlalchemy.orm import joinedload
 
 from app import db
@@ -27,9 +26,7 @@ from app.models import (
     AuditLog,
     Customer,
     Event,
-    EventRSVP,
     RoleEnum,
-    RSVPStatusEnum,
     User,
 )
 from app.services.authorization_service import AuthorizationService
@@ -80,7 +77,9 @@ class EventService:
     # ------------------------------------------------------------------ Anlegen
     @staticmethod
     def create_event(data: dict, creator_id: int) -> EventResult:
-        """Legt einen Termin an (inkl. RSVP, Benachrichtigung, Audit-Log, Google-Spiegelung).
+        """Legt einen Termin an (inkl. Benachrichtigung, Audit-Log, Google-Spiegelung).
+
+        Mitarbeiter sagen nicht zu oder ab – ein Termin ist mit der Zuweisung verbindlich.
 
         Args:
             data: JSON-Body (title, start_time, end_time, optional assigned_to_id,
@@ -132,16 +131,9 @@ class EventService:
             meeting_link=data.get("meeting_link") or None,
         )
         db.session.add(new_event)
-        db.session.flush()  # new_event.id wird für RSVP und Audit-Log gebraucht
+        db.session.flush()  # new_event.id wird für das Audit-Log gebraucht
 
         if assigned_to_id:
-            db.session.add(
-                EventRSVP(
-                    event_id=new_event.id,
-                    user_id=assigned_to_id,
-                    status=RSVPStatusEnum.PENDING.value,
-                )
-            )
             NotificationService.notify_user(
                 user_id=assigned_to_id,
                 title="Neuer Termin zugewiesen",
@@ -265,22 +257,8 @@ class EventService:
             event.customer_id = data["customer_id"]
         if "meeting_link" in data:
             event.meeting_link = data["meeting_link"] or None
-        event.reallocation_required = assigned_to_id is None
 
         if assignment_changed and assigned_to_id is not None:
-            rsvp = EventRSVP.query.filter_by(event_id=event.id, user_id=assigned_to_id).first()
-            if rsvp is None:
-                db.session.add(
-                    EventRSVP(
-                        event_id=event.id,
-                        user_id=assigned_to_id,
-                        status=RSVPStatusEnum.PENDING.value,
-                    )
-                )
-            else:
-                # Erneute Zuweisung an dieselbe Person: alte Antwort zurücksetzen.
-                rsvp.status = RSVPStatusEnum.PENDING.value
-                rsvp.rejection_reason = None
             NotificationService.notify_user(
                 user_id=assigned_to_id,
                 title="Neuer Termin",
@@ -312,7 +290,6 @@ class EventService:
             "start_time": isoformat_utc(event.start_time),
             "end_time": isoformat_utc(event.end_time),
             "assigned_to_id": event.assigned_to_id,
-            "reallocation_required": event.reallocation_required,
         }
 
     # ------------------------------------------------------------------ Auflisten
@@ -355,33 +332,3 @@ class EventService:
         else:
             return [], None, 200
         return query.order_by(Event.start_time).all(), None, 200
-
-    @staticmethod
-    def latest_rejection_reasons(event_ids: list[int]) -> dict[int, str | None]:
-        """Neueste Ablehnungsbegründung je Termin – für ALLE Termine in EINER Abfrage.
-
-        Ersetzt die frühere Einzelabfrage pro Termin in der Schleife (N+1).
-        SQL-Idee: pro event_id das jüngste DECLINED-RSVP über eine Unterabfrage mit
-        max(updated_at) bestimmen und dagegen joinen.
-        """
-        if not event_ids:
-            return {}
-        latest = (
-            select(EventRSVP.event_id, func.max(EventRSVP.updated_at).label("max_updated"))
-            .where(
-                EventRSVP.event_id.in_(event_ids),
-                EventRSVP.status == RSVPStatusEnum.DECLINED.value,
-            )
-            .group_by(EventRSVP.event_id)
-            .subquery()
-        )
-        rows = db.session.execute(
-            select(EventRSVP.event_id, EventRSVP.rejection_reason)
-            .join(
-                latest,
-                (EventRSVP.event_id == latest.c.event_id)
-                & (EventRSVP.updated_at == latest.c.max_updated),
-            )
-            .where(EventRSVP.status == RSVPStatusEnum.DECLINED.value)
-        ).all()
-        return {row.event_id: row.rejection_reason for row in rows}

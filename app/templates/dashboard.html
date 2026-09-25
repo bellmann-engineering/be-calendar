@@ -4,19 +4,19 @@ Datei: app/templates/dashboard.html
 ---------------------------------------------------------------------
 Zweck:
   Hauptseite nach dem Login: Begrüßung, Kennzahlen (heute, nächste
-  14 Tage, nächster Termin), Hinweis auf abgelehnte Termine und der
+  14 Tage, nächster Termin) und der
   Kalender (FullCalendar) mit allen Terminen, die der eingeloggte
   Benutzer sehen darf. Dazu zwei Dialoge:
     1. "event-modal"         → Termin anlegen / bearbeiten
-    2. "event-details-modal" → Details, RSVP (Trainer),
-                               Neu-Zuweisung und Verwaltung (CEO/ADMIN/TL)
+    2. "event-details-modal" → Details, Bearbeiten und Löschen
+                               (CEO/ADMIN/TL)
 
 Wer steuert diese Seite?
   js/pages/dashboard.js – diese Vorlage enthält nur die HTML-Struktur
   mit festen IDs. Werden IDs umbenannt, muss dashboard.js angepasst werden.
 
 Welche Backend-Endpunkte werden (über dashboard.js) genutzt?
-  GET/POST/PUT/DELETE /api/v1/events, PUT /api/v1/events/<id>/rsvp,
+  GET/POST/PUT/DELETE /api/v1/events,
   GET /api/v1/auth/trainers, GET /api/v1/customers,
   GET /api/v1/google/events (Termine aus dem eigenen Google-Kalender, nur lesend)
 
@@ -46,7 +46,7 @@ Sichtbarkeit:
         <div>
             <p id="dash-date" class="eyebrow"></p>
             <h1 id="dash-greeting" class="page-title mt-1">Kalender</h1>
-            <p class="page-subtitle">Deine Termine und Einsätze auf einen Blick.</p>
+            <p id="dash-subtitle" class="page-subtitle">Deine Termine und Einsätze auf einen Blick.</p>
         </div>
         {# Nur für CEO/ADMIN/TEAM_LEADER sichtbar (dashboard.js entfernt hidden) #}
         <button type="button" id="open-modal-btn" class="btn btn-primary" hidden>
@@ -80,23 +80,18 @@ Sichtbarkeit:
         </div>
     </section>
 
-    {# ---------- Hinweis: abgelehnte Termine (nur Planer, dashboard.js blendet ein) ---------- #}
-    <div id="reassign-banner" class="alert alert-warning mb-6 items-center" role="status" hidden>
-        {{ icon('alert') }}
-        <p class="flex-1" id="reassign-banner-text"></p>
-        <button type="button" id="reassign-banner-btn" class="btn btn-sm btn-secondary">Anzeigen</button>
-    </div>
-
     {# ---------- Kalender ---------- #}
     <section class="card p-3 sm:p-5" aria-label="Kalender">
+        {# Nur für Planer: Kalender einzelner Mitarbeiter ansehen, ohne sich als sie anzumelden
+           (dashboard.js::setupCalendarTabs). Tabs entstehen per JS aus GET /api/v1/auth. #}
+        <div id="calendar-tabs" class="tabs mb-3 sm:mb-4" role="tablist" aria-label="Kalender anzeigen für" hidden></div>
         {# Hier zeichnet FullCalendar den Kalender hinein (dashboard.js::renderCalendar) #}
-        <div id="calendar-container" class="min-h-[560px]">
+        <div id="calendar-container" class="min-h-[560px]" role="tabpanel">
             <div class="skeleton h-[560px] w-full rounded-xl" aria-hidden="true"></div>
         </div>
         <div class="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-line pt-4 text-xs text-fg-muted">
             <span class="font-medium text-fg">Legende:</span>
             <span class="inline-flex items-center gap-2"><span class="size-2.5 rounded-full bg-brand-600"></span>Termin (Farbe = Kunde)</span>
-            <span class="inline-flex items-center gap-2"><span class="size-2.5 rounded-full bg-[#dc2626]"></span>Abgelehnt – neu zuweisen (gestreift)</span>
             <span class="inline-flex items-center gap-2"><span class="h-0.5 w-4 bg-danger"></span>Aktuelle Uhrzeit</span>
             {# Nur sichtbar, wenn es Termine aus dem eigenen Google-Kalender gibt (dashboard.js::loadGoogleEvents) #}
             <span id="google-legend" class="inline-flex items-center gap-2" hidden><span class="bc-google-event h-2.5 w-4 rounded-sm" aria-hidden="true"></span>Aus Google Kalender (Klick öffnet Google)</span>
@@ -176,13 +171,12 @@ Sichtbarkeit:
     </form>
 </dialog>
 
-{# ================= Dialog: Termindetails / RSVP ================= #}
+{# ================= Dialog: Termindetails ================= #}
 <dialog id="event-details-modal" class="dialog" aria-labelledby="detail-title">
     {# Farbstreifen in Kundenfarbe (Farbe setzt dashboard.js über element.style → CSP-konform) #}
     <div id="detail-color" class="h-1.5 w-full shrink-0 bg-accent"></div>
     <div class="dialog-header border-b-0 pb-2">
         <div class="min-w-0">
-            <span id="detail-status" class="badge badge-red badge-dot mb-2" hidden>Abgelehnt – neu zuweisen</span>
             <h2 id="detail-title" class="dialog-title break-words"></h2>
         </div>
         <button type="button" class="btn-icon -mt-1 -mr-2" data-close-dialog aria-label="Dialog schließen">{{ icon('x') }}</button>
@@ -208,37 +202,6 @@ Sichtbarkeit:
             {{ icon('video') }}Online-Meeting beitreten{{ icon('external', 'size-3.5 opacity-60') }}
         </a>
 
-        {# --- Nur für Trainer: Zusage / Absage --- #}
-        <div id="rsvp-section" class="mt-6 border-t border-line pt-5" hidden>
-            <h3 class="text-sm font-semibold text-fg">Deine Rückmeldung</h3>
-            <p class="mt-0.5 mb-3 text-xs text-fg-muted">Bitte bestätige den Termin oder lehne ihn mit Begründung ab.</p>
-            <div class="grid grid-cols-2 gap-3">
-                <button type="button" id="btn-accept" class="btn btn-success">{{ icon('check') }}Zusagen</button>
-                <button type="button" id="btn-decline" class="btn btn-soft-danger" aria-expanded="false" aria-controls="decline-container">{{ icon('x') }}Absagen</button>
-            </div>
-            <div id="decline-container" class="mt-4 space-y-3" hidden>
-                <div>
-                    <label class="label" for="decline-reason">Begründung <span class="label-optional">(Pflichtfeld)</span></label>
-                    <textarea id="decline-reason" class="input" rows="3" maxlength="500" placeholder="z. B. Krankheit, Urlaub, Überschneidung …"></textarea>
-                </div>
-                <button type="button" id="btn-submit-decline" class="btn btn-danger btn-block">Absage senden</button>
-            </div>
-            <div id="rsvp-error" class="alert alert-error mt-3" role="alert" hidden></div>
-        </div>
-
-        {# --- CEO/ADMIN/TL: abgelehnten Termin neu zuweisen --- #}
-        <div id="reassign-section" class="mt-6 border-t border-line pt-5" hidden>
-            <h3 class="text-sm font-semibold text-fg">Termin neu zuweisen</h3>
-            {# Ablehnungsgrund = Benutzertext → dashboard.js setzt ihn per textContent #}
-            <blockquote id="detail-rejection-reason" class="mt-3 rounded-lg border-l-4 border-danger bg-danger-soft px-3.5 py-2.5 text-sm text-fg break-words" hidden></blockquote>
-            <label class="label mt-4" for="reassign-select">Neuer Mitarbeiter</label>
-            <div class="flex flex-col gap-2 sm:flex-row">
-                <select id="reassign-select" class="input">
-                    <option value="">Bitte wählen …</option>
-                </select>
-                <button type="button" id="btn-reassign" class="btn btn-primary">{{ icon('repeat') }}Zuweisen</button>
-            </div>
-        </div>
     </div>
 
     {# flex-col statt col-reverse: mobil zuerst die Aktionen, dann "Schließen" #}

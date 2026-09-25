@@ -11,7 +11,7 @@ dass die Constraint erst nach dem Anlegen beider Tabellen erzeugt wird.
 
 Wer benutzt das Model?
     TeamService (anlegen/zuordnen), EventService.list_visible_events (Teamleitung sieht
-    Termine ihres Teams), AuthorizationService (Team-Prüfungen), RSVPService.
+    Termine ihres Teams), AuthorizationService (Team-Prüfungen).
 """
 
 from app import db

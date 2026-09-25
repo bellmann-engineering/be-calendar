@@ -277,24 +277,6 @@ def test_sync_anlegen_aendern_umziehen_loeschen(client, make_user, login, csrf, 
     assert event.google_event_id is None and event.google_sync_calendar_id is None
 
 
-def test_sync_bei_absage_entfernt_kopie(client, make_user, login, csrf, fake_google):
-    ceo = make_user("CEO")
-    anna = make_user("TRAINER", google_calendar_id="anna@gmail.com")
-    login(ceo)
-    event_id = client.post("/api/v1/events", json=_termin(anna.id), headers=csrf()).get_json()[
-        "event"
-    ]["id"]
-    client.post("/api/v1/auth/logout")
-
-    login(anna)
-    client.put(
-        f"/api/v1/events/{event_id}/rsvp",
-        json={"status": "DECLINED", "rejection_reason": "krank"},
-        headers=csrf(),
-    )
-    assert fake_google.aufrufe[-1] == ("delete", "anna@gmail.com", "g1")
-
-
 def test_ohne_kalender_kein_google_aufruf(client, make_user, login, csrf, fake_google):
     ceo = make_user("CEO")
     trainer = make_user("TRAINER")

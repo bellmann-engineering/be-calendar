@@ -8,7 +8,6 @@ Datenmodelle (SQLAlchemy ORM) – jede Klasse entspricht einer PostgreSQL-Tabell
                 │
     customers ──< events >── users        (Event.customer_id, created_by_id, assigned_to_id)
                     │   └── parent_event  (Event.parent_event_id -> events, Serien/Ausnahmen)
-                    ├──< event_rsvps >── users   (Rückmeldung je Termin & Benutzer)
                     └──< audit_logs  >── users   (unveränderliche Historie)
     users ──< notifications                      (In-App-Benachrichtigungen)
     google_connections (höchstens 1 Zeile)        (verbundenes Google-Konto, Token verschlüsselt)
@@ -28,7 +27,6 @@ from app.models.event import Event
 from app.models.google_connection import GoogleConnection
 from app.models.notification import Notification
 from app.models.role import Role, RoleEnum
-from app.models.rsvp import EventRSVP, RSVPStatusEnum
 from app.models.team import Team
 from app.models.user import User
 
@@ -39,8 +37,6 @@ __all__ = [
     "User",
     "Event",
     "Customer",
-    "EventRSVP",
-    "RSVPStatusEnum",
     "AuditLog",
     "Notification",
     "GoogleConnection",
