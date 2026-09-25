@@ -4,9 +4,10 @@
  * ---------------------------------------------------------------------
  * Zweck:
  *   Logik der Kalenderseite (dashboard.html):
- *     - Begrüßung + Kennzahlen (heute, nächste 14 Tage, nächster Termin)
- *     - FullCalendar: Standard "diese + nächste Woche untereinander"
- *       (Desktop: 2-Wochen-Raster, Smartphone: 2-Wochen-Liste)
+ *     - Agenda "Heute" / "Als Nächstes" (App- und Google-Termine)
+ *     - FullCalendar: merkt sich die zuletzt gewählte Ansicht (2 Wochen,
+ *       Woche, Tag, Monat); ohne gespeicherte Wahl "diese + nächste Woche
+ *       untereinander" (Desktop: Raster, Smartphone: Liste)
  *     - Dialog "Termin anlegen/bearbeiten"
  *     - Dialog "Termindetails" mit Bearbeiten und Löschen
  *       (CEO/ADMIN/TEAM_LEADER). Mitarbeiter sagen nicht zu oder ab – ein
@@ -99,17 +100,6 @@ function formatEventRange(start, end, allDay) {
     return sameDay
         ? `${FMT_DAY_SHORT.format(start)} · ${FMT_TIME.format(start)} – ${FMT_TIME.format(end)} Uhr`
         : `${FMT_DAY_SHORT.format(start)}, ${FMT_TIME.format(start)} – ${FMT_DAY_SHORT.format(end)}, ${FMT_TIME.format(end)} Uhr`;
-}
-
-/**
- * Begrüßung je nach Tageszeit.
- * @returns {string}
- */
-function greeting() {
-    const hour = new Date().getHours();
-    if (hour < 11) return "Guten Morgen";
-    if (hour < 18) return "Guten Tag";
-    return "Guten Abend";
 }
 
 /* ------------------------------------------------------------------ */
@@ -382,24 +372,62 @@ function weekendButtons(showWeekends) {
     };
 }
 
+/** localStorage-Schlüssel für die zuletzt geöffnete Kalenderansicht (pro Browser). */
+const VIEW_STORAGE_KEY = "bc-calendar-view";
+
+/** Ansichten, die sich merken lassen (die beiden "2 Wochen"-Varianten + FullCalendar-Standardansichten). */
+const REMEMBERED_VIEWS = ["twoWeeks", "listTwoWeeks", "timeGridWeek", "timeGridDay", "dayGridMonth"];
+
 /**
- * Ansicht und Werkzeugleisten passend zur Bildschirmbreite.
- * Standard: diese und nächste Woche untereinander (Smartphone als Liste).
- * @returns {object} FullCalendar-Optionen.
+ * Zuletzt gewählte Ansicht (2 Wochen, Woche, Tag, Monat, Liste) – wird beim nächsten
+ * Öffnen des Kalenders (auch nach dem Neu-Einloggen) wiederhergestellt.
+ * try/catch: localStorage kann gesperrt sein (privates Fenster) – dann gilt der Standard.
+ * @returns {?string}
  */
-function responsiveOptions() {
-    const mobile = window.innerWidth < MOBILE_BREAKPOINT;
+function loadSavedView() {
+    try {
+        const value = localStorage.getItem(VIEW_STORAGE_KEY);
+        return REMEMBERED_VIEWS.includes(value) ? value : null;
+    } catch (err) {
+        return null;
+    }
+}
+
+/**
+ * Merkt sich eine Ansicht für den nächsten Kalenderaufruf.
+ * @param {string} viewType - z. B. "timeGridWeek" (info.view.type aus datesSet).
+ */
+function saveView(viewType) {
+    if (!REMEMBERED_VIEWS.includes(viewType)) return;
+    try { localStorage.setItem(VIEW_STORAGE_KEY, viewType); } catch (err) { /* nur Komfort */ }
+}
+
+/**
+ * Werkzeugleisten passend zur Bildschirmbreite (unabhängig von der aktiven Ansicht).
+ * @param {boolean} mobile
+ * @returns {object} {headerToolbar, footerToolbar}
+ */
+function toolbarForDevice(mobile) {
     return mobile
         ? {
-            view: "listTwoWeeks",
             headerToolbar: { left: "prev,next", center: "title", right: "today" },
             footerToolbar: { center: "listTwoWeeks,timeGridDay,dayGridMonth weekendToggle" },
         }
         : {
-            view: "twoWeeks",
             headerToolbar: { left: "prev,next today weekendToggle", center: "title", right: "twoWeeks,timeGridWeek,timeGridDay,dayGridMonth,listTwoWeeks" },
             footerToolbar: false,
         };
+}
+
+/**
+ * Ansicht und Werkzeugleisten für den ERSTEN Aufbau des Kalenders: die zuletzt
+ * genutzte Ansicht, sonst diese und nächste Woche untereinander (Smartphone als Liste).
+ * @returns {object} FullCalendar-Optionen.
+ */
+function responsiveOptions() {
+    const mobile = window.innerWidth < MOBILE_BREAKPOINT;
+    const view = loadSavedView() || (mobile ? "listTwoWeeks" : "twoWeeks");
+    return { view, ...toolbarForDevice(mobile) };
 }
 
 /**
@@ -436,7 +464,10 @@ window.gotoCalendarDate = isoDate => {
  */
 function renderCalendar(container) {
     container.replaceChildren();
-    let layout = responsiveOptions();
+    const layout = responsiveOptions();
+    // true, während windowResize automatisch zwischen den beiden "2 Wochen"-Darstellungen
+    // wechselt – DAS soll nicht als bewusste Wahl der Ansicht gespeichert werden (saveView).
+    let suppressViewSave = false;
     calendar = new FullCalendar.Calendar(container, {
         views: CUSTOM_VIEWS,
         initialView: layout.view,
@@ -497,14 +528,27 @@ function renderCalendar(container) {
             if (info.event.extendedProps.source === "google") decorateGoogleEvent(info);
             decorateCustomerTag(info);
         },
-        // Beim Drehen/Vergrößern des Fensters zwischen Liste und Wochenraster wechseln.
+        // Merkt sich die Ansicht (2 Wochen, Woche, Tag, Monat, Liste) für den nächsten
+        // Aufruf – auch nach dem erneuten Einloggen (loadSavedView/responsiveOptions oben).
+        datesSet: info => {
+            if (suppressViewSave) { suppressViewSave = false; return; }
+            saveView(info.view.type);
+        },
+        // Werkzeugleisten immer passend zur Bildschirmbreite halten. Die Ansicht selbst
+        // nur zwischen den beiden "2 Wochen"-Darstellungen automatisch wechseln (Liste auf
+        // dem Handy, Raster am Desktop) – eine bewusst gewählte Woche/Tag/Monat-Ansicht
+        // bleibt beim Drehen/Vergrößern des Fensters unangetastet.
         windowResize: () => {
-            const next = responsiveOptions();
-            if (next.view === layout.view) return;
-            layout = next;
-            calendar.setOption("headerToolbar", next.headerToolbar);
-            calendar.setOption("footerToolbar", next.footerToolbar);
-            calendar.changeView(next.view);
+            const mobile = window.innerWidth < MOBILE_BREAKPOINT;
+            const toolbar = toolbarForDevice(mobile);
+            calendar.setOption("headerToolbar", toolbar.headerToolbar);
+            calendar.setOption("footerToolbar", toolbar.footerToolbar);
+            const current = calendar.view.type;
+            const wanted = mobile ? "listTwoWeeks" : "twoWeeks";
+            if ((current === "twoWeeks" || current === "listTwoWeeks") && current !== wanted) {
+                suppressViewSave = true;
+                calendar.changeView(wanted);
+            }
         },
     });
     calendar.render();
@@ -950,7 +994,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (!viewer) return; // app.js leitet bereits auf /login um
 
     document.getElementById("dash-date").textContent = FMT_DAY_LONG.format(new Date());
-    document.getElementById("dash-greeting").textContent = `${greeting()}, ${viewer.first_name || ""}`.trim();
     document.getElementById("dashboard-content").hidden = false;
 
     if (isPlanner()) {

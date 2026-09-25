@@ -3,8 +3,8 @@
 Datei: app/templates/dashboard.html
 ---------------------------------------------------------------------
 Zweck:
-  Hauptseite nach dem Login: Begrüßung, Agenda (heute / als Nächstes,
-  inkl. Google-Termine und Kunden-Logos) und der
+  Hauptseite nach dem Login: Agenda (heute / als Nächstes, inkl. Google-Termine
+  und Kunden-Logos) und der
   Kalender (FullCalendar) mit allen Terminen, die der eingeloggte
   Benutzer sehen darf. Dazu zwei Dialoge:
     1. "event-modal"         → Termin anlegen / bearbeiten
@@ -45,7 +45,7 @@ Sichtbarkeit:
     <div class="page-header">
         <div>
             <p id="dash-date" class="eyebrow"></p>
-            <h1 id="dash-greeting" class="page-title mt-1">Kalender</h1>
+            <h1 class="page-title mt-1">Kalender</h1>
             <p id="dash-subtitle" class="page-subtitle">Deine Termine und Einsätze auf einen Blick.</p>
         </div>
         {# Nur für CEO/ADMIN/TEAM_LEADER sichtbar (dashboard.js entfernt hidden) #}

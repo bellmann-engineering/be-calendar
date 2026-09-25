@@ -901,6 +901,7 @@ db.Column(db.DateTime(timezone=<span class="k">True</span>))</code></pre></div>
         <li><b>Smartphone:</b> dieselben zwei Wochen als Liste (<code>listTwoWeeks</code>).</li>
         <li><b>Wochenende</b> ist standardmäßig ausgeblendet; der Button „Wochenende einblenden“ schaltet es um (FullCalendar-Option <code>weekends</code>). Die Wahl merkt sich der Browser (<code>localStorage</code>).</li>
         <li>Woche, Tag und Monat bleiben als Umschalter erhalten (<code>CUSTOM_VIEWS</code> in <a data-datei="app/static/js/pages/dashboard.js">dashboard.js</a>).</li>
+        <li><b>Zuletzt geöffnete Ansicht:</b> Der Browser merkt sich, welche Ansicht zuletzt aktiv war (<code>datesSet</code> → <code>saveView()</code>, <code>localStorage</code>) und öffnet sie beim nächsten Login wieder. Nur der automatische Wechsel zwischen den beiden „2 Wochen“-Darstellungen beim Drehen/Vergrößern des Fensters (<code>windowResize</code>) zählt nicht als bewusste Wahl.</li>
       </ul>
       <h2>Agenda über dem Kalender</h2>
       <p>Statt Zahlen zeigen zwei Listen, was ansteht: <b>Heute</b> (alle Termine des Tages, auch mehrtägige ganztägige) und <b>Als Nächstes</b> (die nächsten 14 Tage, nach Tagen gruppiert). Beide enthalten App- und Google-Termine und folgen dem gewählten Mitarbeiter-Tab (<code>loadUpcoming()</code> in <a data-datei="app/static/js/pages/dashboard.js">dashboard.js</a>). Ganztägige Google-Termine kommen als <code>"2026-10-05"</code> – <code>parseCalendarDate()</code> liest sie als lokale Mitternacht, nicht als UTC.</p>
