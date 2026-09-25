@@ -3,7 +3,7 @@
 Datei: app/templates/base.html
 ---------------------------------------------------------------------
 Zweck:
-  Grundgerüst (Layout) für ALLE HTML-Seiten des Bellmann Calendar.
+  Grundgerüst (Layout) für ALLE HTML-Seiten des Bellmann Eng. Calendar.
   Jede Seite erweitert diese Vorlage per {% extends "base.html" %}
   und füllt die Blöcke:
     - {% block title %}    → Seitentitel im Browser-Tab
@@ -54,8 +54,8 @@ Performance:
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>{% block title %}Bellmann Calendar{% endblock %} · Bellmann Calendar</title>
-    <meta name="description" content="Kalender- und Einsatzplanung von Bellmann Engineering">
+    <title>{% block title %}Bellmann Engineering GmbH Calendar{% endblock %} · Bellmann Engineering GmbH Calendar</title>
+    <meta name="description" content="Kalender- und Einsatzplanung der Bellmann Engineering GmbH">
     {# Farbe der Browser-Leiste (mobil) passend zur Kopfzeile #}
     <meta name="theme-color" content="#1a365d">
     <meta name="color-scheme" content="light dark">
