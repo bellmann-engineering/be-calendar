@@ -237,6 +237,43 @@ const CUSTOM_VIEWS = {
     },
 };
 
+/** localStorage-Schlüssel für "Wochenende anzeigen" (nur Komfort, pro Browser). */
+const WEEKENDS_STORAGE_KEY = "bc-show-weekends";
+
+/**
+ * Wochenende anzeigen? Standard: nein. Die Wahl merkt sich der Browser.
+ * try/catch: localStorage kann gesperrt sein (privates Fenster) – dann gilt der Standard.
+ * @returns {boolean}
+ */
+function loadShowWeekends() {
+    try {
+        return localStorage.getItem(WEEKENDS_STORAGE_KEY) === "1";
+    } catch (err) {
+        return false;
+    }
+}
+
+/**
+ * Button "Wochenende ein-/ausblenden" für die Kalenderleiste. Die Beschriftung
+ * nennt immer die Aktion, die ein Klick auslöst.
+ * @param {boolean} showWeekends - aktueller Zustand.
+ * @returns {object} FullCalendar-customButtons.
+ */
+function weekendButtons(showWeekends) {
+    return {
+        weekendToggle: {
+            text: showWeekends ? "Wochenende ausblenden" : "Wochenende einblenden",
+            hint: "Samstag und Sonntag im Kalender ein- oder ausblenden",
+            click: () => {
+                const next = !calendar.getOption("weekends");
+                try { localStorage.setItem(WEEKENDS_STORAGE_KEY, next ? "1" : "0"); } catch (err) { /* nur Komfort */ }
+                calendar.setOption("weekends", next);
+                calendar.setOption("customButtons", weekendButtons(next));
+            },
+        },
+    };
+}
+
 /**
  * Ansicht und Werkzeugleisten passend zur Bildschirmbreite.
  * Standard: diese und nächste Woche untereinander (Smartphone als Liste).
@@ -248,11 +285,11 @@ function responsiveOptions() {
         ? {
             view: "listTwoWeeks",
             headerToolbar: { left: "prev,next", center: "title", right: "today" },
-            footerToolbar: { center: "listTwoWeeks,timeGridDay,dayGridMonth" },
+            footerToolbar: { center: "listTwoWeeks,timeGridDay,dayGridMonth weekendToggle" },
         }
         : {
             view: "twoWeeks",
-            headerToolbar: { left: "prev,next today", center: "title", right: "twoWeeks,timeGridWeek,timeGridDay,dayGridMonth,listTwoWeeks" },
+            headerToolbar: { left: "prev,next today weekendToggle", center: "title", right: "twoWeeks,timeGridWeek,timeGridDay,dayGridMonth,listTwoWeeks" },
             footerToolbar: false,
         };
 }
@@ -273,6 +310,9 @@ function renderCalendar(container) {
     calendar = new FullCalendar.Calendar(container, {
         views: CUSTOM_VIEWS,
         initialView: layout.view,
+        // Wochenende standardmäßig ausgeblendet, per Button umschaltbar (weekendButtons).
+        weekends: loadShowWeekends(),
+        customButtons: weekendButtons(loadShowWeekends()),
         headerToolbar: layout.headerToolbar,
         footerToolbar: layout.footerToolbar,
         locale: "de",

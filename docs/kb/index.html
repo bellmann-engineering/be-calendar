@@ -899,6 +899,7 @@ db.Column(db.DateTime(timezone=<span class="k">True</span>))</code></pre></div>
       <ul>
         <li><b>Standard:</b> <code>twoWeeks</code> – eine eigene FullCalendar-Ansicht (<code>dayGrid</code>, Dauer 2 Wochen, <code>dateAlignment: "week"</code>). „Heute“ und die Pfeile springen immer auf einen Montag.</li>
         <li><b>Smartphone:</b> dieselben zwei Wochen als Liste (<code>listTwoWeeks</code>).</li>
+        <li><b>Wochenende</b> ist standardmäßig ausgeblendet; der Button „Wochenende einblenden“ schaltet es um (FullCalendar-Option <code>weekends</code>). Die Wahl merkt sich der Browser (<code>localStorage</code>).</li>
         <li>Woche, Tag und Monat bleiben als Umschalter erhalten (<code>CUSTOM_VIEWS</code> in <a data-datei="app/static/js/pages/dashboard.js">dashboard.js</a>).</li>
       </ul>
       <h2>Verbindliche Zuweisung</h2>
