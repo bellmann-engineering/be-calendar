@@ -469,7 +469,7 @@ function customerBadge(tag) {
 }
 
 /**
- * Titel für die Anzeige: Der erkannte Klammerausdruck ("(GFN)") wird entfernt, sobald
+ * Titel für die Anzeige: Der erkannte Kürzel-Ausdruck ("(GFN)" oder "GFN: ") wird entfernt, sobald
  * die Kundenzuordnung geklappt hat – das Logo/Tag zeigt die Zugehörigkeit ja bereits.
  * Der ungekürzte Titel bleibt im Termin selbst erhalten (z. B. für das Bearbeiten-Formular).
  *

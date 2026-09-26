@@ -769,7 +769,7 @@ function toCalendarEvent(e) {
     const color = isValidHexColor(e.color) ? e.color : DEFAULT_EVENT_COLOR;
     return {
         id: e.id,
-        // Klammer-Kürzel ("(GFN)") aus der Anzeige entfernt, sobald der Kunde erkannt wurde
+        // Kürzel ("(GFN)", "GFN: ") aus der Anzeige entfernt, sobald der Kunde erkannt wurde
         // (das Logo/Tag zeigt die Zugehörigkeit dann schon). FullCalendar setzt den Titel
         // als Text → sicher.
         title: displayTitle(e.title, e.tag),

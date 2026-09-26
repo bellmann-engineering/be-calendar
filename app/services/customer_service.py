@@ -40,6 +40,9 @@ _LOGO_MAX_PIXELS = 25_000_000
 _LOGO_FORMATS = {"PNG", "JPEG", "WEBP", "GIF"}
 # Klammerinhalt im Titel: "Schulung (GFN)" -> "GFN", "(Comcave/CC)" -> "Comcave/CC".
 _BRACKETS = re.compile(r"\(([^()]{1,80})\)")
+# Kürzel mit Doppelpunkt am Titelanfang: "GFN: Schulung" -> "GFN", "Comcave/CC: Prüfung".
+# Der Treffer umfasst die Leerzeichen danach, damit die Anzeige sauber "Schulung" zeigt.
+_PREFIX = re.compile(r"^\s*([^:()]{1,80}?)\s*:\s*")
 _SEPARATORS = re.compile(r"[/,;+&|]")
 
 # (JSON-Antwort, HTTP-Status)
@@ -67,10 +70,10 @@ def _parse_codes(raw: object) -> tuple[str | None, str | None]:
         code = item.strip()
         if not code:
             continue
-        if len(code) > _MAX_CODE_LENGTH or _SEPARATORS.search(code) or "(" in code or ")" in code:
+        if len(code) > _MAX_CODE_LENGTH or _SEPARATORS.search(code) or any(z in code for z in "():"):
             return (
                 None,
-                f"Ungültiges Kürzel „{code[:_MAX_CODE_LENGTH]}“ (ohne / ( ) und max. 40 Zeichen).",
+                f"Ungültiges Kürzel „{code[:_MAX_CODE_LENGTH]}“ (ohne / ( ) : und max. 40 Zeichen).",
             )
         if code.lower() not in {c.lower() for c in codes}:
             codes.append(code)
@@ -218,8 +221,9 @@ class CustomerTagger:
     """Findet den Kunden zu einem Termin – für das kleine Logo/Tag im Kalender.
 
     1. Termin mit ``customer_id`` (in der App angelegt) -> dieser Kunde.
-    2. Sonst Klammerinhalte im Titel: "Schulung (GFN)" oder "(Comcave/CC)". Jeder Teil
-       wird mit Namen und Kürzeln aller Kunden verglichen (ohne Groß-/Kleinschreibung).
+    2. Sonst Kürzel im Titel – am Anfang mit Doppelpunkt ("GFN: Schulung") oder in
+       Klammern ("Schulung (GFN)", "(Comcave/CC)"). Jeder Teil wird mit Namen und
+       Kürzeln aller Kunden verglichen (ohne Groß-/Kleinschreibung).
 
     Einmal pro Request erzeugen (lädt alle Kunden in EINER Abfrage, ohne Logos).
     """
@@ -240,33 +244,35 @@ class CustomerTagger:
             "label": label or (customer.codes[0] if customer.codes else customer.name),
             "color": customer.color_hex if _HEX_COLOR.match(customer.color_hex or "") else None,
             "logo_url": logo_url(customer),
-            # Exakter Klammerausdruck im Titel, z. B. "(GFN)" – das Frontend blendet ihn
-            # aus der Anzeige aus, sobald die Zuordnung geklappt hat (Logo/Tag ersetzt ihn).
+            # Exakter Ausdruck im Titel, z. B. "(GFN)" oder "GFN: " – das Frontend blendet
+            # ihn aus der Anzeige aus, sobald die Zuordnung geklappt hat (Logo/Tag ersetzt ihn).
             "raw": raw,
         }
 
-    def _bracket_for(self, customer: Customer, title: str | None) -> str | None:
-        """Der Klammerausdruck im Titel, der genau zu DIESEM Kunden passt (oder None)."""
+    @staticmethod
+    def _candidates(title: str | None):
+        """(Ausdruck im Titel, Kürzel-Kandidat) – erst "GFN:" am Anfang, dann Klammern."""
+        treffer = [m for m in [_PREFIX.match(title or "")] if m]
+        treffer += list(_BRACKETS.finditer(title or ""))
+        for m in treffer:
+            for teil in _SEPARATORS.split(m.group(1)):
+                yield m.group(0), teil.strip().lower()
+
+    def _raw_for(self, customer: Customer, title: str | None) -> str | None:
+        """Der Ausdruck im Titel ("(GFN)", "GFN: "), der zu DIESEM Kunden passt (oder None)."""
         aliases = {alias.strip().lower() for alias in [customer.name, *customer.codes]}
-        for treffer in _BRACKETS.finditer(title or ""):
-            for teil in _SEPARATORS.split(treffer.group(1)):
-                if teil.strip().lower() in aliases:
-                    return treffer.group(0)  # inkl. Klammern, z. B. "(GFN)"
-        return None
+        return next((raw for raw, teil in self._candidates(title) if teil in aliases), None)
 
     def for_title(self, title: str | None) -> dict | None:
-        for treffer in _BRACKETS.finditer(title or ""):
-            for teil in _SEPARATORS.split(treffer.group(1)):
-                gefunden = self.by_alias.get(teil.strip().lower())
-                if gefunden:
-                    customer, alias = gefunden
-                    return self._tag(
-                        customer, alias if alias != customer.name else None, treffer.group(0)
-                    )
+        for raw, teil in self._candidates(title):
+            gefunden = self.by_alias.get(teil)
+            if gefunden:
+                customer, alias = gefunden
+                return self._tag(customer, alias if alias != customer.name else None, raw)
         return None
 
     def for_event(self, customer_id: int | None, title: str | None) -> dict | None:
         if customer_id and customer_id in self.by_id:
             customer = self.by_id[customer_id]
-            return self._tag(customer, raw=self._bracket_for(customer, title))
+            return self._tag(customer, raw=self._raw_for(customer, title))
         return self.for_title(title)
