@@ -228,6 +228,19 @@ function agendaTime(item, day) {
     return `${FMT_TIME.format(item.start)}–${FMT_TIME.format(item.end)}`;
 }
 
+/** "Urlaub" oder "Frei" als eigenes Wort im Titel – nicht "Freitag", "Freigabe" o. Ä. */
+const TIME_OFF_PATTERN = /(^|[^\p{L}])(urlaub|frei)(?!\p{L})/iu;
+
+/**
+ * Ist das ein Urlaubs-/Frei-Termin? Solche Termine erscheinen kursiv und hellgrün
+ * (CSS: .bc-time-off im Kalender, .bc-time-off-text in der Agenda).
+ * @param {string} title
+ * @returns {boolean}
+ */
+function isTimeOff(title) {
+    return TIME_OFF_PATTERN.test(title || "");
+}
+
 /**
  * Ein Agenda-Eintrag als Button: Klick springt im Kalender zu diesem Tag
  * (Google-Termine: öffnet sie in Google).
@@ -258,7 +271,7 @@ function agendaItem(item, day, now) {
     },
         h("span", { class: "agenda-time", text: agendaTime(item, day) }),
         h("span", { class: "min-w-0 flex-1" },
-            h("span", { class: `block truncate text-sm ${running ? "font-semibold text-accent" : "font-medium text-fg"}` },
+            h("span", { class: `block truncate text-sm ${running ? "font-semibold text-accent" : "font-medium text-fg"} ${isTimeOff(item.title) ? "bc-time-off-text" : ""}` },
                 customerBadge(item.tag), item.title),
             meta ? h("span", { class: "block truncate text-xs text-fg-muted", text: meta }) : null,
         ),
@@ -562,6 +575,8 @@ function renderCalendar(container) {
             if (info.allDay) start.setHours(9, 0, 0, 0); // Monatsansicht: sinnvoller Standard 09:00
             openCreateForm(start);
         },
+        // Urlaub/Frei kursiv und hellgrün – App- wie Google-Termine.
+        eventClassNames: arg => (isTimeOff(arg.event.title) ? ["bc-time-off"] : []),
         eventDidMount: info => {
             if (info.event.extendedProps.source === "google") decorateGoogleEvent(info);
             decorateCustomerTag(info);

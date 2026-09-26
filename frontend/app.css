@@ -153,6 +153,10 @@
     --bc-warning-soft: #fdf3e4;
     --bc-violet: #6a3fb5;
     --bc-violet-soft: #f2edfb;
+    /* Urlaub/Frei-Termine (hellgrün) und "heute" im Kalender (hellgelb). */
+    --bc-time-off: #1f6b3a;
+    --bc-time-off-soft: #d7f5df;
+    --bc-today: #fff6c7;
 }
 
 /* Dunkles Farbschema – folgt der Systemeinstellung des Benutzers. */
@@ -182,6 +186,9 @@
         --bc-warning-soft: #33230f;
         --bc-violet: #c3a8f5;
         --bc-violet-soft: #26193f;
+        --bc-time-off: #9be4b1;
+        --bc-time-off-soft: #173a25;
+        --bc-today: #3a3414;
     }
 }
 
@@ -649,7 +656,7 @@
     --fc-page-bg-color: var(--bc-surface);
     --fc-neutral-bg-color: var(--bc-surface-2);
     --fc-neutral-text-color: var(--bc-fg-subtle);
-    --fc-today-bg-color: color-mix(in srgb, var(--bc-accent) 6%, transparent);
+    --fc-today-bg-color: var(--bc-today);
     --fc-now-indicator-color: var(--bc-danger);
     --fc-event-border-color: transparent;
     --fc-highlight-color: color-mix(in srgb, var(--bc-accent) 12%, transparent);
@@ -802,6 +809,19 @@
 .fc .fc-day-today .fc-daygrid-day-number {
     color: var(--bc-accent);
     font-weight: 700;
+}
+
+/* Heute hellgelb – nur in Wochen- und Monatsansichten. In der Tagesansicht wäre die
+   ganze Fläche gelb, dort also kein Hintergrund. Die Regel für das Wochenende
+   (Hintergrund der Sa/So-Zellen) darf "heute" nicht überdecken. */
+.fc .fc-daygrid-day.fc-day-today,
+.fc .fc-timegrid-col.fc-day-today {
+    background-color: var(--bc-today);
+}
+
+.fc .fc-timeGridDay-view .fc-timegrid-col.fc-day-today,
+.fc .fc-timeGridDay-view .fc-daygrid-day.fc-day-today {
+    background-color: transparent;
 }
 
 /* Termine: abgerundet, klare Schrift, leichte Hebung beim Hover. */
@@ -964,6 +984,29 @@
 .fc .fc-event.bc-google-event .fc-event-time,
 .fc .fc-event.bc-google-event .fc-event-title {
     color: var(--bc-fg);
+}
+
+/* Urlaub/Frei (dashboard.js::isTimeOff): kursiv auf Hellgrün – gilt für App- und
+   Google-Termine und überschreibt die Kundenfarbe (FullCalendar setzt sie inline,
+   daher !important). Hinter den Google-Regeln, damit es auch diese überschreibt. */
+.fc .fc-event.bc-time-off {
+    background-color: var(--bc-time-off-soft) !important;
+    border-color: var(--bc-time-off-soft) !important;
+}
+
+.fc .fc-event.bc-time-off,
+.fc .fc-event.bc-time-off .fc-event-main,
+.fc .fc-event.bc-time-off .fc-event-time,
+.fc .fc-event.bc-time-off .fc-event-title,
+.fc .fc-list-event.bc-time-off .fc-list-event-title,
+.bc-time-off-text {
+    color: var(--bc-time-off) !important;
+    font-style: italic;
+}
+
+.fc .fc-event.bc-time-off .fc-daygrid-event-dot,
+.fc .fc-list-event.bc-time-off .fc-list-event-dot {
+    border-color: var(--bc-time-off) !important;
 }
 
 /* Listenansicht (mobil): Punkt in Akzentfarbe statt Kundenfarbe. */
