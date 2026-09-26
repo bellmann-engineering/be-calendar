@@ -510,24 +510,37 @@ const GOOGLE_EVENT_CLASS = "bc-google-event";
  *
  * @param {string} startStr - Beginn (ISO, z. B. fetchInfo.startStr).
  * @param {string} endStr - Ende (ISO).
- * @param {number|string} [userId] - Mitarbeiter; ohne = der eingeloggte Benutzer.
- * @returns {Promise<{events: object[], error: ?string}>}
+ * @param {number|string|number[]} [userId] - Mitarbeiter (auch mehrere); ohne = der eingeloggte Benutzer.
+ * @returns {Promise<{events: object[], error: ?string, errors: object}>}
+ *   Jedes Event hat extendedProps.owners: IDs der Mitarbeiter, in deren Kalender es
+ *   steht (dieselbe Einladung in mehreren Kalendern erscheint nur EINMAL).
+ *   errors: {"<user_id>": "Fehlermeldung"}.
  */
 async function fetchGoogleEvents(startStr, endStr, userId) {
+    const ids = Array.isArray(userId) ? userId
+        : (userId !== undefined && userId !== null && userId !== "" ? [userId] : []);
     // encodeURIComponent: Die Zeiten enthalten "+02:00" – ein nacktes "+" wäre in der URL ein Leerzeichen.
     let url = `/api/v1/google/events?start=${encodeURIComponent(startStr)}&end=${encodeURIComponent(endStr)}`;
-    if (userId !== undefined && userId !== null && userId !== "") url += `&user_ids=${encodeURIComponent(userId)}`;
+    if (ids.length) url += `&user_ids=${encodeURIComponent(ids.join(","))}`;
     try {
         const res = await apiFetch(url);
-        if (!res.ok) return { events: [], error: null };
+        if (!res.ok) return { events: [], error: null, errors: {} };
         const data = await readJson(res);
-        if (!data.connected || !data.events || typeof data.events !== "object") return { events: [], error: null };
+        if (!data.connected || !data.events || typeof data.events !== "object") return { events: [], error: null, errors: {} };
         // Ohne userId liefert der Server nur den eingeloggten Benutzer → alle Einträge nehmen.
-        const lists = userId ? [data.events[String(userId)]] : Object.values(data.events);
-        const errors = data.errors && typeof data.errors === "object" ? Object.values(data.errors) : [];
-        const events = lists.flat()
-            .filter(e => e && e.start && e.end)
-            .map(e => ({
+        const owners = ids.length ? ids.map(String) : Object.keys(data.events);
+        const errorMap = data.errors && typeof data.errors === "object" ? data.errors : {};
+        // Nach Google-ID zusammenfassen: Eine Besprechung mit mehreren Mitarbeitern steht
+        // in jedem ihrer Kalender, soll im Kalender aber nur einmal erscheinen.
+        const byId = new Map();
+        owners.forEach(owner => (data.events[owner] || []).forEach(e => {
+            if (!e || !e.start || !e.end) return;
+            const seen = byId.get(e.id);
+            if (seen) seen.owners.push(Number(owner));
+            else byId.set(e.id, { e, owners: [Number(owner)] });
+        }));
+        const events = Array.from(byId.values())
+            .map(({ e, owners: eventOwners }) => ({
                 id: `google-${e.id}`,
                 title: displayTitle(e.title || "(Ohne Titel)", e.tag),
                 start: e.start,
@@ -540,11 +553,12 @@ async function fetchGoogleEvents(startStr, endStr, userId) {
                     source: "google", htmlLink: e.html_link, location: e.location, tag: e.tag,
                     description: e.description, meetingUrl: e.meeting_url,
                     attendees: Array.isArray(e.attendees) ? e.attendees : [], organizer: e.organizer,
+                    owners: eventOwners,
                 },
             }));
-        return { events, error: errors[0] || null };
+        return { events, error: Object.values(errorMap)[0] || null, errors: errorMap };
     } catch (err) {
-        return { events: [], error: null }; // Netzwerkfehler: ohne Google-Termine weiterarbeiten
+        return { events: [], error: null, errors: {} }; // Netzwerkfehler: ohne Google-Termine weiterarbeiten
     }
 }
 

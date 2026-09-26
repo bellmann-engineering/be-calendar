@@ -177,7 +177,7 @@ async function loadUpcoming() {
         const url = `/api/v1/events?start=${encodeURIComponent(startOfToday.toISOString())}&end=${encodeURIComponent(horizon.toISOString())}`;
         const [res, google] = await Promise.all([
             apiFetch(url),
-            fetchGoogleEvents(startOfToday.toISOString(), horizon.toISOString(), userId),
+            fetchGoogleEvents(startOfToday.toISOString(), horizon.toISOString(), googleUserIds()),
         ]);
         if (!res.ok) throw new Error("Fehler beim Laden");
         if (userId !== selectedUserId) return; // veraltet – der neue Tab lädt selbst
@@ -192,6 +192,7 @@ async function loadUpcoming() {
             ...google.events.map(e => ({
                 source: "google", title: e.title, tag: e.extendedProps.tag, allDay: e.allDay,
                 start: parseCalendarDate(e.start), end: parseCalendarDate(e.end), extendedProps: e.extendedProps,
+                assignees: userId === null ? e.extendedProps.owners : null,
             })),
         ];
         // Heute: alles, was heute stattfindet (auch mehrtägige, die früher begonnen haben).
@@ -252,8 +253,11 @@ function isTimeOff(title) {
 function agendaItem(item, day, now) {
     const past = !item.allDay && item.end < now;
     const running = !item.allDay && item.start <= now && item.end > now;
-    const assignee = selectedUserId === null && isPlanner() && item.assignee
-        ? (tabUsers.get(item.assignee) ? `${tabUsers.get(item.assignee).first_name} ${tabUsers.get(item.assignee).last_name}` : trainerNames.get(String(item.assignee)))
+    // "Alle Termine": wessen Termin? App-Termine haben EINEN Mitarbeiter, Google-Termine
+    // können in mehreren Kalendern stehen (assignees).
+    const nameOf = id => (tabUsers.get(id) ? `${tabUsers.get(id).first_name} ${tabUsers.get(id).last_name}` : trainerNames.get(String(id)));
+    const assignee = selectedUserId === null && isPlanner()
+        ? (item.assignees || (item.assignee ? [item.assignee] : [])).map(nameOf).filter(Boolean).join(", ") || null
         : null;
     const meta = [assignee, running ? "läuft gerade" : null].filter(Boolean).join(" · ");
     const button = h("button", {
@@ -633,8 +637,20 @@ async function loadCalendarEvents(fetchInfo, successCallback, failureCallback) {
 }
 
 /**
- * Event-Quelle 2: Termine aus dem zugeordneten Google-Kalender (mit Titel, nur
- * lesend) – der eigene bzw. im Mitarbeiter-Tab der des Mitarbeiters. Ohne
+ * Wessen Google-Kalender geladen wird: im Mitarbeiter-Tab dessen, unter "Alle Termine"
+ * die aller Mitarbeiter mit zugeordnetem Kalender (der Server prüft die Rechte erneut).
+ * Ohne Tabs (keine Planer-Rolle) bzw. ohne solche Mitarbeiter: der eigene Kalender.
+ * @returns {number|number[]|undefined}
+ */
+function googleUserIds() {
+    if (selectedUserId !== null) return selectedUserId;
+    const ids = Array.from(tabUsers.values()).filter(u => u.google_calendar_id).map(u => Number(u.id));
+    return ids.length ? ids : undefined;
+}
+
+/**
+ * Event-Quelle 2: Termine aus den zugeordneten Google-Kalendern (mit Titel, nur
+ * lesend) – siehe googleUserIds(). Ohne
  * Verbindung oder ohne zugeordneten Kalender: keine Termine, kein Toast.
  * Fehlt der Lesezugriff oder der Kalender, steht ein Hinweis unter der Legende.
  * Spricht mit: GET /api/v1/google/events (über app.js::fetchGoogleEvents)
@@ -642,11 +658,23 @@ async function loadCalendarEvents(fetchInfo, successCallback, failureCallback) {
  * @param {Function} successCallback
  */
 async function loadGoogleEvents(fetchInfo, successCallback) {
-    const { events, error } = await fetchGoogleEvents(fetchInfo.startStr, fetchInfo.endStr, selectedUserId);
+    const allTab = selectedUserId === null && tabUsers.size > 0;
+    const { events, error, errors } = await fetchGoogleEvents(fetchInfo.startStr, fetchInfo.endStr, googleUserIds());
     // Einmal sichtbar, bleibt der Eintrag stehen (sonst "springt" die Legende beim Blättern).
     if (events.length) document.getElementById("google-legend").hidden = false;
     const selected = selectedUserId !== null ? tabUsers.get(selectedUserId) : null;
     let message = error ? `Google-Kalender: ${error}` : "";
+    if (allTab) {
+        // Mehrere Kalender: Vorname(n) vor den Titel, sonst weiß niemand, wessen "Urlaub" das ist.
+        events.forEach(e => {
+            const names = e.extendedProps.owners.map(id => tabUsers.get(id)?.first_name).filter(Boolean);
+            if (names.length) e.title = `${names.join(", ")} · ${e.title}`;
+        });
+        const failed = Object.keys(errors).map(id => tabUsers.get(Number(id))).filter(Boolean);
+        if (failed.length) {
+            message = `Google-Kalender nicht lesbar für: ${failed.map(u => `${u.first_name} ${u.last_name}`).join(", ")}.`;
+        }
+    }
     if (!message && selected && !selected.google_calendar_id) {
         message = `${selected.first_name} ${selected.last_name} ist kein Google-Kalender zugeordnet.`;
     }
