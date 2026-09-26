@@ -145,8 +145,14 @@ async function loadCustomers() {
 /* Kennzahlen                                                         */
 /* ------------------------------------------------------------------ */
 
-/** Wie viele Einträge "Als Nächstes" höchstens zeigt (Rest: "… und N weitere"). */
+/** Wie viele Einträge "Als Nächstes" anfangs zeigt (Rest: "… und N weitere · mehr"). */
 const AGENDA_NEXT_LIMIT = 2;
+
+/** So viele Einträge kommen pro Klick auf "mehr" dazu. */
+const AGENDA_NEXT_STEP = 5;
+
+/** Aktuell gezeigte Anzahl in "Als Nächstes" (wächst mit jedem Klick auf "mehr"). */
+let agendaNextLimit = AGENDA_NEXT_LIMIT;
 
 const FMT_AGENDA_DAY = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "numeric", month: "numeric" });
 
@@ -297,7 +303,7 @@ function renderAgenda(today, next, now) {
         : [empty("Heute stehen keine Termine an.")]));
 
     const nextList = document.getElementById("agenda-next");
-    const shown = next.slice(0, AGENDA_NEXT_LIMIT);
+    const shown = next.slice(0, agendaNextLimit);
     const rows = [];
     let lastDay = "";
     shown.forEach(i => {
@@ -310,7 +316,19 @@ function renderAgenda(today, next, now) {
         rows.push(agendaItem(i, i.start, now));
     });
     if (next.length > shown.length) {
-        rows.push(empty(`… und ${next.length - shown.length} weitere – siehe Kalender.`));
+        // "mehr": zeigt die nächsten AGENDA_NEXT_STEP Einträge, ohne neu zu laden.
+        const more = h("button", {
+            type: "button", class: "agenda-more", text: "mehr",
+            "aria-label": `mehr: ${Math.min(AGENDA_NEXT_STEP, next.length - shown.length)} weitere Termine anzeigen`,
+            on: {
+                click: () => {
+                    agendaNextLimit += AGENDA_NEXT_STEP;
+                    renderAgenda(today, next, now);
+                    nextList.querySelector(".agenda-more")?.focus(); // Tastatur: Fokus bleibt am Button
+                },
+            },
+        });
+        rows.push(h("li", { class: "px-2 py-1 text-sm text-fg-muted" }, `… und ${next.length - shown.length} weitere · `, more));
     }
     nextList.replaceChildren(...(rows.length ? rows : [empty("In den nächsten 14 Tagen keine weiteren Termine.")]));
     [todayList, nextList].forEach(list => list.removeAttribute("aria-busy"));
@@ -508,6 +526,23 @@ window.gotoCalendarDate = isoDate => {
 };
 
 /**
+ * Liegt der Tag in der kommenden Woche, während "heute" (Sa/So) wegen des
+ * ausgeblendeten Wochenendes nicht zu sehen ist? Dann wird diese Woche statt
+ * "heute" hellgelb markiert.
+ * @param {Date} date
+ * @returns {boolean}
+ */
+function isUpcomingWeek(date) {
+    if (calendar?.getOption("weekends") ?? loadShowWeekends()) return false;
+    const now = new Date();
+    const weekday = now.getDay(); // 0 = So, 6 = Sa
+    if (weekday !== 0 && weekday !== 6) return false;
+    const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + (weekday === 6 ? 2 : 1));
+    const nextMonday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 7);
+    return date >= monday && date < nextMonday;
+}
+
+/**
  * Erstellt den Kalender.
  * Spricht mit: GET /api/v1/events?start=...&end=...
  *
@@ -579,6 +614,10 @@ function renderCalendar(container) {
             if (info.allDay) start.setHours(9, 0, 0, 0); // Monatsansicht: sinnvoller Standard 09:00
             openCreateForm(start);
         },
+        // Sa/So bei ausgeblendetem Wochenende: "heute" ist unsichtbar → stattdessen die
+        // kommende Woche hellgelb (CSS: .bc-upcoming-week).
+        dayCellClassNames: arg => (isUpcomingWeek(arg.date) ? ["bc-upcoming-week"] : []),
+        dayHeaderClassNames: arg => (isUpcomingWeek(arg.date) ? ["bc-upcoming-week"] : []),
         // Urlaub/Frei kursiv und hellgrün – App- wie Google-Termine.
         eventClassNames: arg => (isTimeOff(arg.event.title) ? ["bc-time-off"] : []),
         eventDidMount: info => {
@@ -769,6 +808,7 @@ function tabIdOf(button) {
  */
 function selectCalendarTab(userId, { initial = false } = {}) {
     selectedUserId = userId;
+    agendaNextLimit = AGENDA_NEXT_LIMIT; // anderer Kalender → "Als Nächstes" wieder kurz
     const activeId = userId === null ? "tab-all" : `tab-user-${userId}`;
     document.querySelectorAll("#calendar-tabs .tab").forEach(t => {
         const active = t.id === activeId;

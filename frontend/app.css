@@ -824,6 +824,18 @@
     background-color: transparent;
 }
 
+/* Sa/So bei ausgeblendetem Wochenende: "heute" ist nicht zu sehen, also die kommende
+   Woche hellgelb (dashboard.js::isUpcomingWeek). Tagesansicht wie oben ohne Fläche. */
+.fc .fc-daygrid-day.bc-upcoming-week,
+.fc .fc-timegrid-col.bc-upcoming-week {
+    background-color: var(--bc-today);
+}
+
+.fc .fc-timeGridDay-view .fc-timegrid-col.bc-upcoming-week,
+.fc .fc-timeGridDay-view .fc-daygrid-day.bc-upcoming-week {
+    background-color: transparent;
+}
+
 /* Termine: abgerundet, klare Schrift, leichte Hebung beim Hover. */
 .fc .fc-event {
     cursor: pointer;
@@ -916,6 +928,23 @@
     font-size: 0.8125rem;
     font-variant-numeric: tabular-nums;
     color: var(--bc-fg-muted);
+}
+
+/* "mehr" unter "Als Nächstes": sieht aus wie ein Link, ist ein Button. */
+.agenda-more {
+    cursor: pointer;
+    font-weight: 600;
+    color: var(--bc-accent);
+}
+
+.agenda-more:hover {
+    text-decoration: underline;
+}
+
+.agenda-more:focus-visible {
+    outline: 2px solid var(--bc-accent);
+    outline-offset: 2px;
+    border-radius: 0.25rem;
 }
 
 .agenda-day {
