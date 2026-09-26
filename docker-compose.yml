@@ -72,7 +72,7 @@ services:
       # Antwort-Header (u. a. Remote-Email) ÜBERSCHREIBEN gleichnamige Header des
       # Browsers – gefälschte Werte erreichen die App also nicht.
       # Wichtig: In Authelias access_control darf für diesen Pfad KEINE "bypass"-Regel stehen.
-      - "traefik.http.middlewares.authelia-bellmann-calendar.forwardAuth.address=http://authelia:9091/api/verify"
+      - "traefik.http.middlewares.authelia-bellmann-calendar.forwardAuth.address=http://authelia:9091/api/verify?rd=https://${APP_HOST:-intern.bellmann-engineering.com}/authelia"
       - "traefik.http.middlewares.authelia-bellmann-calendar.forwardAuth.trustForwardHeader=true"
       - "traefik.http.middlewares.authelia-bellmann-calendar.forwardAuth.authResponseHeaders=Remote-User,Remote-Groups,Remote-Name,Remote-Email"
 
