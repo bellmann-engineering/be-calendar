@@ -4,8 +4,8 @@
  * ---------------------------------------------------------------------
  * Zweck:
  *   Logik der Kalenderseite (dashboard.html):
- *     - Agenda "Heute" / "Als Nächstes" (App- und Google-Termine)
- *     - FullCalendar: merkt sich die zuletzt gewählte Ansicht (2 Wochen,
+ *     - Agenda "Heute" / "Als Nächstes" (App- und Google-Termine, einklappbar)
+ *     - FullCalendar: merkt sich die zuletzt gewählte Ansicht (2/3 Wochen,
  *       Woche, Tag, Monat); ohne gespeicherte Wahl "diese + nächste Woche
  *       untereinander" (Desktop: Raster, Smartphone: Liste)
  *     - Dialog "Termin anlegen/bearbeiten"
@@ -305,6 +305,35 @@ function refreshAll() {
     loadUpcoming();
 }
 
+/** localStorage-Schlüssel für "Agenda eingeklappt" (nur Komfort, pro Browser). */
+const AGENDA_STORAGE_KEY = "bc-agenda-collapsed";
+
+/**
+ * "Heute" / "Als Nächstes" ein- und ausklappen. Beide Überschriften schalten
+ * BEIDE Listen um, damit die Karten nebeneinander gleich hoch bleiben. Der
+ * Zustand bleibt im Browser gespeichert.
+ * try/catch: localStorage kann gesperrt sein (privates Fenster) – dann offen.
+ */
+function setupAgendaToggle() {
+    const buttons = document.querySelectorAll(".agenda-toggle");
+    const lists = [document.getElementById("agenda-today"), document.getElementById("agenda-next")];
+    const apply = collapsed => {
+        lists.forEach(list => { list.hidden = collapsed; });
+        buttons.forEach(btn => {
+            btn.setAttribute("aria-expanded", String(!collapsed));
+            btn.querySelector(".agenda-chevron").classList.toggle("-rotate-90", collapsed);
+        });
+    };
+    let collapsed = false;
+    try { collapsed = localStorage.getItem(AGENDA_STORAGE_KEY) === "1"; } catch (err) { /* Standard: offen */ }
+    apply(collapsed);
+    buttons.forEach(btn => btn.addEventListener("click", () => {
+        collapsed = !collapsed;
+        try { localStorage.setItem(AGENDA_STORAGE_KEY, collapsed ? "1" : "0"); } catch (err) { /* nur Komfort */ }
+        apply(collapsed);
+    }));
+}
+
 /* ------------------------------------------------------------------ */
 /* Kalender (FullCalendar)                                            */
 /* ------------------------------------------------------------------ */
@@ -314,6 +343,7 @@ function refreshAll() {
  *   twoWeeks     → zwei Wochenzeilen untereinander (Standard am Desktop). Jede
  *                  Tageszelle zeigt ALLE Termine: ganztägige als Balken, dazu die
  *                  stundenweisen mit Uhrzeit.
+ *   threeWeeks   → wie twoWeeks, nur mit drei Wochenzeilen (diese + zwei weitere).
  *   listTwoWeeks → dieselben zwei Wochen als Liste (Standard auf dem Smartphone).
  * dateAlignment "week": "Heute" und die Pfeile springen immer auf einen Montag.
  */
@@ -325,6 +355,14 @@ const CUSTOM_VIEWS = {
         buttonText: "2 Wochen",
         weekNumbers: true, // "KW 39" am Zeilenanfang
         // Uhrzeit auch in der Monats-/Wochenzeile, z. B. "14:00–14:30 Weekly"
+        displayEventEnd: true,
+    },
+    threeWeeks: {
+        type: "dayGrid",
+        duration: { weeks: 3 },
+        dateAlignment: "week",
+        buttonText: "3 Wochen",
+        weekNumbers: true,
         displayEventEnd: true,
     },
     listTwoWeeks: {
@@ -375,11 +413,11 @@ function weekendButtons(showWeekends) {
 /** localStorage-Schlüssel für die zuletzt geöffnete Kalenderansicht (pro Browser). */
 const VIEW_STORAGE_KEY = "bc-calendar-view";
 
-/** Ansichten, die sich merken lassen (die beiden "2 Wochen"-Varianten + FullCalendar-Standardansichten). */
-const REMEMBERED_VIEWS = ["twoWeeks", "listTwoWeeks", "timeGridWeek", "timeGridDay", "dayGridMonth"];
+/** Ansichten, die sich merken lassen (eigene Ansichten + FullCalendar-Standardansichten). */
+const REMEMBERED_VIEWS = ["twoWeeks", "threeWeeks", "listTwoWeeks", "timeGridWeek", "timeGridDay", "dayGridMonth"];
 
 /**
- * Zuletzt gewählte Ansicht (2 Wochen, Woche, Tag, Monat, Liste) – wird beim nächsten
+ * Zuletzt gewählte Ansicht (2/3 Wochen, Woche, Tag, Monat, Liste) – wird beim nächsten
  * Öffnen des Kalenders (auch nach dem Neu-Einloggen) wiederhergestellt.
  * try/catch: localStorage kann gesperrt sein (privates Fenster) – dann gilt der Standard.
  * @returns {?string}
@@ -414,7 +452,7 @@ function toolbarForDevice(mobile) {
             footerToolbar: { center: "listTwoWeeks,timeGridDay,dayGridMonth weekendToggle" },
         }
         : {
-            headerToolbar: { left: "prev,next today weekendToggle", center: "title", right: "twoWeeks,timeGridWeek,timeGridDay,dayGridMonth,listTwoWeeks" },
+            headerToolbar: { left: "prev,next today weekendToggle", center: "title", right: "twoWeeks,threeWeeks,timeGridWeek,timeGridDay,dayGridMonth,listTwoWeeks" },
             footerToolbar: false,
         };
 }
@@ -528,7 +566,7 @@ function renderCalendar(container) {
             if (info.event.extendedProps.source === "google") decorateGoogleEvent(info);
             decorateCustomerTag(info);
         },
-        // Merkt sich die Ansicht (2 Wochen, Woche, Tag, Monat, Liste) für den nächsten
+        // Merkt sich die Ansicht (2/3 Wochen, Woche, Tag, Monat, Liste) für den nächsten
         // Aufruf – auch nach dem erneuten Einloggen (loadSavedView/responsiveOptions oben).
         datesSet: info => {
             if (suppressViewSave) { suppressViewSave = false; return; }
@@ -695,11 +733,6 @@ function selectCalendarTab(userId, { initial = false } = {}) {
         t.tabIndex = active ? 0 : -1; // nur der aktive Tab ist per Tab-Taste erreichbar
     });
     document.getElementById("calendar-container").setAttribute("aria-labelledby", activeId);
-
-    const user = userId !== null ? tabUsers.get(userId) : null;
-    const subtitle = document.getElementById("dash-subtitle");
-    subtitle.hidden = !user;
-    subtitle.textContent = user ? `Kalender von ${user.first_name} ${user.last_name} – Termine aus der App und aus Google.` : "";
 
     const url = new URL(window.location.href);
     if (userId === null) url.searchParams.delete("mitarbeiter");
@@ -1006,6 +1039,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     renderCalendar(document.getElementById("calendar-container"));
+    setupAgendaToggle();
     loadUpcoming();
     setupEventForm();
     setupDetailsDialog();

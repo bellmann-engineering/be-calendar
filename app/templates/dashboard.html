@@ -44,10 +44,9 @@ Sichtbarkeit:
     {# ---------- Kopfbereich ---------- #}
     <div class="page-header">
         <div>
+            {# Überschrift nur für Screenreader – sichtbar reicht der Kalender selbst. #}
+            <h1 class="sr-only">Kalender</h1>
             <p id="dash-date" class="eyebrow"></p>
-            <h1 class="page-title mt-1">Kalender</h1>
-            {# Nur befüllt, wenn ein Planer den Kalender eines Mitarbeiters ansieht (dashboard.js::selectCalendarTab) #}
-            <p id="dash-subtitle" class="page-subtitle" hidden></p>
         </div>
         {# Nur für CEO/ADMIN/TEAM_LEADER sichtbar (dashboard.js entfernt hidden) #}
         <button type="button" id="open-modal-btn" class="btn btn-primary" hidden>
@@ -56,11 +55,13 @@ Sichtbarkeit:
     </div>
 
     {# ---------- Agenda: was steht heute und als Nächstes an (dashboard.js::loadUpcoming) ----------
-       Enthält App-Termine UND Google-Termine; folgt dem gewählten Mitarbeiter-Tab. #}
+       Enthält App-Termine UND Google-Termine; folgt dem gewählten Mitarbeiter-Tab.
+       Ein Klick auf "Heute" oder "Als Nächstes" klappt BEIDE Listen ein/aus, damit die
+       Karten nebeneinander gleich hoch bleiben (dashboard.js::setupAgendaToggle). #}
     <section aria-label="Überblick" class="mb-6 grid gap-4 lg:grid-cols-2">
         <div class="card p-4 sm:p-5">
             <div class="flex items-baseline justify-between gap-3 px-2">
-                <h2 class="card-title">Heute</h2>
+                <h2 class="card-title"><button type="button" class="agenda-toggle inline-flex cursor-pointer items-center gap-1.5 select-none" aria-controls="agenda-today agenda-next" aria-expanded="true">Heute<span class="agenda-chevron inline-flex text-fg-subtle transition-transform">{{ icon('chevron-down') }}</span></button></h2>
                 <p id="agenda-today-date" class="text-xs text-fg-muted"></p>
             </div>
             <ul id="agenda-today" class="mt-2" aria-busy="true">
@@ -69,7 +70,7 @@ Sichtbarkeit:
         </div>
         <div class="card p-4 sm:p-5">
             <div class="flex items-baseline justify-between gap-3 px-2">
-                <h2 class="card-title">Als Nächstes</h2>
+                <h2 class="card-title"><button type="button" class="agenda-toggle inline-flex cursor-pointer items-center gap-1.5 select-none" aria-controls="agenda-today agenda-next" aria-expanded="true">Als Nächstes<span class="agenda-chevron inline-flex text-fg-subtle transition-transform">{{ icon('chevron-down') }}</span></button></h2>
                 <p class="text-xs text-fg-muted">nächste 14 Tage</p>
             </div>
             <ul id="agenda-next" class="mt-1" aria-busy="true">
