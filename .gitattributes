@@ -1,2 +1,5 @@
-# Shell-Skripte laufen im Linux-Container -> immer LF, auch bei core.autocrlf=true
-*.sh text eol=lf
+# Alle Textdateien im Repo und beim Auschecken immer mit LF – auch unter Windows
+# mit core.autocrlf=true. Die Anwendung läuft im Linux-Container (Shell-Skripte
+# brechen mit CRLF), und eine vom Windows-Rechner auf den Server kopierte
+# Arbeitskopie zeigt sonst jede Datei als geändert an.
+* text=auto eol=lf
