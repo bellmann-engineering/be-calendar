@@ -156,3 +156,10 @@ def test_urlaub_eintragen_mit_eigenem_titel_und_fehlern(client, make_user):
         ).status_code
         == 401
     )
+
+
+def test_hinweis_im_layout_nur_ohne_schluessel(app, client, make_user, login):
+    """Der Warnhinweis steckt im Layout, solange INTEGRATION_API_KEY fehlt (nicht in Tests)."""
+    user = make_user("ADMIN")
+    login(user)
+    assert b"INTEGRATION_API_KEY fehlt" not in client.get("/dashboard").data

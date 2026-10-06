@@ -140,6 +140,19 @@ def create_app(config_class: type[BaseConfig] | None = None) -> Flask:
 
     register_security_headers(app)
 
+    # Ohne INTEGRATION_API_KEY ist die Schnittstelle für andere Apps (Urlaubsanträge) aus.
+    # Damit das nicht vergessen wird: Warnung im Log und Hinweis für CEO/ADMIN im Layout.
+    integration_key_missing = not app.config["INTEGRATION_API_KEY"] and not app.testing
+    if integration_key_missing:
+        logger.warning(
+            "INTEGRATION_API_KEY ist nicht gesetzt - die Schnittstelle /api/v1/integration "
+            "ist abgeschaltet (siehe README, Abschnitt 'Schnittstelle für andere Apps')."
+        )
+
+    @app.context_processor
+    def _warnings() -> dict:
+        return {"integration_key_missing": integration_key_missing}
+
     @app.route("/health", methods=["GET"])
     @limiter.exempt
     def health_check():
