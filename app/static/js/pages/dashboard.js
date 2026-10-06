@@ -4,8 +4,8 @@
  * ---------------------------------------------------------------------
  * Zweck:
  *   Logik der Kalenderseite (dashboard.html):
- *     - Agenda "Heute" / "Als Nächstes" (App- und Google-Termine)
- *     - FullCalendar: merkt sich die zuletzt gewählte Ansicht (2 Wochen,
+ *     - Agenda "Heute" / "Als Nächstes" (App- und Google-Termine, einklappbar)
+ *     - FullCalendar: merkt sich die zuletzt gewählte Ansicht (2/3 Wochen,
  *       Woche, Tag, Monat); ohne gespeicherte Wahl "diese + nächste Woche
  *       untereinander" (Desktop: Raster, Smartphone: Liste)
  *     - Dialog "Termin anlegen/bearbeiten"
@@ -145,8 +145,14 @@ async function loadCustomers() {
 /* Kennzahlen                                                         */
 /* ------------------------------------------------------------------ */
 
-/** Wie viele Einträge "Als Nächstes" höchstens zeigt (Rest: "… und N weitere"). */
+/** Wie viele Einträge "Als Nächstes" anfangs zeigt (Rest: "… und N weitere · mehr"). */
 const AGENDA_NEXT_LIMIT = 2;
+
+/** So viele Einträge kommen pro Klick auf "mehr" dazu. */
+const AGENDA_NEXT_STEP = 5;
+
+/** Aktuell gezeigte Anzahl in "Als Nächstes" (wächst mit jedem Klick auf "mehr"). */
+let agendaNextLimit = AGENDA_NEXT_LIMIT;
 
 const FMT_AGENDA_DAY = new Intl.DateTimeFormat("de-DE", { weekday: "short", day: "numeric", month: "numeric" });
 
@@ -177,7 +183,7 @@ async function loadUpcoming() {
         const url = `/api/v1/events?start=${encodeURIComponent(startOfToday.toISOString())}&end=${encodeURIComponent(horizon.toISOString())}`;
         const [res, google] = await Promise.all([
             apiFetch(url),
-            fetchGoogleEvents(startOfToday.toISOString(), horizon.toISOString(), userId),
+            fetchGoogleEvents(startOfToday.toISOString(), horizon.toISOString(), googleUserIds()),
         ]);
         if (!res.ok) throw new Error("Fehler beim Laden");
         if (userId !== selectedUserId) return; // veraltet – der neue Tab lädt selbst
@@ -192,6 +198,7 @@ async function loadUpcoming() {
             ...google.events.map(e => ({
                 source: "google", title: e.title, tag: e.extendedProps.tag, allDay: e.allDay,
                 start: parseCalendarDate(e.start), end: parseCalendarDate(e.end), extendedProps: e.extendedProps,
+                assignees: userId === null ? e.extendedProps.owners : null,
             })),
         ];
         // Heute: alles, was heute stattfindet (auch mehrtägige, die früher begonnen haben).
@@ -228,6 +235,19 @@ function agendaTime(item, day) {
     return `${FMT_TIME.format(item.start)}–${FMT_TIME.format(item.end)}`;
 }
 
+/** "Urlaub" oder "Frei" als eigenes Wort im Titel – nicht "Freitag", "Freigabe" o. Ä. */
+const TIME_OFF_PATTERN = /(^|[^\p{L}])(urlaub|frei)(?!\p{L})/iu;
+
+/**
+ * Ist das ein Urlaubs-/Frei-Termin? Solche Termine erscheinen kursiv und hellgrün
+ * (CSS: .bc-time-off im Kalender, .bc-time-off-text in der Agenda).
+ * @param {string} title
+ * @returns {boolean}
+ */
+function isTimeOff(title) {
+    return TIME_OFF_PATTERN.test(title || "");
+}
+
 /**
  * Ein Agenda-Eintrag als Button: Klick springt im Kalender zu diesem Tag
  * (Google-Termine: öffnet sie in Google).
@@ -239,8 +259,11 @@ function agendaTime(item, day) {
 function agendaItem(item, day, now) {
     const past = !item.allDay && item.end < now;
     const running = !item.allDay && item.start <= now && item.end > now;
-    const assignee = selectedUserId === null && isPlanner() && item.assignee
-        ? (tabUsers.get(item.assignee) ? `${tabUsers.get(item.assignee).first_name} ${tabUsers.get(item.assignee).last_name}` : trainerNames.get(String(item.assignee)))
+    // "Alle Termine": wessen Termin? App-Termine haben EINEN Mitarbeiter, Google-Termine
+    // können in mehreren Kalendern stehen (assignees).
+    const nameOf = id => (tabUsers.get(id) ? `${tabUsers.get(id).first_name} ${tabUsers.get(id).last_name}` : trainerNames.get(String(id)));
+    const assignee = selectedUserId === null && isPlanner()
+        ? (item.assignees || (item.assignee ? [item.assignee] : [])).map(nameOf).filter(Boolean).join(", ") || null
         : null;
     const meta = [assignee, running ? "läuft gerade" : null].filter(Boolean).join(" · ");
     const button = h("button", {
@@ -258,7 +281,7 @@ function agendaItem(item, day, now) {
     },
         h("span", { class: "agenda-time", text: agendaTime(item, day) }),
         h("span", { class: "min-w-0 flex-1" },
-            h("span", { class: `block truncate text-sm ${running ? "font-semibold text-accent" : "font-medium text-fg"}` },
+            h("span", { class: `block truncate text-sm ${running ? "font-semibold text-accent" : "font-medium text-fg"} ${isTimeOff(item.title) ? "bc-time-off-text" : ""}` },
                 customerBadge(item.tag), item.title),
             meta ? h("span", { class: "block truncate text-xs text-fg-muted", text: meta }) : null,
         ),
@@ -280,7 +303,7 @@ function renderAgenda(today, next, now) {
         : [empty("Heute stehen keine Termine an.")]));
 
     const nextList = document.getElementById("agenda-next");
-    const shown = next.slice(0, AGENDA_NEXT_LIMIT);
+    const shown = next.slice(0, agendaNextLimit);
     const rows = [];
     let lastDay = "";
     shown.forEach(i => {
@@ -293,7 +316,19 @@ function renderAgenda(today, next, now) {
         rows.push(agendaItem(i, i.start, now));
     });
     if (next.length > shown.length) {
-        rows.push(empty(`… und ${next.length - shown.length} weitere – siehe Kalender.`));
+        // "mehr": zeigt die nächsten AGENDA_NEXT_STEP Einträge, ohne neu zu laden.
+        const more = h("button", {
+            type: "button", class: "agenda-more", text: "mehr",
+            "aria-label": `mehr: ${Math.min(AGENDA_NEXT_STEP, next.length - shown.length)} weitere Termine anzeigen`,
+            on: {
+                click: () => {
+                    agendaNextLimit += AGENDA_NEXT_STEP;
+                    renderAgenda(today, next, now);
+                    nextList.querySelector(".agenda-more")?.focus(); // Tastatur: Fokus bleibt am Button
+                },
+            },
+        });
+        rows.push(h("li", { class: "px-2 py-1 text-sm text-fg-muted" }, `… und ${next.length - shown.length} weitere · `, more));
     }
     nextList.replaceChildren(...(rows.length ? rows : [empty("In den nächsten 14 Tagen keine weiteren Termine.")]));
     [todayList, nextList].forEach(list => list.removeAttribute("aria-busy"));
@@ -305,6 +340,35 @@ function refreshAll() {
     loadUpcoming();
 }
 
+/** localStorage-Schlüssel für "Agenda eingeklappt" (nur Komfort, pro Browser). */
+const AGENDA_STORAGE_KEY = "bc-agenda-collapsed";
+
+/**
+ * "Heute" / "Als Nächstes" ein- und ausklappen. Beide Überschriften schalten
+ * BEIDE Listen um, damit die Karten nebeneinander gleich hoch bleiben. Der
+ * Zustand bleibt im Browser gespeichert.
+ * try/catch: localStorage kann gesperrt sein (privates Fenster) – dann offen.
+ */
+function setupAgendaToggle() {
+    const buttons = document.querySelectorAll(".agenda-toggle");
+    const lists = [document.getElementById("agenda-today"), document.getElementById("agenda-next")];
+    const apply = collapsed => {
+        lists.forEach(list => { list.hidden = collapsed; });
+        buttons.forEach(btn => {
+            btn.setAttribute("aria-expanded", String(!collapsed));
+            btn.querySelector(".agenda-chevron").classList.toggle("-rotate-90", collapsed);
+        });
+    };
+    let collapsed = false;
+    try { collapsed = localStorage.getItem(AGENDA_STORAGE_KEY) === "1"; } catch (err) { /* Standard: offen */ }
+    apply(collapsed);
+    buttons.forEach(btn => btn.addEventListener("click", () => {
+        collapsed = !collapsed;
+        try { localStorage.setItem(AGENDA_STORAGE_KEY, collapsed ? "1" : "0"); } catch (err) { /* nur Komfort */ }
+        apply(collapsed);
+    }));
+}
+
 /* ------------------------------------------------------------------ */
 /* Kalender (FullCalendar)                                            */
 /* ------------------------------------------------------------------ */
@@ -314,6 +378,7 @@ function refreshAll() {
  *   twoWeeks     → zwei Wochenzeilen untereinander (Standard am Desktop). Jede
  *                  Tageszelle zeigt ALLE Termine: ganztägige als Balken, dazu die
  *                  stundenweisen mit Uhrzeit.
+ *   threeWeeks   → wie twoWeeks, nur mit drei Wochenzeilen (diese + zwei weitere).
  *   listTwoWeeks → dieselben zwei Wochen als Liste (Standard auf dem Smartphone).
  * dateAlignment "week": "Heute" und die Pfeile springen immer auf einen Montag.
  */
@@ -325,6 +390,14 @@ const CUSTOM_VIEWS = {
         buttonText: "2 Wochen",
         weekNumbers: true, // "KW 39" am Zeilenanfang
         // Uhrzeit auch in der Monats-/Wochenzeile, z. B. "14:00–14:30 Weekly"
+        displayEventEnd: true,
+    },
+    threeWeeks: {
+        type: "dayGrid",
+        duration: { weeks: 3 },
+        dateAlignment: "week",
+        buttonText: "3 Wochen",
+        weekNumbers: true,
         displayEventEnd: true,
     },
     listTwoWeeks: {
@@ -375,11 +448,11 @@ function weekendButtons(showWeekends) {
 /** localStorage-Schlüssel für die zuletzt geöffnete Kalenderansicht (pro Browser). */
 const VIEW_STORAGE_KEY = "bc-calendar-view";
 
-/** Ansichten, die sich merken lassen (die beiden "2 Wochen"-Varianten + FullCalendar-Standardansichten). */
-const REMEMBERED_VIEWS = ["twoWeeks", "listTwoWeeks", "timeGridWeek", "timeGridDay", "dayGridMonth"];
+/** Ansichten, die sich merken lassen (eigene Ansichten + FullCalendar-Standardansichten). */
+const REMEMBERED_VIEWS = ["twoWeeks", "threeWeeks", "listTwoWeeks", "timeGridWeek", "timeGridDay", "dayGridMonth"];
 
 /**
- * Zuletzt gewählte Ansicht (2 Wochen, Woche, Tag, Monat, Liste) – wird beim nächsten
+ * Zuletzt gewählte Ansicht (2/3 Wochen, Woche, Tag, Monat, Liste) – wird beim nächsten
  * Öffnen des Kalenders (auch nach dem Neu-Einloggen) wiederhergestellt.
  * try/catch: localStorage kann gesperrt sein (privates Fenster) – dann gilt der Standard.
  * @returns {?string}
@@ -414,7 +487,7 @@ function toolbarForDevice(mobile) {
             footerToolbar: { center: "listTwoWeeks,timeGridDay,dayGridMonth weekendToggle" },
         }
         : {
-            headerToolbar: { left: "prev,next today weekendToggle", center: "title", right: "twoWeeks,timeGridWeek,timeGridDay,dayGridMonth,listTwoWeeks" },
+            headerToolbar: { left: "prev,next today weekendToggle", center: "title", right: "twoWeeks,threeWeeks,timeGridWeek,timeGridDay,dayGridMonth,listTwoWeeks" },
             footerToolbar: false,
         };
 }
@@ -451,6 +524,23 @@ window.gotoCalendarDate = isoDate => {
     calendar.gotoDate(parseCalendarDate(isoDate));
     document.getElementById("calendar-container").scrollIntoView({ behavior: "smooth", block: "start" });
 };
+
+/**
+ * Liegt der Tag in der kommenden Woche, während "heute" (Sa/So) wegen des
+ * ausgeblendeten Wochenendes nicht zu sehen ist? Dann wird diese Woche statt
+ * "heute" hellgelb markiert.
+ * @param {Date} date
+ * @returns {boolean}
+ */
+function isUpcomingWeek(date) {
+    if (calendar?.getOption("weekends") ?? loadShowWeekends()) return false;
+    const now = new Date();
+    const weekday = now.getDay(); // 0 = So, 6 = Sa
+    if (weekday !== 0 && weekday !== 6) return false;
+    const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + (weekday === 6 ? 2 : 1));
+    const nextMonday = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + 7);
+    return date >= monday && date < nextMonday;
+}
 
 /**
  * Erstellt den Kalender.
@@ -524,11 +614,17 @@ function renderCalendar(container) {
             if (info.allDay) start.setHours(9, 0, 0, 0); // Monatsansicht: sinnvoller Standard 09:00
             openCreateForm(start);
         },
+        // Sa/So bei ausgeblendetem Wochenende: "heute" ist unsichtbar → stattdessen die
+        // kommende Woche hellgelb (CSS: .bc-upcoming-week).
+        dayCellClassNames: arg => (isUpcomingWeek(arg.date) ? ["bc-upcoming-week"] : []),
+        dayHeaderClassNames: arg => (isUpcomingWeek(arg.date) ? ["bc-upcoming-week"] : []),
+        // Urlaub/Frei kursiv und hellgrün – App- wie Google-Termine.
+        eventClassNames: arg => (isTimeOff(arg.event.title) ? ["bc-time-off"] : []),
         eventDidMount: info => {
             if (info.event.extendedProps.source === "google") decorateGoogleEvent(info);
             decorateCustomerTag(info);
         },
-        // Merkt sich die Ansicht (2 Wochen, Woche, Tag, Monat, Liste) für den nächsten
+        // Merkt sich die Ansicht (2/3 Wochen, Woche, Tag, Monat, Liste) für den nächsten
         // Aufruf – auch nach dem erneuten Einloggen (loadSavedView/responsiveOptions oben).
         datesSet: info => {
             if (suppressViewSave) { suppressViewSave = false; return; }
@@ -580,8 +676,20 @@ async function loadCalendarEvents(fetchInfo, successCallback, failureCallback) {
 }
 
 /**
- * Event-Quelle 2: Termine aus dem zugeordneten Google-Kalender (mit Titel, nur
- * lesend) – der eigene bzw. im Mitarbeiter-Tab der des Mitarbeiters. Ohne
+ * Wessen Google-Kalender geladen wird: im Mitarbeiter-Tab dessen, unter "Alle Termine"
+ * die aller Mitarbeiter mit zugeordnetem Kalender (der Server prüft die Rechte erneut).
+ * Ohne Tabs (keine Planer-Rolle) bzw. ohne solche Mitarbeiter: der eigene Kalender.
+ * @returns {number|number[]|undefined}
+ */
+function googleUserIds() {
+    if (selectedUserId !== null) return selectedUserId;
+    const ids = Array.from(tabUsers.values()).filter(u => u.google_calendar_id).map(u => Number(u.id));
+    return ids.length ? ids : undefined;
+}
+
+/**
+ * Event-Quelle 2: Termine aus den zugeordneten Google-Kalendern (mit Titel, nur
+ * lesend) – siehe googleUserIds(). Ohne
  * Verbindung oder ohne zugeordneten Kalender: keine Termine, kein Toast.
  * Fehlt der Lesezugriff oder der Kalender, steht ein Hinweis unter der Legende.
  * Spricht mit: GET /api/v1/google/events (über app.js::fetchGoogleEvents)
@@ -589,11 +697,23 @@ async function loadCalendarEvents(fetchInfo, successCallback, failureCallback) {
  * @param {Function} successCallback
  */
 async function loadGoogleEvents(fetchInfo, successCallback) {
-    const { events, error } = await fetchGoogleEvents(fetchInfo.startStr, fetchInfo.endStr, selectedUserId);
+    const allTab = selectedUserId === null && tabUsers.size > 0;
+    const { events, error, errors } = await fetchGoogleEvents(fetchInfo.startStr, fetchInfo.endStr, googleUserIds());
     // Einmal sichtbar, bleibt der Eintrag stehen (sonst "springt" die Legende beim Blättern).
     if (events.length) document.getElementById("google-legend").hidden = false;
     const selected = selectedUserId !== null ? tabUsers.get(selectedUserId) : null;
     let message = error ? `Google-Kalender: ${error}` : "";
+    if (allTab) {
+        // Mehrere Kalender: Vorname(n) vor den Titel, sonst weiß niemand, wessen "Urlaub" das ist.
+        events.forEach(e => {
+            const names = e.extendedProps.owners.map(id => tabUsers.get(id)?.first_name).filter(Boolean);
+            if (names.length) e.title = `${names.join(", ")} · ${e.title}`;
+        });
+        const failed = Object.keys(errors).map(id => tabUsers.get(Number(id))).filter(Boolean);
+        if (failed.length) {
+            message = `Google-Kalender nicht lesbar für: ${failed.map(u => `${u.first_name} ${u.last_name}`).join(", ")}.`;
+        }
+    }
     if (!message && selected && !selected.google_calendar_id) {
         message = `${selected.first_name} ${selected.last_name} ist kein Google-Kalender zugeordnet.`;
     }
@@ -688,6 +808,7 @@ function tabIdOf(button) {
  */
 function selectCalendarTab(userId, { initial = false } = {}) {
     selectedUserId = userId;
+    agendaNextLimit = AGENDA_NEXT_LIMIT; // anderer Kalender → "Als Nächstes" wieder kurz
     const activeId = userId === null ? "tab-all" : `tab-user-${userId}`;
     document.querySelectorAll("#calendar-tabs .tab").forEach(t => {
         const active = t.id === activeId;
@@ -695,11 +816,6 @@ function selectCalendarTab(userId, { initial = false } = {}) {
         t.tabIndex = active ? 0 : -1; // nur der aktive Tab ist per Tab-Taste erreichbar
     });
     document.getElementById("calendar-container").setAttribute("aria-labelledby", activeId);
-
-    const user = userId !== null ? tabUsers.get(userId) : null;
-    const subtitle = document.getElementById("dash-subtitle");
-    subtitle.hidden = !user;
-    subtitle.textContent = user ? `Kalender von ${user.first_name} ${user.last_name} – Termine aus der App und aus Google.` : "";
 
     const url = new URL(window.location.href);
     if (userId === null) url.searchParams.delete("mitarbeiter");
@@ -721,7 +837,7 @@ function toCalendarEvent(e) {
     const color = isValidHexColor(e.color) ? e.color : DEFAULT_EVENT_COLOR;
     return {
         id: e.id,
-        // Klammer-Kürzel ("(GFN)") aus der Anzeige entfernt, sobald der Kunde erkannt wurde
+        // Kürzel ("(GFN)", "GFN: ") aus der Anzeige entfernt, sobald der Kunde erkannt wurde
         // (das Logo/Tag zeigt die Zugehörigkeit dann schon). FullCalendar setzt den Titel
         // als Text → sicher.
         title: displayTitle(e.title, e.tag),
@@ -1006,6 +1122,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     renderCalendar(document.getElementById("calendar-container"));
+    setupAgendaToggle();
     loadUpcoming();
     setupEventForm();
     setupDetailsDialog();

@@ -73,7 +73,7 @@ Performance:
     <script src="{{ asset_url('js/app.js') }}" defer></script>
     {% block scripts %}{% endblock %}
 </head>
-<body class="min-h-dvh">
+<body class="flex min-h-dvh flex-col">
     <a href="#main" class="skip-link">Zum Inhalt springen</a>
     {% include "_icons.html" %}
 
@@ -171,9 +171,16 @@ Performance:
     {% endif %}
 
     {# ================= Seiteninhalt ================= #}
-    <main id="main" tabindex="-1" class="{% if public_page %}min-h-dvh{% else %}container-app py-6 sm:py-8{% endif %} outline-none">
+    <main id="main" tabindex="-1" class="{% if public_page %}min-h-dvh{% else %}container-app flex-1 py-6 sm:py-8{% endif %} outline-none">
         {% block content %}{% endblock %}
     </main>
+
+    {% if not public_page %}
+    {# ================= Fußzeile (nur für angemeldete Seiten) ================= #}
+    <footer class="border-t border-line py-4 text-center text-xs text-fg-muted">
+        © Bellmann Engineering GmbH, 2026
+    </footer>
+    {% endif %}
 
     {% if not public_page %}
     {# ================= Dialog: Termin aus Google (app.js::openGoogleEvent) =================

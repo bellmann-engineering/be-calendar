@@ -5,7 +5,7 @@ Geprüft wird vor allem:
     * Logos werden serverseitig neu als kleines PNG kodiert; SVG und Nicht-Bilder
       werden abgelehnt (SVG kann JavaScript enthalten).
     * Nur CEO/ADMIN dürfen Logos ändern, jeder Angemeldete darf sie sehen.
-    * "(GFN)" bzw. "(Comcave/CC)" im Titel ordnet den Termin dem Kunden zu (tag).
+    * "(GFN)", "(Comcave/CC)" bzw. "GFN: …" im Titel ordnet den Termin dem Kunden zu (tag).
 """
 
 import io
@@ -41,6 +41,10 @@ def test_kuerzel_werden_gespeichert_und_geprueft(client, make_user, login, csrf)
         f"/api/v1/customers/{kunde_id}", json={"short_codes": "A/B"}, headers=csrf()
     )
     assert ungueltig.status_code == 400
+    mit_doppelpunkt = client.put(
+        f"/api/v1/customers/{kunde_id}", json={"short_codes": "A:B"}, headers=csrf()
+    )
+    assert mit_doppelpunkt.status_code == 400
 
 
 def test_logo_hochladen_verkleinern_ausliefern_entfernen(client, make_user, login, csrf):
@@ -115,6 +119,11 @@ def test_kunde_wird_im_termintitel_erkannt(client, make_user, login, csrf):
         "Termin (gfn)": ("GFN", gfn),
         "Ohne Kunde": None,
         "Klammer ohne Treffer (XYZ)": None,
+        "GFN: Schulung LF-VT3b": ("GFN", gfn),
+        "cc:Prüfung": ("CC", comcave),
+        "Comcave/CC: Prüfung": ("CC", comcave),
+        "XYZ: Doppelpunkt ohne Treffer": None,
+        "Besprechung 14:00": None,
     }
     for t in titel:
         client.post(
@@ -135,6 +144,8 @@ def test_kunde_wird_im_termintitel_erkannt(client, make_user, login, csrf):
     # "raw" ist der exakte Klammerausdruck – das Frontend blendet ihn aus der Anzeige aus.
     assert termine["Schulung LF-VT3b (GFN)"]["raw"] == "(GFN)"
     assert termine["Prüfung (Comcave/CC)"]["raw"] == "(Comcave/CC)"
+    assert termine["GFN: Schulung LF-VT3b"]["raw"] == "GFN: "
+    assert termine["cc:Prüfung"]["raw"] == "cc:"
 
     # Ein in der App gewählter Kunde hat Vorrang vor dem Titel, "raw" wird trotzdem erkannt.
     client.post(
