@@ -1,0 +1,223 @@
+openapi: 3.0.3
+info:
+  title: Bellmann Kalender – Schnittstelle für andere Apps
+  version: 1.0.0
+  description: |
+    Termine einer Person auf Überschneidungen prüfen und Urlaub eintragen
+    (z. B. für die Urlaubsantrags-App).
+
+    **Aufruf:** Server-zu-Server direkt an den Container (`http://bellmann_web:5000`),
+    nicht über Traefik/Authelia. Authentifizierung per gemeinsamem Schlüssel
+    (`INTEGRATION_API_KEY` in der `.env` des Kalenders).
+    Ist kein Schlüssel konfiguriert, antworten alle Endpunkte mit 404.
+
+    **Datumsangaben:** `start` und `end` sind Kalendertage (`JJJJ-MM-TT`) in der
+    Geschäftszeitzone (Europe/Berlin), **beide inklusive**. Ein ISO-Zeitpunkt mit
+    Uhrzeit wird auf seinen Tag gekürzt. Maximal 366 Tage.
+servers:
+  - url: http://bellmann_web:5000/api/v1/integration
+    description: Direkt im Docker-Netzwerk (traefik_network)
+security:
+  - ApiKeyHeader: []
+  - BearerAuth: []
+paths:
+  /availability:
+    get:
+      summary: Termine einer Person im Zeitraum je Tag (Überschneidungen)
+      description: |
+        Liefert alle Termine der Person im Zeitraum, gruppiert nach Tag
+        (aufsteigend). Berücksichtigt Termine der App und – falls verbunden –
+        des Google-Kalenders der Person. Mehrtägige Termine erscheinen an jedem
+        betroffenen Tag. Hat die Person nichts im Zeitraum, ist `conflicts` leer.
+      operationId: getAvailability
+      parameters:
+        - name: email
+          in: query
+          required: true
+          description: E-Mail des aktiven Mitarbeiters (Groß-/Kleinschreibung egal).
+          schema: { type: string, format: email }
+          example: max@firma.de
+        - name: start
+          in: query
+          required: true
+          description: Erster Tag (inklusive).
+          schema: { type: string, format: date }
+          example: "2026-10-12"
+        - name: end
+          in: query
+          required: true
+          description: Letzter Tag (inklusive).
+          schema: { type: string, format: date }
+          example: "2026-10-16"
+      responses:
+        "200":
+          description: Termine im Zeitraum (leere Liste = frei).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Availability" }
+              examples:
+                belegt:
+                  value:
+                    email: max@firma.de
+                    start: "2026-10-12"
+                    end: "2026-10-16"
+                    conflicts:
+                      - date: "2026-10-13"
+                        events:
+                          - title: Schulung GFN
+                            start_time: "2026-10-13T07:00:00+00:00"
+                            end_time: "2026-10-13T15:00:00+00:00"
+                            is_all_day: false
+                            source: calendar
+                frei:
+                  value:
+                    email: max@firma.de
+                    start: "2026-10-12"
+                    end: "2026-10-16"
+                    conflicts: []
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+  /vacations:
+    post:
+      summary: Urlaub als ganztägigen Termin eintragen
+      description: |
+        Legt einen ganztägigen Termin für die Person an, wie „Neuer Termin“ im
+        Kalender (Audit-Log `CREATE_EVENT`, Spiegelung in den Google-Kalender der
+        Person). Prüft **keine** Überschneidungen – dafür vorher `/availability`
+        aufrufen. Die Rollenprüfung der Oberfläche entfällt, der API-Schlüssel ist
+        die Berechtigung.
+      operationId: createVacation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VacationRequest" }
+            example:
+              email: max@firma.de
+              start: "2026-10-12"
+              end: "2026-10-16"
+              title: Urlaub
+              description: "Antrag #42"
+      responses:
+        "201":
+          description: Urlaub eingetragen.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VacationCreated" }
+              example:
+                message: Urlaub eingetragen.
+                event:
+                  id: 117
+                  title: Urlaub
+                  description: "Antrag #42"
+                  start_time: "2026-10-11T22:00:00+00:00"
+                  end_time: "2026-10-16T22:00:00+00:00"
+                  assigned_to_id: 5
+                  meeting_link: null
+                  is_all_day: true
+                  customer_id: null
+                  color: "#2B6CB0"
+                  tag: null
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+components:
+  securitySchemes:
+    ApiKeyHeader:
+      type: apiKey
+      in: header
+      name: X-API-Key
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: Derselbe Schlüssel als `Authorization&#58; Bearer <Schlüssel>`.
+  schemas:
+    Availability:
+      type: object
+      required: [email, start, end, conflicts]
+      properties:
+        email: { type: string, format: email }
+        start: { type: string, format: date }
+        end: { type: string, format: date }
+        conflicts:
+          type: array
+          description: Tage mit Terminen, aufsteigend. Leer = keine Überschneidung.
+          items:
+            type: object
+            required: [date, events]
+            properties:
+              date: { type: string, format: date }
+              events:
+                type: array
+                items: { $ref: "#/components/schemas/ConflictEvent" }
+    ConflictEvent:
+      type: object
+      required: [title, start_time, end_time, is_all_day, source]
+      properties:
+        title: { type: string }
+        start_time: { type: string, format: date-time, description: UTC mit Offset }
+        end_time:
+          type: string
+          format: date-time
+          description: UTC mit Offset; bei ganztägigen Terminen exklusiv (00:00 des Folgetags).
+        is_all_day: { type: boolean }
+        source:
+          type: string
+          enum: [calendar, google]
+          description: Termin der App oder aus dem verbundenen Google-Kalender.
+    VacationRequest:
+      type: object
+      required: [email, start, end]
+      properties:
+        email: { type: string, format: email }
+        start: { type: string, format: date, description: Erster Urlaubstag (inklusive). }
+        end: { type: string, format: date, description: Letzter Urlaubstag (inklusive). }
+        title: { type: string, maxLength: 200, default: Urlaub }
+        description: { type: string }
+    VacationCreated:
+      type: object
+      properties:
+        message: { type: string }
+        event:
+          type: object
+          properties:
+            id: { type: integer }
+            title: { type: string }
+            description: { type: string, nullable: true }
+            start_time: { type: string, format: date-time }
+            end_time: { type: string, format: date-time }
+            assigned_to_id: { type: integer }
+            meeting_link: { type: string, nullable: true }
+            is_all_day: { type: boolean }
+            customer_id: { type: integer, nullable: true }
+            color: { type: string }
+            tag: { type: object, nullable: true }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+  responses:
+    BadRequest:
+      description: Ungültige Eingabe (Datum, Zeitraum, Titel, fehlende E-Mail).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: end darf nicht vor start liegen. }
+    Unauthorized:
+      description: API-Schlüssel fehlt oder ist falsch.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: Ungültiger oder fehlender API-Schlüssel. }
+    NotFound:
+      description: Kein aktiver Mitarbeiter mit dieser E-Mail – oder Schnittstelle abgeschaltet.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: Kein aktiver Mitarbeiter mit dieser E-Mail. }
+    TooManyRequests:
+      description: Rate-Limit überschritten (120/min availability, 60/min vacations).

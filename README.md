@@ -27,6 +27,7 @@ Kalender- und Einsatzplanung für **Bellmann Engineering**: Termine anlegen und 
 5. [E-Mail-Versand (SMTP)](#e-mail-versand-smtp)
    - [Google-Kalender anbinden](#google-kalender-anbinden)
 6. [Server-Betrieb (Traefik + Authelia)](#server-betrieb-traefik--authelia)
+   - [Schnittstelle für andere Apps (Urlaubsanträge)](#schnittstelle-für-andere-apps-urlaubsanträge)
    - [HTTPS und Zertifikate (lokal)](#https-und-zertifikate-lokal)
 7. [Datensicherung und Wiederherstellung](#datensicherung-und-wiederherstellung)
 8. [Lokale Entwicklung](#lokale-entwicklung)
@@ -115,6 +116,7 @@ Alle Einstellungen kommen aus der Datei `.env` (nicht in Git). Die Vorlage mit E
 | `APP_BASE_URL` | Öffentliche Adresse (für Links in E-Mails), z. B. `https://localhost:8443` |
 | `APP_HOST`, `APP_URL_PREFIX` | Nur Server: Host und Pfad der App (Standard `intern.bellmann-engineering.com` + `/kalender`); `docker-compose.yml` baut daraus auch `APP_BASE_URL` |
 | `AUTHELIA_SSO` | `1` = Anmeldung über den Authelia-Header `Remote-Email` (Server-Standard), lokal `0` |
+| `INTEGRATION_API_KEY` | Schlüssel für die [Schnittstelle für andere Apps](#schnittstelle-für-andere-apps-urlaubsanträge). Leer = Schnittstelle aus. |
 | `AUTHELIA_LOGOUT_URL` | Optional: Ziel nach „Abmelden“, damit auch die Authelia-Sitzung endet |
 | `COOKIE_SECURE` | `1` = Cookies nur über HTTPS (Standard). Nur für `python run.py` ohne TLS auf `0`. |
 | `HTTP_PORT`, `HTTPS_PORT` | Öffentliche Ports des lokalen Nginx (Standard 8080 / 8443) |
@@ -206,6 +208,43 @@ Die App läuft auf dem Server unter **https://intern.bellmann-engineering.com/ka
 **Anmeldung:** Authelia prüft Benutzer und Passwort (bzw. 2FA) und gibt die E-Mail im Header `Remote-Email` weiter (Traefik-Middleware `authResponseHeaders`). Gibt es in der App einen **aktiven** Mitarbeiter mit derselben E-Mail (Groß-/Kleinschreibung egal), überspringt `/login` die Anmeldemaske. Ohne passenden Mitarbeiter erscheint die normale Maske mit einem Hinweis. Meldet sich im selben Browser eine andere Person bei Authelia an, wird die alte App-Sitzung verworfen.
 
 > Sicherheit: `AUTHELIA_SSO=1` vertraut dem Header `Remote-Email`. Das ist nur sicher, weil die App ausschließlich über Traefik + Authelia erreichbar ist (Traefik überschreibt den Header mit Authelias Antwort). In Authelias `access_control` darf für `/kalender` daher **keine** `bypass`-Regel stehen. Lokal ist SSO aus, und Nginx verwirft `Remote-*`-Header vom Browser.
+
+### Schnittstelle für andere Apps (Urlaubsanträge)
+
+Eine App in einem anderen Container (z. B. für Urlaubsanträge) kann Termine einer Person prüfen und Urlaub eintragen. Der Aufruf geht **direkt von Container zu Container** (beide hängen im `traefik_network`) und umgeht damit Traefik/Authelia – stattdessen schützt ein gemeinsamer Schlüssel:
+
+1. Schlüssel erzeugen: `python -c "import secrets; print(secrets.token_urlsafe(48))"`, in der `.env` dieser App als `INTEGRATION_API_KEY` eintragen und `docker compose up -d`. Dieselbe Zeichenkette bekommt die andere App.
+2. Die andere App sendet ihn im Header `X-API-Key` (oder `Authorization: Bearer <Schlüssel>`) an `http://bellmann_web:5000/api/v1/integration/...` (Containername `bellmann_web`, kein `/kalender` nötig). Ohne Schlüssel in der `.env` antwortet die Schnittstelle mit 404.
+
+`start` und `end` sind Kalendertage (`JJJJ-MM-TT`), **beide inklusive**. Personen werden über ihre E-Mail gefunden (Groß-/Kleinschreibung egal, nur aktive Mitarbeiter, sonst 404).
+
+**Überschneidungen prüfen** – `GET /api/v1/integration/availability?email=max@firma.de&start=2026-10-12&end=2026-10-16`
+
+```json
+{
+  "email": "max@firma.de", "start": "2026-10-12", "end": "2026-10-16",
+  "conflicts": [
+    {"date": "2026-10-13", "events": [
+      {"title": "Schulung GFN", "start_time": "2026-10-13T07:00:00+00:00",
+       "end_time": "2026-10-13T15:00:00+00:00", "is_all_day": false, "source": "calendar"}
+    ]}
+  ]
+}
+```
+
+`conflicts` ist leer (`[]`), wenn die Person im Zeitraum nichts hat. Mehrtägige Termine erscheinen an jedem betroffenen Tag. `source` ist `calendar` (Termin der App) oder `google` (aus dem verbundenen Google-Kalender der Person). Zeiten sind UTC mit Offset.
+
+**Urlaub eintragen** – `POST /api/v1/integration/vacations`
+
+```json
+{"email": "max@firma.de", "start": "2026-10-12", "end": "2026-10-16", "title": "Urlaub", "description": "Antrag #42"}
+```
+
+`title` (Standard „Urlaub“) und `description` sind optional. Es entsteht ein **ganztägiger** Termin der Person (Audit-Log `CREATE_EVENT`, Spiegelung in ihren Google-Kalender) – antwortet mit `201` und dem Termin. Der Aufruf prüft keine Überschneidungen; das macht die andere App vorher mit `availability`.
+
+Die vollständige Beschreibung als OpenAPI-Datei: [`docs/integration-api.yaml`](docs/integration-api.yaml) (z. B. in editor.swagger.io öffnen).
+
+Fehler kommen als `{"error": "..."}` mit `400` (ungültige Eingabe), `401` (Schlüssel), `404` (Person unbekannt).
 
 ### HTTPS und Zertifikate (lokal)
 

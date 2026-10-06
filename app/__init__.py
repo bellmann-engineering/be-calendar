@@ -116,6 +116,7 @@ def create_app(config_class: type[BaseConfig] | None = None) -> Flask:
     from app.routes.customer_routes import customer_bp
     from app.routes.event_routes import event_bp
     from app.routes.google_routes import google_bp
+    from app.routes.integration_routes import integration_bp
     from app.routes.notification_routes import notification_bp
     from app.routes.team_routes import team_bp
     from app.utils import transaction as _transaction  # noqa: F401
@@ -127,6 +128,7 @@ def create_app(config_class: type[BaseConfig] | None = None) -> Flask:
     app.register_blueprint(calendar_bp)  # HTML-Seiten: /, /login, /dashboard, ...
     app.register_blueprint(customer_bp)  # /api/v1/customers/...
     app.register_blueprint(google_bp)  # /api/v1/google/... (Google-Kalender-Anbindung)
+    app.register_blueprint(integration_bp)  # /api/v1/integration/... (andere Apps, API-Key)
 
     # asset_url() für die Templates (Cache-Busting) + Cache-Header für /static/...
     from app.utils.assets import register_asset_helpers

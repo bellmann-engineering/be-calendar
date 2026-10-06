@@ -160,6 +160,11 @@ class BaseConfig:
     # damit auch die Authelia-Sitzung endet. Leer = zurück zur Login-Seite.
     AUTHELIA_LOGOUT_URL = os.getenv("AUTHELIA_LOGOUT_URL", "")
 
+    # --- Schnittstelle für andere Apps (z. B. Urlaubsanträge) ------------------------------
+    # Gemeinsamer Schlüssel für /api/v1/integration/... (Header X-API-Key). Leer = aus.
+    # Erzeugen mit: python -c "import secrets; print(secrets.token_urlsafe(48))"
+    INTEGRATION_API_KEY = os.getenv("INTEGRATION_API_KEY", "").strip()
+
     # --- Flask-Session (NUR für den Google-Anmeldeablauf) ---------------------------------
     # Die Login-Cookies (JWT) sind SameSite=Strict und werden deshalb bei der Rückkehr von
     # accounts.google.com NICHT mitgeschickt. Den OAuth-"state" (Schutz gegen CSRF beim
