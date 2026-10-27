@@ -383,6 +383,12 @@ function setupAgendaToggle() {
  * dateAlignment "week": "Heute" und die Pfeile springen immer auf einen Montag.
  */
 const CUSTOM_VIEWS = {
+    // Alle Raster über mehrere Wochen (2/3 Wochen, Monat): Eine Kopfzeile steht über
+    // mehreren Wochenzeilen – ein Datum darin passt zu keiner Zeile (FullCalendar nimmt
+    // irgendeinen Tag). Das Datum steht ohnehin in jeder Zelle → im Kopf nur der Wochentag.
+    dayGrid: {
+        dayHeaderFormat: { weekday: "short" },
+    },
     twoWeeks: {
         type: "dayGrid",
         duration: { weeks: 2 },
