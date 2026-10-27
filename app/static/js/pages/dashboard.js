@@ -596,8 +596,9 @@ function renderCalendar(container) {
         dayMaxEvents: false,
         // Gleichzeitige Termine NEBENeinander statt überlappend (sonst verdeckt).
         slotEventOverlap: false,
-        // Zwei Quellen: 1. Termine aus der App, 2. Termine aus dem eigenen Google-Kalender.
-        eventSources: [loadCalendarEvents, loadGoogleEvents],
+        // Drei Quellen: 1. Termine aus der App, 2. Termine aus dem eigenen Google-Kalender,
+        // 3. Feiertage aus dem Urlaubsplaner (Hintergrund, für alle gleich).
+        eventSources: [loadCalendarEvents, loadGoogleEvents, loadHolidays],
         eventClick: info => {
             // Google-Termine gehören nicht der App → im Google Kalender öffnen.
             if (info.event.extendedProps.source === "google") {
@@ -619,7 +620,8 @@ function renderCalendar(container) {
         dayCellClassNames: arg => (isUpcomingWeek(arg.date) ? ["bc-upcoming-week"] : []),
         dayHeaderClassNames: arg => (isUpcomingWeek(arg.date) ? ["bc-upcoming-week"] : []),
         // Urlaub/Frei kursiv und hellgrün – App- wie Google-Termine.
-        eventClassNames: arg => (isTimeOff(arg.event.title) ? ["bc-time-off"] : []),
+        // Feiertage nicht: "Frei" im Namen eines Feiertags ist kein Urlaub.
+        eventClassNames: arg => (arg.event.extendedProps.source !== "holiday" && isTimeOff(arg.event.title) ? ["bc-time-off"] : []),
         eventDidMount: info => {
             if (info.event.extendedProps.source === "google") decorateGoogleEvent(info);
             decorateCustomerTag(info);
@@ -696,6 +698,19 @@ function googleUserIds() {
  * @param {object} fetchInfo - Zeitraum von FullCalendar.
  * @param {Function} successCallback
  */
+/**
+ * Event-Quelle: Feiertage aus dem Urlaubsplaner (siehe fetchHolidays in app.js).
+ * Legende und Hinweis erscheinen erst, wenn es etwas zu zeigen gibt.
+ */
+async function loadHolidays(fetchInfo, successCallback) {
+    const { events, error } = await fetchHolidays(fetchInfo.startStr, fetchInfo.endStr);
+    if (events.length) document.getElementById("holiday-legend").hidden = false;
+    const hint = document.getElementById("holiday-error");
+    hint.textContent = error || "";
+    hint.hidden = !error;
+    successCallback(events);
+}
+
 async function loadGoogleEvents(fetchInfo, successCallback) {
     const allTab = selectedUserId === null && tabUsers.size > 0;
     const { events, error, errors } = await fetchGoogleEvents(fetchInfo.startStr, fetchInfo.endStr, googleUserIds());

@@ -94,9 +94,11 @@ Sichtbarkeit:
             <span class="inline-flex items-center gap-2"><span class="h-0.5 w-4 bg-danger"></span>Aktuelle Uhrzeit</span>
             {# Nur sichtbar, wenn es Termine aus dem eigenen Google-Kalender gibt (dashboard.js::loadGoogleEvents) #}
             <span id="google-legend" class="inline-flex items-center gap-2" hidden><span class="bc-google-event h-2.5 w-4 rounded-sm" aria-hidden="true"></span>Aus Google Kalender (Klick zeigt Details)</span>
+            <span id="holiday-legend" class="inline-flex items-center gap-2" hidden><span class="bc-holiday-swatch h-2.5 w-4 rounded-sm" aria-hidden="true"></span>Gesetzlicher / betrieblicher Feiertag</span>
         </div>
         {# z. B. fehlender Lesezugriff auf den zugeordneten Kalender #}
         <p id="google-error" class="mt-2 text-xs text-warning" role="status" hidden></p>
+        <p id="holiday-error" class="mt-2 text-xs text-warning" role="status" hidden></p>
     </section>
 </div>
 

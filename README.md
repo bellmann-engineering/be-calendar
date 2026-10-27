@@ -117,6 +117,7 @@ Alle Einstellungen kommen aus der Datei `.env` (nicht in Git). Die Vorlage mit E
 | `APP_HOST`, `APP_URL_PREFIX` | Nur Server: Host und Pfad der App (Standard `intern.bellmann-engineering.com` + `/kalender`); `docker-compose.yml` baut daraus auch `APP_BASE_URL` |
 | `AUTHELIA_SSO` | `1` = Anmeldung über den Authelia-Header `Remote-Email` (Server-Standard), lokal `0` |
 | `INTEGRATION_API_KEY` | Schlüssel für die [Schnittstelle für andere Apps](#schnittstelle-für-andere-apps-urlaubsanträge). Leer = Schnittstelle aus. |
+| `URLAUBSPLANER_HOLIDAYS_URL`, `URLAUBSPLANER_API_KEY` | Feiertage aus dem Urlaubsplaner ([Feiertage aus dem Urlaubsplaner](#feiertage-aus-dem-urlaubsplaner)). Leer = keine Feiertage. |
 | `AUTHELIA_LOGOUT_URL` | Optional: Ziel nach „Abmelden“, damit auch die Authelia-Sitzung endet |
 | `COOKIE_SECURE` | `1` = Cookies nur über HTTPS (Standard). Nur für `python run.py` ohne TLS auf `0`. |
 | `HTTP_PORT`, `HTTPS_PORT` | Öffentliche Ports des lokalen Nginx (Standard 8080 / 8443) |
@@ -245,6 +246,15 @@ Eine App in einem anderen Container (z. B. für Urlaubsanträge) kann Termine ei
 Die vollständige Beschreibung als OpenAPI-Datei: [`docs/integration-api.yaml`](docs/integration-api.yaml) (z. B. in editor.swagger.io öffnen).
 
 Fehler kommen als `{"error": "..."}` mit `400` (ungültige Eingabe), `401` (Schlüssel), `404` (Person unbekannt).
+
+### Feiertage aus dem Urlaubsplaner
+
+Der Kalender zeigt dieselben Feiertage wie der Urlaubsplaner (gesetzlich Bayern + betriebliche freie Tage): Der Tag wird hellblau hinterlegt und unten mit dem Namen beschriftet. Einzige Quelle ist der Urlaubsplaner – betriebliche Feiertage werden nur dort gepflegt.
+
+1. Im Urlaubsplaner einen Schlüssel als `HOLIDAY_API_KEY` in die `.env` eintragen (erzeugen wie oben).
+2. Hier in der `.env`: `URLAUBSPLANER_HOLIDAYS_URL=http://urlaubsplaner:5000/api/v1/holidays` und denselben Schlüssel als `URLAUBSPLANER_API_KEY`, dann `docker compose up -d`.
+
+Der Kalender fragt je Kalenderjahr einmal ab und merkt sich das Ergebnis `HOLIDAY_CACHE_SECONDS` lang (Standard eine Stunde) – Änderungen im Urlaubsplaner erscheinen also spätestens nach einer Stunde. Ist der Urlaubsplaner nicht erreichbar, gilt der letzte bekannte Stand weiter. Das Frontend liest die Tage über `GET /api/v1/holidays?start=…&end=…` (angemeldete Benutzer).
 
 ### HTTPS und Zertifikate (lokal)
 

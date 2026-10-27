@@ -209,13 +209,15 @@ document.addEventListener("DOMContentLoaded", async () => {
             decorateCustomerTag(info); // Kunden-Logo vor dem Titel
         },
     };
+    // Feiertage aus dem Urlaubsplaner, in beiden Tagesansichten gleich.
+    const holidaySource = (fetchInfo, success) => fetchHolidays(fetchInfo.startStr, fetchInfo.endStr).then(r => success(r.events));
     calendarA = new FullCalendar.Calendar(document.getElementById("calendar-a"), {
         ...commonConfig,
-        eventSources: [makeEventSource("trainer-a", COLOR_A, "a"), makeGoogleSource("trainer-a", "a")],
+        eventSources: [makeEventSource("trainer-a", COLOR_A, "a"), makeGoogleSource("trainer-a", "a"), holidaySource],
     });
     calendarB = new FullCalendar.Calendar(document.getElementById("calendar-b"), {
         ...commonConfig,
-        eventSources: [makeEventSource("trainer-b", COLOR_B, "b"), makeGoogleSource("trainer-b", "b")],
+        eventSources: [makeEventSource("trainer-b", COLOR_B, "b"), makeGoogleSource("trainer-b", "b"), holidaySource],
     });
 
     document.getElementById("compare-form").addEventListener("submit", (e) => {

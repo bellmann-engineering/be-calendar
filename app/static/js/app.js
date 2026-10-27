@@ -562,6 +562,45 @@ async function fetchGoogleEvents(startStr, endStr, userId) {
     }
 }
 
+/** CSS-Klasse der Feiertage (frontend/app.css: .bc-holiday). */
+const HOLIDAY_EVENT_CLASS = "bc-holiday";
+
+/**
+ * Holt die Feiertage (gesetzlich Bayern + betrieblich) aus dem Urlaubsplaner und
+ * liefert sie als FullCalendar-Hintergrundtermine: Der Tag wird hinterlegt und mit
+ * dem Namen beschriftet – wie im Kalender des Urlaubsplaners.
+ * Spricht mit: GET /api/v1/holidays?start=...&end=... → {holidays: [{date, name, source}], error}
+ *
+ * Fehlertolerant: Ohne Antwort gibt es einfach keine Feiertage, der Kalender läuft weiter.
+ *
+ * @param {string} startStr - Beginn (ISO, z. B. fetchInfo.startStr).
+ * @param {string} endStr - Ende (ISO, exklusiv).
+ * @returns {Promise<{events: object[], error: ?string}>}
+ */
+async function fetchHolidays(startStr, endStr) {
+    const url = `/api/v1/holidays?start=${encodeURIComponent(startStr)}&end=${encodeURIComponent(endStr)}`;
+    try {
+        const res = await apiFetch(url);
+        if (!res.ok) return { events: [], error: null };
+        const data = await readJson(res);
+        const events = (Array.isArray(data.holidays) ? data.holidays : [])
+            .filter(h => h && h.date && h.name)
+            .map(h => ({
+                id: `holiday-${h.date}-${h.name}`,
+                title: h.name,
+                start: h.date,
+                allDay: true,
+                display: "background",
+                editable: false,
+                classNames: [HOLIDAY_EVENT_CLASS],
+                extendedProps: { source: "holiday", holidaySource: h.source },
+            }));
+        return { events, error: data.error || null };
+    } catch (err) {
+        return { events: [], error: null };
+    }
+}
+
 /**
  * Klick auf einen Google-Termin: im Google Kalender öffnen (neuer Tab).
  * Nur http(s)-Links, noopener: Die fremde Seite bekommt keinen Zugriff auf diese.

@@ -165,6 +165,14 @@ class BaseConfig:
     # Erzeugen mit: python -c "import secrets; print(secrets.token_urlsafe(48))"
     INTEGRATION_API_KEY = os.getenv("INTEGRATION_API_KEY", "").strip()
 
+    # --- Feiertage aus dem Urlaubsplaner (app/services/holiday_service.py) ------------------
+    # Einzige Quelle ist der Urlaubsplaner (gesetzlich Bayern + betriebliche freie Tage).
+    # Leer = keine Feiertage im Kalender. Schlüssel = HOLIDAY_API_KEY des Urlaubsplaners.
+    URLAUBSPLANER_HOLIDAYS_URL = os.getenv("URLAUBSPLANER_HOLIDAYS_URL", "").strip()
+    URLAUBSPLANER_API_KEY = os.getenv("URLAUBSPLANER_API_KEY", "").strip()
+    # Wie lange ein abgerufenes Jahr gilt, bevor neu gefragt wird (Sekunden).
+    HOLIDAY_CACHE_SECONDS = int(os.getenv("HOLIDAY_CACHE_SECONDS", "3600"))
+
     # --- Flask-Session (NUR für den Google-Anmeldeablauf) ---------------------------------
     # Die Login-Cookies (JWT) sind SameSite=Strict und werden deshalb bei der Rückkehr von
     # accounts.google.com NICHT mitgeschickt. Den OAuth-"state" (Schutz gegen CSRF beim
@@ -237,6 +245,8 @@ class TestingConfig(BaseConfig):
     GOOGLE_WATCH_INTERVAL_SECONDS = 0
     RATELIMIT_ENABLED = False
     MAIL_ASYNC = False
+    URLAUBSPLANER_HOLIDAYS_URL = ""
+    URLAUBSPLANER_API_KEY = ""
     # Kleiner Pool reicht für Tests; NullPool wäre auch möglich.
     SQLALCHEMY_ENGINE_OPTIONS = {"pool_pre_ping": True}
 
